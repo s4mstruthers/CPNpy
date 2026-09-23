@@ -287,6 +287,7 @@ class CPNet:
         #: Identity for ordinary places; the group representative for places in
         #: a fusion set (see :meth:`marking_key`).
         self._fusion_representative: dict[str, str] = {}
+        self._assigned_ports: set[str] = set()
         #: Preserved from the source file so that saving reproduces the header.
         self.source_tree: Any = None
 
@@ -391,15 +392,48 @@ class CPNet:
     def _build_fusion_map(self) -> None:
         """Work out which places share a marking.
 
-        A *fusion set* is a group of places -- possibly on different pages --
-        that are really one place drawn several times.  Adding a token to any
-        member adds it to all of them.  We implement this by giving every
-        member of a group the same storage key in the marking, chosen as the id
-        of the first member encountered so that the choice is deterministic.
+        Two constructs make several drawn places one place:
+
+        * A **fusion set** -- places, possibly on different pages, that are
+          one place drawn several times.
+        * A **substitution transition** stands for a subpage.  Each *port*
+          place on the subpage is assigned a *socket* place around the
+          substitution transition, and is that same place: tokens put into
+          the socket are in the port, and the subpage's transitions consume
+          and produce them there.  This is how a hierarchical model runs as
+          one flat net.
+
+        Both are handled alike: every place of a group gets the same storage
+        key in the marking (union-find, so a port of a port of a socket ends
+        up with the socket).  The key is the socket for ports, and the first
+        member for a fusion set, so the choice is deterministic.
+
+        A subpage used by several substitution transitions would need one
+        copy of its places per use; that is reported as a problem rather
+        than simulated wrongly with the instances sharing their tokens.
         """
         self._fusion_representative = {}
-        groups: dict[str, list[str]] = {}
+        #: Port places assigned to a socket: their own initial marking is
+        #: ignored, as in CPN Tools (the socket's counts).
+        self._assigned_ports = set()
+        parent: dict[str, str] = {}
 
+        def find(place_id: str) -> str:
+            root = place_id
+            while parent.get(root, root) != root:
+                root = parent[root]
+            while parent.get(place_id, place_id) != root:       # path compression
+                parent[place_id], place_id = root, parent[place_id]
+            return root
+
+        def join(keep: str, other: str) -> None:
+            """Merge the groups; ``keep``'s representative stays."""
+            keep_root, other_root = find(keep), find(other)
+            parent.setdefault(keep_root, keep_root)
+            if keep_root != other_root:
+                parent[other_root] = keep_root
+
+        groups: dict[str, list[str]] = {}
         # Places may declare their group inline (``fusioninfo``) or be listed
         # in a top-level ``<fusion>`` element; merge both sources.
         for place in self.all_places():
@@ -410,13 +444,50 @@ class CPNet:
             for member in members:
                 if member not in existing:
                     existing.append(member)
-
         for members in groups.values():
-            if not members:
-                continue
-            representative = members[0]
             for member in members:
-                self._fusion_representative[member] = representative
+                join(members[0], member)
+
+        pages = {page.id: page for page in self.pages}
+        uses: dict[str, list[Transition]] = {}
+        for page in self.pages:
+            for transition in page.transitions:
+                subpage = pages.get(transition.substitution_subpage or "")
+                if transition.is_substitution and subpage is None:
+                    self._record(transition.id, transition.name, "subpage",
+                                 f"its subpage ({transition.substitution_subpage}) is not "
+                                 "in the model")
+                if subpage is None:
+                    continue
+                uses.setdefault(subpage.id, []).append(transition)
+                if len(uses[subpage.id]) > 1:
+                    continue                  # reported below; do not merge instances
+                own = {p.id for p in page.places}
+                ports = {p.id for p in subpage.places}
+                for first, second in transition.port_assignments.items():
+                    # The file lists (socket, port) pairs; tell them apart by
+                    # page rather than trusting the order.
+                    if first in own and second in ports:
+                        socket, port = first, second
+                    elif second in own and first in ports:
+                        socket, port = second, first
+                    else:
+                        self._record(transition.id, transition.name, "port assignment",
+                                     f"{first} and {second} are not a socket on its page "
+                                     "and a port on its subpage")
+                        continue
+                    join(socket, port)
+                    self._assigned_ports.add(port)
+        for page_id, transitions in uses.items():
+            if len(transitions) > 1:
+                names = ", ".join(f"'{t.name}'" for t in transitions)
+                self._record(transitions[1].id, transitions[1].name, "subpage",
+                             f"page '{pages[page_id].name}' is used by {len(transitions)} "
+                             f"substitution transitions ({names}); CPNpy runs each subpage "
+                             "once, so give every use its own copy of the page")
+
+        for place_id in parent:
+            self._fusion_representative[place_id] = find(place_id)
 
     def marking_key(self, place_id: str) -> str:
         """The key under which ``place_id``'s tokens live in a :class:`Marking`."""
@@ -456,6 +527,11 @@ class CPNet:
                                     f"token {token} is not a member of '{colour_set.name}'",
                                 )
             key = self.marking_key(place.id)
+            if place.id in self._assigned_ports:
+                # A port is its socket: the socket's initial marking counts.
+                if key not in marking.place_ids():
+                    marking.set(key, TimedMultiset.empty() if timed else Multiset.empty())
+                continue
             if timed:
                 stored = TimedMultiset.empty()
                 for part, stamp in groups:

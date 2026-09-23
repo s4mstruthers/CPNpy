@@ -570,6 +570,9 @@ class FlowLayout(QLayout):
             if widget is not None and widget.isHidden():
                 continue
             hint = item.sizeHint()
+            # Never wider than the layout: a long label gets the whole line
+            # (and elides or wraps) instead of running off the edge.
+            hint.setWidth(min(hint.width(), max(area.width(), 1)))
             if x + hint.width() > area.right() + 1 and line_height > 0:
                 x = area.x()
                 y += line_height + self._line_spacing

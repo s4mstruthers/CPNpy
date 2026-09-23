@@ -941,3 +941,30 @@ def test_filter_dialog_opens_a_filtered_log(app):
     assert window.documents[-1] is filtered and filtered.name == "L1 (filtered)"
     assert ("a", "e", "d") not in filtered.simple_log()
     window.close()
+
+
+def test_substitution_transition_opens_its_subpage(app, tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_hierarchy import hierarchical
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.io.cpn_writer import write_cpn
+
+    net = hierarchical()
+    net.compile()
+    write_cpn(net, tmp_path / "hierarchy.cpn")
+    window = StudioWindow()
+    window.show()
+    window.open_path(str(tmp_path / "hierarchy.cpn"))
+    page = window.current_page()
+    handle = page.net.pages[0].transitions[0]
+    page._show_element(handle)
+    assert not page.subpage_button.isHidden()
+    page._open_subpage()
+    _pump(app, 0.2)
+    assert page.scene.page.name == "Handle"
+    page.mode_switch.set_index(1)
+    for _ in range(4):
+        page._step(None)
+    assert [r.binding.describe(page.net).split()[0] for r in page.simulator.log].count("pack") == 2
+    window.close()
