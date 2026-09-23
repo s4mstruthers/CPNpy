@@ -40,10 +40,28 @@ subset — no external SML runtime is involved.
   `orelse`, `not`, string `^`
 - `if … then … else`, `let … in … end`, `case … of … | …`, `fn … => …`
 - `fun` declarations: recursive, curried, multi-clause, pattern-matched
-- multisets: `` n`v ``, `++`, `--`, `empty`
-- time: `@+ delay` on an arc, and a transition-level delay
-- a Standard Basis subset: `List.map/filter/foldl/foldr/nth/take/drop/…`,
-  `Int.toString`, `size`, `explode`, `implode`, `Math.*`
+- `op +` and friends: an infix operator as a function (`List.foldl (op +) 0 l`)
+- options: `SOME x`, `NONE`, `valOf`, `isSome`, `getOpt`; `Int.fromString`
+  and `Real.fromString` return options, as in Standard ML
+- multisets: `` n`v ``, `++`, `--`, `empty`, `ms_to_col`, `cf`, `size`
+- time: a transition-level delay, `@+ delay` on an output arc (the two add
+  up), per-term delays joined with `+++` (`` 1`x@+2 +++ 1`y@+5 ``), delays
+  inside `if`/`case` branches, and time stamps in initial markings
+  (`` 1`3@5 +++ 2`4@0 ``)
+- colour set functions for every colour set `CS`: `CS.all()`, `CS.size()`,
+  `CS.ran()`, `CS.ord c`, `CS.col i`, `CS.legal c`, `CS.mkstr c`
+- a Standard Basis subset: `List.map/filter/foldl/foldr/nth/take/drop/concat/
+  find/partition/…`, `Int.toString`, `size`, `explode`, `implode`,
+  `String.sub`, `Char.ord/chr`, `Math.*`
+
+Declarations may come in any order: a colour set can use a value declared
+later (`colset N = int with 1..n; val n = 5;`), and a subset colour set can
+use a predicate function (`colset E = subset N by even;`). The compiler
+works in passes until everything that can be compiled is.
+
+**Not supported**: `exception` declarations and `handle`, `datatype`,
+`structure` and `signature` declarations, and a separate character type
+(`#"a"` is the one-letter string `"a"`).
 - random distributions: `discrete`, `uniform`, `exponential`, `normal`,
   `poisson`, `binomial`, `erlang`, `bernoulli`
 
@@ -124,7 +142,8 @@ Three rules, implemented in `cpnpy/sim/simulator.py`:
   has been reached may be consumed;
 - produced tokens are stamped `clock + delay`, where the delay is the
   transition's own time inscription plus the output arc's `@+` (as in CPN
-  Tools, the two add up);
+  Tools, the two add up); in `` 1`x@+2 +++ 1`y@+5 `` each term has its own
+  delay;
 - when nothing is enabled now but some place holds a token stamped for the
   future, the clock **jumps** to the earliest such stamp.
 
@@ -147,9 +166,25 @@ limit):
 - **bounds** — a direct scan for integer bounds and pointwise-maximum multiset
   bounds.
 
+Timed states that enable nothing let time pass to the next token release,
+and keep going if that release enables nothing either, exactly like the
+simulator; otherwise a timed model would show false dead markings.
+
 Many models have infinite state spaces, so `generate()` takes `max_nodes`.
 Hitting the cap sets `partial`, and the report says so in capitals, because
 properties from a partial state space are **not** proofs.
+
+### Hierarchy
+
+A substitution transition stands for a subpage. Each port place on the
+subpage is assigned a socket place around the substitution transition, and
+*is* that place: `CPNet.compile` puts every port and its socket (and every
+member of a fusion set) under one marking key, with a union-find so that a
+port of a port of a socket ends up with the socket. The simulator and the
+state space tool then run the model as one flat net, without knowing about
+pages; the substitution transitions themselves never fire. A subpage used by
+several substitution transitions would need one copy of its places per use,
+so that case is reported as a problem.
 
 ### File format
 
@@ -211,9 +246,12 @@ examples/models.py   four complete models, also used as test fixtures
     petrinet.py      labelled P/T nets, markings, firing rule
     pnml.py          PNML reader / writer (ProM / PM4Py compatible)
     analysis.py      reachability + coverability graphs, properties, soundness
+    invariants.py    incidence matrix, P- and T-invariants (Farkas)
+    filtering.py     log filters: time frame, start/end, activities, length, variants
     processtree.py   process trees and their translation to WF-nets
     layout.py        Sugiyama layered graph layout (no Graphviz needed)
-    discovery/       alpha.py, inductive.py (IM, IMf), heuristics.py
+    discovery/       alpha.py, inductive.py (IM, IMf), heuristics.py (dependency
+                     graph, causal net, Petri net)
     conformance/     token_replay.py, alignments.py (A*), quality.py
     pm4py_bridge.py  optional extra miners via PM4Py
   model/
@@ -229,6 +267,7 @@ examples/models.py   four complete models, also used as test fixtures
     model_page.py    canvas, token game, state space, analysis, conformance
     graph_view.py    zoomable canvas for nets, maps and state spaces
     graph_builders.py  mining objects -> canvas descriptions
+    filter_dialog.py the Filter… dialog of a log page
     dotted_chart.py, charts.py, widgets.py, style.py, workers.py, documents.py
 tests/               the test suite (tests/data holds a small course plane-boarding log)
 ```
@@ -244,10 +283,20 @@ cpnpy info        model.cpn              # colour sets, variables, initial marki
 cpnpy simulate    model.cpn -n 100 --seed 7
 cpnpy statespace  model.cpn --max-nodes 50000
 cpnpy example     timed_conveyor -o demo.cpn
+
+cpnpy mine stats      log.xes                       # cases, activities, variants
+cpnpy mine filter     log.xes --variants 80 --end d -o filtered.xes
+cpnpy mine discover   log.xes -a heuristics -o model.pnml   # or alpha, im, imf
+cpnpy mine conform    model.pnml log.xes            # fitness, precision, ...
+cpnpy mine soundness  model.pnml
+cpnpy mine invariants model.pnml                    # incidence matrix, P-/T-invariants
 ```
 
 `--seed` makes a run reproducible: the same seed replays the same choices,
-which is what makes a surprising result investigable.
+and the same draws from the model's own random functions (`uniform`,
+`discrete`, …), which is what makes a surprising result investigable.
+A log can be a `.xes`, `.xes.gz` or `.csv` file, or a `.txt` file in the
+textbook notation.
 
 ---
 

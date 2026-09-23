@@ -13,9 +13,9 @@
 
 | | What you can do | Instead of |
 |---|---|---|
-| **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
-| **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics). Check conformance (token replay, alignments, precision…) and compare logs. | ProM |
-| **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`). Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
+| **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
+| **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
+| **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
 
 ---
 
@@ -100,8 +100,8 @@ If PowerShell refuses to run `Activate.ps1`, allow local scripts once with
 </details>
 
 **Linux:** Qt needs a few system libraries that desktop installs usually
-have. If the app doesn't start with an error about the "xcb" platform
-plugin, install them, e.g. on Ubuntu/Debian:
+have. If the app does not start and the error mentions the "xcb" platform
+plugin or `libEGL.so.1`, install them, e.g. on Ubuntu/Debian:
 `sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libegl1`.
 
 Keyboard shortcuts follow the system: **⌘** on a Mac, **Ctrl** on Windows
@@ -127,16 +127,18 @@ and Linux (see [Keyboard shortcuts](#keyboard-shortcuts)).
    marking.
 
 To try this without drawing, use **File ▸ Open Example Petri Net ▸ Order
-handling (unsound)**.
+handling (unsound — try Analysis)**.
 
 **Mine a log**
 
-1. **✎ Log from notation…** (⌘L / Ctrl+L) and type `[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]`,
-   or open a `.xes` / `.csv` file.
-2. Look through the tabs: *Overview*, *Variants*, *Dotted chart*, *Process
-   map*, *Footprint*.
-3. On the *Discover* tab, pick an algorithm. The model opens in the sidebar
-   under **MODELS**.
+1. **✎ Log from notation…** (⌘L / Ctrl+L) and type `[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]`
+   (pasting `[⟨a,b,c,d⟩³, …]` from the book works too), or open a `.xes` /
+   `.csv` file.
+2. Look through the tabs: *Overview*, *Variants*, *Cases*, *Dotted chart*,
+   *Process map*, *Footprint*. **Filter…** keeps part of the log as a new
+   log.
+3. On the *Discover* tab, pick an algorithm and press **Discover**. **Open as
+   model →** adds the result to the sidebar under **MODELS**.
 4. On the model's *Conformance* tab, choose a log and press **Check
    conformance**.
 
@@ -192,6 +194,11 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   in N̄, with the two paths of a handle spelled out) and **S-coverable**,
   plus the start and end rule: a quick check for transitions that need *i*
   or *o* together with another place.
+- **Invariants:** the **P-invariants** (weighted token counts that never
+  change, e.g. `start + c1 + c3 + end = 1`) and the **T-invariants** (of N̄
+  for a WF-net), and whether they cover the net. Covered by P-invariants
+  means bounded from any marking; a transition in no T-invariant of N̄ proves
+  the WF-net unsound. **Incidence matrix…** shows the matrix they come from.
 - **Behavioural properties** of the net as drawn: bounded, safe,
   deadlock-free, dead transitions, live, reversible. A WF-net always stops
   in [o], so that dead marking is marked as expected.
@@ -230,20 +237,29 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 
 - **Logs:**
   - XES, XES.GZ and CSV (you map the columns);
-  - the course's notation, e.g. `[<a,b,c,d>^3, <a,e,d>]`;
-  - XES export.
+  - the course's notation, e.g. `[<a,b,c,d>^3, <a,e,d>]` (or `⟨a,b⟩³` as
+    in the book);
+  - XES and CSV export.
+- **Filter** (as in ProM and Disco): keep cases in a time frame, cases that
+  start or end with chosen activities, only the events of chosen activities
+  (or the cases that do or do not contain them), cases of a certain length,
+  and the most frequent variants. A preview shows what is left; the result
+  opens as a new log.
 - **Explore:** overview figures, variants, cases, a ProM-style **dotted
   chart**, a **process map** (directly-follows graph with frequency or
   performance), and the **footprint** matrix.
   - Dotted chart axes: actual time, time since case start, % of case
-    duration, or logical order.
+    duration, or logical order (in the log, or within the case).
   - Time unit (Auto, or seconds up to years) and a grid step you can type in.
   - Colour and shape by any attribute. The default palette can be changed
     per value: right-click a value in the legend and pick its colour.
 - **Discover:**
   - α-algorithm, which shows its eight steps;
   - Inductive Miner and IMf;
-  - Heuristics Miner (a dependency graph).
+  - Heuristics Miner, as a dependency graph or as a Petri net: which forks
+    are AND and which XOR is learned from the log (a causal net, whose
+    bindings are listed). Like in ProM, such a net fits its log but is not
+    always sound.
 - **Models:**
   - token game;
   - soundness and properties;
@@ -283,6 +299,9 @@ sets, variables, functions, guards and timed tokens.
 - **Edit:** places, transitions and arcs, with their inscriptions, guards,
   time delays and declarations (syntax-highlighted). Undo and redo cover
   everything.
+- **Hierarchy:** substitution transitions run their subpages (a port place
+  is the socket place it is assigned to), also several levels deep. Select
+  a substitution transition and press **Open subpage** to go there.
 - **Step through:** green transitions are enabled. Click one to fire it, or
   pick an exact binding in the inspector. **Back** undoes a step, and
   **Trace** highlights the path so far.
@@ -345,6 +364,9 @@ The app shows each shortcut the way your system writes it.
 | Zoom in / out / fit / 100 % | ⌘+ / ⌘− / ⌘0 / ⌥⌘0 | Ctrl++ / Ctrl+− / Ctrl+0 / Ctrl+Alt+0 |
 | Zoom with the mouse | ⌘-scroll or pinch | Ctrl+scroll or pinch |
 | Toggle sidebar | ⌥⌘S | Ctrl+Alt+S |
+| Welcome page | ⌘1 | Ctrl+1 |
+| Export selected… | ⌘E | Ctrl+E |
+| Remove from workspace / remove all | ⌘W / ⇧⌘W | Ctrl+W / Ctrl+Shift+W |
 | Cancel drawing an arc | Esc | Esc |
 
 ---
@@ -353,7 +375,7 @@ The app shows each shortcut the way your system writes it.
 
 | Format | Read | Write |
 |---|---|---|
-| Event logs: `.xes`, `.xes.gz`, `.csv` | ✓ | `.xes` |
+| Event logs: `.xes`, `.xes.gz`, `.csv` | ✓ | `.xes`, `.xes.gz`, `.csv` |
 | Petri nets: `.pnml` (with positions, weights, τ, arc bends) | ✓ | ✓ |
 | CPN Tools models: `.cpn` | ✓ | ✓ |
 | Pictures of nets and charts | | `.png`, `.svg` |
@@ -367,11 +389,13 @@ course).
 ## For developers
 
 ```bash
-pytest -q                 # 138 tests, including GUI tests that run offscreen
+pytest -q                 # the whole suite, including GUI tests that run offscreen
 cpnpy --help              # command line: check, simulate, state space, mining
 ```
 
-The same commands work on macOS, Windows and Linux. `docs/definitions.md` is
+The same commands work on macOS, Windows and Linux. `cpnpy mine` covers the
+process mining side: `stats`, `filter`, `discover` (α, IM, IMf, heuristics),
+`conform`, `soundness` and `invariants`. `docs/definitions.md` is
 generated from `cpnpy/mining/definitions.py`; after editing a definition, run
 `python -m cpnpy.mining.definitions > docs/definitions.md` (a test checks it).
 
@@ -397,20 +421,22 @@ and the project layout.
 
 Plainly stated:
 
-1. **Hierarchical CPN models don't simulate across pages yet.** Substitution
-   transitions are read, drawn and saved, but their subpages are not unfolded.
+1. **A subpage used by several substitution transitions** (one module,
+   several instances) is reported as a problem rather than simulated: give
+   each use its own copy of the page. Subpages used once, at any depth,
+   simulate.
 2. **No CPN monitors or simulation reports**, and **no fairness
    properties** in the state space report (it says so).
-3. **Colour set ranges must be integer literals**, and `subset … by pred`
-   accepts every value for now.
-4. **Heuristics Miner gives a dependency graph**, not a Petri net, unless the
-   optional PM4Py extra is installed.
-5. **Alignments are exact but unoptimised**: they can take seconds on
+3. **CPN ML is a large subset, not all of Standard ML**: no `exception`
+   declarations or `handle`, no `datatype` or `structure` declarations, and
+   characters are one-letter strings. See
+   [docs/how-it-works.md](docs/how-it-works.md#the-cpn-ml-subset).
+4. **Alignments are exact but unoptimised**: they can take seconds on
    heavily concurrent models. They run in the background.
-6. **Plain Petri nets live on one page.**
+5. **Plain Petri nets live on one page.**
 
-Next up: unfolding substitution transitions, CPN monitors, and app bundles
-so CPNpy starts like any other desktop app.
+Next up: several instances of a subpage, CPN monitors, and app bundles so
+CPNpy starts like any other desktop app.
 
 ## Licence
 

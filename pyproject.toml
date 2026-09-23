@@ -30,8 +30,8 @@ dependencies = []
 # cheap for headless use (PySide6 is ~150 MB).
 gui = ["PySide6>=6.6"]
 dev = ["pytest>=8.0"]
-# Optional: extra discovery algorithms (Heuristics -> Petri net, ILP) and a
-# cross-check of the built-in algorithms.  PM4Py is AGPL-3.0 licensed.
+# Optional: the ILP Miner, PM4Py's heuristics net, and a cross-check of the
+# built-in algorithms.  PM4Py is AGPL-3.0 licensed.
 pm4py = ["pm4py>=2.7"]
 
 [project.scripts]
