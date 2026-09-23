@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from ...mining import pm4py_bridge
 from ...mining.dfg import discover_dfg
 from ...mining.discovery.alpha import AlphaResult, alpha_miner
-from ...mining.discovery.heuristics import heuristics_miner
+from ...mining.discovery.heuristics import heuristics_miner, heuristics_net
 from ...mining.discovery.inductive import InductiveResult, inductive_miner
 from ...mining.footprint import footprint_of_log
 from ...mining.stats import format_duration
@@ -480,6 +480,9 @@ class LogPage(QWidget):
              "fitness may drop slightly."),
             ("heuristics", "Heuristics Miner",
              "Frequency-based dependency measures, robust to noise. Produces a dependency graph."),
+            ("heuristics_net", "Heuristics Miner → Petri net",
+             "The same, plus which forks are AND or XOR (learned from the log as a causal "
+             "net), as a Petri net. Fits well; not always sound."),
         ]
         if pm4py_bridge.available():
             algorithms += [
@@ -527,8 +530,9 @@ class LogPage(QWidget):
         def update_params() -> None:
             key = group.checkedButton().property("key")
             noise_row.setVisible(key == "imf")
-            dependency_row.setVisible(key in ("heuristics", "pm_heuristics"))
-            none_row.setVisible(key not in ("imf", "heuristics", "pm_heuristics"))
+            dependency_row.setVisible(key in ("heuristics", "heuristics_net", "pm_heuristics"))
+            none_row.setVisible(key not in ("imf", "heuristics", "heuristics_net",
+                                            "pm_heuristics"))
         group.idToggled.connect(lambda *_: update_params())
         update_params()
 
@@ -582,10 +586,8 @@ class LogPage(QWidget):
                 derivation.setVisible(True)
                 steps_host.addWidget(label(
                     "Dependency graph: edge labels are a ⇒ b values. It has no split/join "
-                    "semantics, so it is not a Petri net"
-                    + (" — use “Heuristics Miner → Petri net (PM4Py)” for that."
-                       if pm4py_bridge.available() else
-                       " (install the optional PM4Py extra to convert it)."), "muted", wrap=True))
+                    "semantics, so it is not a Petri net — “Heuristics Miner → Petri net” "
+                    "learns those from the log.", "muted", wrap=True))
                 open_button.setEnabled(False)
             else:
                 net = payload.net if hasattr(payload, "net") else payload
@@ -619,6 +621,7 @@ class LogPage(QWidget):
                 "im": lambda: inductive_miner(simple),
                 "imf": lambda: inductive_miner(simple, noise_threshold=f),
                 "heuristics": lambda: heuristics_miner(simple, dependency_threshold=d),
+                "heuristics_net": lambda: heuristics_net(simple, dependency_threshold=d),
                 "pm_heuristics": lambda: pm4py_bridge.heuristics_petri_net(simple, d),
                 "pm_ilp": lambda: pm4py_bridge.ilp_petri_net(simple),
             }

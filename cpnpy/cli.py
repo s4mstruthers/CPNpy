@@ -201,6 +201,21 @@ def command_mine_discover(arguments: argparse.Namespace) -> int:
             print(f"{step}\n    {content}")
         for warning in result.warnings:
             print(f"warning: {warning}")
+    elif arguments.algorithm == "heuristics":
+        from .mining.discovery.heuristics import END, START, heuristics_net
+        result = heuristics_net(simple, dependency_threshold=arguments.dependency)
+        print(f"Dependency graph: {len(result.graph.edges)} arcs "
+              f"(a => b >= {arguments.dependency:g})")
+
+        def shown(binding) -> str:
+            return "{" + ", ".join(sorted("start" if a == START else "end" if a == END
+                                          else a for a in binding)) + "}"
+        for activity in sorted((set(result.causal.inputs) | set(result.causal.outputs))
+                               - {START, END}):
+            for side, bindings in (("in ", result.causal.inputs), ("out", result.causal.outputs)):
+                listed = " or ".join(f"{shown(b)} x{n}" for b, n in
+                                     bindings.get(activity, {}).most_common())
+                print(f"  {activity} {side}: {listed or '-'}")
     else:
         noise = arguments.noise if arguments.algorithm == "imf" else 0.0
         result = inductive_miner(simple, noise_threshold=noise)
@@ -362,8 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
     stats.set_defaults(handler=command_mine_stats)
     discover = mining.add_parser("discover", help="discover a Petri net")
     discover.add_argument("log")
-    discover.add_argument("-a", "--algorithm", choices=["alpha", "im", "imf"], default="im")
+    discover.add_argument("-a", "--algorithm", choices=["alpha", "im", "imf", "heuristics"],
+                          default="im")
     discover.add_argument("--noise", type=float, default=0.2, help="IMf noise threshold")
+    discover.add_argument("--dependency", type=float, default=0.5,
+                          help="Heuristics Miner dependency threshold (default 0.5)")
     discover.add_argument("-o", "--output", help="write the model as PNML")
     discover.set_defaults(handler=command_mine_discover)
     conform = mining.add_parser("conform", help="fitness, precision, ... of a model on a log")

@@ -394,3 +394,32 @@ def test_csv_export_round_trip(tmp_path):
     again = read_csv(tmp_path / "log.csv")
     assert again.simple_log() == log.simple_log()
     assert [e.timestamp for e in again[0]] == [e.timestamp for e in log[0]]
+
+
+# ---------------------------------------------------------------------------
+# Heuristics Miner -> Petri net
+# ---------------------------------------------------------------------------
+def test_heuristics_net_of_l1_is_the_textbook_model():
+    from cpnpy.mining.discovery.heuristics import heuristics_net
+    log = parse_simple_log(L1)
+    result = heuristics_net(log)
+    # After a: b and c together (5 cases) or e alone (1 case); d waits for the same.
+    assert dict(result.causal.outputs["a"]) == {frozenset({"b", "c"}): 5, frozenset({"e"}): 1}
+    assert dict(result.causal.inputs["d"]) == {frozenset({"b", "c"}): 5, frozenset({"e"}): 1}
+    assert align_log(result.net, log).average_fitness == pytest.approx(1.0)
+    assert precision(result.net, log) == pytest.approx(1.0)
+    assert check_soundness(result.net).sound
+    # Silent steps that change nothing were removed: only the AND split and join remain.
+    assert sum(1 for t in result.net.transitions.values() if t.silent) == 2
+
+
+@pytest.mark.parametrize("text", [
+    "[<a,b,c,d>^3, <a,c,b,d>^4, <a,b,c,e,f,b,c,d>^2, <a,b,c,e,f,c,b,d>, "
+    "<a,c,b,e,f,b,c,d>^2, <a,c,b,e,f,b,c,e,f,c,b,d>]",
+    "[<a,c>^2, <a,b,c>^3, <a,b,b,c>^2, <a,b,b,b,b,c>]",
+    "[<a,b,c,d>^30, <a,c,b,d>^20, <a,d>, <a,b,d>]",
+])
+def test_heuristics_net_replays_its_log(text):
+    from cpnpy.mining.discovery.heuristics import heuristics_net
+    log = parse_simple_log(text)
+    assert align_log(heuristics_net(log).net, log).average_fitness == pytest.approx(1.0)

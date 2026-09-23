@@ -283,11 +283,49 @@ def inductive_view(result: InductiveResult, draw_tree: bool = True) -> QWidget:
     return host
 
 
+def heuristics_view(result) -> QWidget:
+    """The causal net behind a Heuristics Miner Petri net: each activity's
+    input and output bindings, with how often the log used them."""
+    from ...mining.discovery.heuristics import END, START
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    graph = result.graph
+    layout.addWidget(label(
+        f"1. Dependency graph: {len(graph.edges)} arcs a → b with a ⇒ b ≥ "
+        f"{result.dependency_threshold:g}.  2. Bindings, from replaying the log: which "
+        "predecessors each activity waited for (in) and which successors it enabled (out). "
+        "A binding of several activities is an AND; different bindings are an XOR.  "
+        "3. One place per arc, and a silent transition per binding where there is a choice.",
+        "muted", wrap=True))
+    layout.addWidget(label("BINDINGS", "sectionLabel"))
+
+    def shown(binding) -> str:
+        names = sorted({"start" if a == START else "end" if a == END else a for a in binding})
+        return "{" + ", ".join(escape(n) for n in names) + "}"
+
+    causal = result.causal
+    activities = sorted((set(causal.inputs) | set(causal.outputs)) - {START, END})
+    rows = []
+    for activity in activities:
+        ins = " or ".join(f"{shown(b)} ×{n}" for b, n in causal.inputs.get(activity, {}).most_common())
+        outs = " or ".join(f"{shown(b)} ×{n}" for b, n in causal.outputs.get(activity, {}).most_common())
+        rows.append(f"<b>{escape(activity)}</b><br>&nbsp;&nbsp;in: {ins or '–'}"
+                    f"<br>&nbsp;&nbsp;out: {outs or '–'}")
+    layout.addWidget(_rich("<br>".join(rows), 13))
+    layout.addStretch(1)
+    return host
+
+
 def derivation_view(payload, draw_tree: bool = True) -> QWidget:
+    from ...mining.discovery.heuristics import HeuristicsResult
     if isinstance(payload, AlphaResult):
         return alpha_view(payload)
     if isinstance(payload, InductiveResult):
         return inductive_view(payload, draw_tree)
+    if isinstance(payload, HeuristicsResult):
+        return heuristics_view(payload)
     info = getattr(payload, "info", {}) or {}
     return label("\n".join(f"{k}: {v}" for k, v in info.items()) or "No details.", "muted",
                  wrap=True, selectable=True)
