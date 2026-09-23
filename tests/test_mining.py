@@ -288,3 +288,58 @@ def test_csv_dates_with_fractional_seconds():
     from cpnpy.mining.csv_import import parse_timestamp
     assert parse_timestamp("05/01/2023 10:00:00.250").microsecond == 250_000
     assert parse_timestamp("2023/01/05 10:00:00.5").microsecond == 500_000
+
+
+# ---------------------------------------------------------------------------
+# Invariants
+# ---------------------------------------------------------------------------
+def test_incidence_matrix_and_invariants_of_alpha_l1():
+    from cpnpy.mining.analysis import short_circuit
+    from cpnpy.mining.invariants import incidence_matrix, invariants
+    net = alpha_miner(parse_simple_log(L1)).net
+    places, transitions, matrix = incidence_matrix(net)
+    a = transitions.index(next(t for t in net.transitions if net.node_name(t) == "a"))
+    column = {places[i]: row[a] for i, row in enumerate(matrix) if row[a]}
+    # a takes from i_L and puts into the two places after it.
+    assert sorted(column.values()) == [-1, 1, 1]
+    found = invariants(net)
+    # One token per thread: i + p({a},{b,e}) + p({b,e},{d}) + o, and the c-thread.
+    assert sorted(found.describe(y, with_value=True) for y in found.p_invariants) == [
+        "i_L + o_L + p({a},{b,e}) + p({b,e},{d}) = 1",
+        "i_L + o_L + p({a},{c,e}) + p({c,e},{d}) = 1"]
+    assert found.covered_by_p_invariants
+    assert found.t_invariants == []                  # nothing leads back from [o]
+    closed = invariants(short_circuit(net, "i_L", "o_L"))
+    assert sorted(sorted(net.node_name(t) if t in net.transitions else "t*" for t in x)
+                  for x in closed.t_invariants) == [["a", "b", "c", "d", "t*"],
+                                                    ["a", "d", "e", "t*"]]
+    assert closed.covered_by_t_invariants
+
+
+def test_invariants_expose_the_unsound_order_net():
+    from cpnpy.mining.analysis import short_circuit
+    from cpnpy.mining.invariants import invariants
+    from cpnpy.mining import read_pnml
+    net = read_pnml(Path(__file__).resolve().parents[1] / "examples" / "petri" /
+                    "order_handling_unsound.pnml")
+    found = invariants(net)
+    assert [net.node_name(p) for p in found.uncovered_places()] == ["c2", "c4"]
+    closed = invariants(short_circuit(net, net.source_places()[0], net.sink_places()[0]))
+    # `reject` is in no T-invariant of N̄: N̄ is not live and bounded, not sound.
+    assert [net.node_name(t) for t in closed.uncovered_transitions()] == ["reject"]
+
+
+def test_weighted_invariant():
+    from cpnpy.mining.invariants import invariants
+    # t: 2 tokens from p to 1 token in q, and back: 1·p + 2·q is conserved.
+    net = PetriNet("weights")
+    p, q = net.add_place("p"), net.add_place("q")
+    forward, back = net.add_transition("f"), net.add_transition("b")
+    net.add_arc(p, forward, 2)
+    net.add_arc(forward, q)
+    net.add_arc(q, back)
+    net.add_arc(back, p, 2)
+    net.initial_marking = Marking({p.id: 4})
+    found = invariants(net)
+    assert [found.describe(y, with_value=True) for y in found.p_invariants] == ["p + 2·q = 4"]
+    assert [sorted(x.values()) for x in found.t_invariants] == [[1, 1]]

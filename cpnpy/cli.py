@@ -15,7 +15,8 @@ Commands
 ``gui``         launch the CPN editor
 ``studio``      launch CPNpy Studio (process mining workspace)
 ``mine``        process mining from the command line:
-                ``stats``, ``discover``, ``conform``, ``soundness``
+                ``stats``, ``discover``, ``conform``, ``soundness``,
+                ``invariants``
 """
 
 from __future__ import annotations
@@ -239,6 +240,39 @@ def command_mine_soundness(arguments: argparse.Namespace) -> int:
     return 0 if report.sound else 1
 
 
+def command_mine_invariants(arguments: argparse.Namespace) -> int:
+    from .mining import read_pnml
+    from .mining.analysis import check_workflow_net, short_circuit
+    from .mining.invariants import invariants
+    net = read_pnml(arguments.model)
+    found = invariants(net)
+    names = [net.node_name(t) for t in found.transitions]
+    width = max([len(net.node_name(p)) for p in found.places] + [5])
+    print("Incidence matrix C (rows: places, columns: transitions)")
+    print(" " * width + "  " + "  ".join(f"{n:>{max(3, len(n))}}" for n in names))
+    for place, row in zip(found.places, found.incidence):
+        cells = "  ".join(f"{value:>{max(3, len(n))}d}" for value, n in zip(row, names))
+        print(f"{net.node_name(place):<{width}}  {cells}")
+    print("\nP-invariants (weighted token count in the initial marking):")
+    for invariant in found.p_invariants:
+        print("  " + found.describe(invariant, with_value=True))
+    uncovered = found.uncovered_places()
+    print("  covered by P-invariants: " + ("yes (structurally bounded)" if not uncovered else
+          "no, missing " + ", ".join(net.node_name(p) for p in uncovered)))
+    workflow = check_workflow_net(net)
+    if workflow.is_workflow_net:
+        found = invariants(short_circuit(net, workflow.source, workflow.sink))
+        print("\nT-invariants of the short-circuited net (with t* from o to i):")
+    else:
+        print("\nT-invariants:")
+    for invariant in found.t_invariants:
+        print("  " + found.describe(invariant))
+    uncovered = found.uncovered_transitions()
+    print("  covered by T-invariants: " + ("yes" if not uncovered else
+          "no, missing " + ", ".join(found.net.node_name(t) for t in uncovered)))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -304,6 +338,10 @@ def build_parser() -> argparse.ArgumentParser:
     soundness = mining.add_parser("soundness", help="check WF-net soundness")
     soundness.add_argument("model", help="a .pnml file")
     soundness.set_defaults(handler=command_mine_soundness)
+    invariant = mining.add_parser("invariants",
+                                  help="incidence matrix, P- and T-invariants of a net")
+    invariant.add_argument("model", help="a .pnml file")
+    invariant.set_defaults(handler=command_mine_invariants)
 
     return parser
 

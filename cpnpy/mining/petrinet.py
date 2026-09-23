@@ -343,8 +343,12 @@ class PetriNet:
 
     def summary(self) -> str:
         silent = sum(1 for t in self.transitions.values() if t.silent)
-        return (f"{len(self.places)} places, {len(self.transitions)} transitions "
-                f"({silent} silent), {len(self.arcs)} arcs")
+
+        def count(number: int, noun: str) -> str:
+            return f"{number} {noun}{'' if number == 1 else 's'}"
+        return (f"{count(len(self.places), 'place')}, "
+                f"{count(len(self.transitions), 'transition')} ({silent} silent), "
+                f"{count(len(self.arcs), 'arc')}")
 
     def __repr__(self) -> str:
         return f"<PetriNet {self.name!r}: {self.summary()}>"
