@@ -454,8 +454,16 @@ def short_circuit(net: PetriNet, source: str, sink: str) -> PetriNet:
     closed = net.copy()
     closed.name = f"{net.name} (short-circuited)"
     back = closed.add_transition(None, name="t*", id="t_star")
-    closed.add_arc(sink, back)
-    closed.add_arc(back, source)
+    into, out = closed.add_arc(sink, back), closed.add_arc(back, source)
+    positions = [n.position for n in list(net.places.values()) + list(net.transitions.values())
+                 if n.position is not None]
+    start, end = net.places[source].position, net.places[sink].position
+    if positions and start and end:
+        # Draw t* above the net, with the arcs going round the top.
+        top = min(y for _, y in positions) - 90
+        back.position = ((start[0] + end[0]) / 2, top)
+        into.points = [(end[0], top)]
+        out.points = [(start[0], top)]
     closed.initial_marking = Marking({source: 1})
     closed.final_marking = Marking()
     return closed
@@ -487,6 +495,10 @@ class SoundnessReport:
     #: the problem from the initial marking -- or None when there is none
     #: (a structural problem, dead transitions)
     paths: list[list[str] | None] = field(default_factory=list)
+    #: Theorem 1: the short-circuited net N̄, analysed from [i]
+    short_circuit: "ShortCircuitReport | None" = None
+    #: §6: free-choice, well-structured, S-coverable (see :mod:`.structure`)
+    structure: object | None = None
 
     def add(self, finding: str, path: list[str] | None = None) -> None:
         self.findings.append(finding)
@@ -514,6 +526,11 @@ def check_soundness(net: PetriNet, max_states: int = 200_000) -> SoundnessReport
         for problem in workflow.problems:
             report.add(f"Not a WF-net: {problem}.")
         return report
+
+    from .structure import check_structure
+    report.structure = check_structure(net, workflow.source, workflow.sink)
+    report.short_circuit = check_short_circuited(net, workflow.source, workflow.sink,
+                                                 max_states=max_states)
 
     initial = Marking({workflow.source: 1})
     final = Marking({workflow.sink: 1})
@@ -569,4 +586,80 @@ def check_soundness(net: PetriNet, max_states: int = 200_000) -> SoundnessReport
     if dead:
         report.add("Dead transitions (can never fire): "
                    + ", ".join(names(t) for t in dead) + ".")
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Theorem 1: the short-circuited net
+# ---------------------------------------------------------------------------
+@dataclass
+class ShortCircuitReport:
+    """(N̄, [i]) -- the WF-net plus ``t*`` from ``o`` back to ``i``.
+
+    Theorem 1 of the paper: N is sound **iff** (N̄, [i]) is *live* and
+    *bounded*.  Why this works, informally:
+
+    * t* can only fire once a case has finished with a token in ``o``; it
+      starts the next case.  So "every transition can always fire again"
+      (live) includes "t* can always fire again", i.e. every case can
+      finish -- option to complete.  And it includes every ordinary
+      transition, so none is dead.
+    * If a case could finish with tokens left behind, t* would start the
+      next case on top of them; cycling like that piles tokens up without
+      limit -- unbounded.  So bounded rules out improper completion.
+
+    Deadlock-freedom is weaker than liveness (a live net never deadlocks,
+    but a net can keep going in a loop while some transition is dead), so
+    it is shown for information only.  Note that N itself always stops in
+    [o]; in N̄ that marking enables t*, so there deadlocks mean "stuck".
+    """
+
+    net: PetriNet
+    properties: PropertyReport
+    #: transition id -> a reachable state from which it can never fire again
+    not_live: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def bounded(self) -> bool:
+        return self.properties.bounded
+
+    @property
+    def safe(self) -> bool:
+        return self.properties.safe
+
+    @property
+    def deadlock_free(self) -> bool:
+        return self.properties.deadlock_free
+
+    @property
+    def live(self) -> bool | None:
+        if self.properties.live_transitions is None:
+            return None
+        return len(self.properties.live_transitions) == len(self.net.transitions)
+
+    @property
+    def sound(self) -> bool | None:
+        """Theorem 1's verdict: live and bounded."""
+        if not self.bounded or self.live is False:
+            return False
+        return self.live
+
+
+def check_short_circuited(net: PetriNet, source: str, sink: str,
+                          max_states: int = 200_000) -> ShortCircuitReport:
+    closed = short_circuit(net, source, sink)
+    properties = analyse(closed, max_states=max_states)
+    report = ShortCircuitReport(closed, properties)
+    graph = properties.graph
+    if properties.live_transitions is not None:
+        for transition in closed.transitions:
+            if transition in properties.live_transitions:
+                continue
+            enabling = {state for state in range(len(graph.states))
+                        if any(t == transition for t, _ in graph.successors(state))}
+            can_fire = graph.backward_reachable(enabling) if enabling else set()
+            never = [s for s in range(len(graph.states)) if s not in can_fire]
+            if never:
+                # the one reached by the shortest firing sequence
+                report.not_live[transition] = min(never, key=lambda s: len(graph.path_to(s)))
     return report

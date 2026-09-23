@@ -702,3 +702,133 @@ def test_dotted_chart_custom_colours(app):
     panel._reset_colours()
     assert panel.chart.data.colour_hex(0) == default
     panel.close()
+
+
+def test_hover_arrow_draws_arcs(app):
+    """Hovering near a node shows a translucent arrow; dragging it to another
+    node adds an arc (with the Select tool, no mode switch needed)."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.mining.petrinet import PetriNet
+    from cpnpy.model.plain import from_petri_net
+    from cpnpy.gui.studio.documents import CpnDocument
+
+    petri = PetriNet("hover")
+    for name, x in (("p1", 0.0), ("p2", 300.0)):
+        petri.add_place(name).position = (x, 0.0)
+    petri.add_transition("t1").position = (150.0, 0.0)
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.add_document(CpnDocument(from_petri_net(petri)))
+    page = window.current_page()
+    _pump(app, 0.2)
+    scene, view, port = page.scene, page.view, page.view.viewport()
+    view.resetTransform()
+    view.auto_fit = False
+    view.centerOn(QPointF(150, 0))
+    _pump(app, 0.05)
+    p1 = next(i for i in scene.place_items.values() if i.place.name == "p1")
+
+    # Hover just right of p1: the arrow appears on that side.
+    QTest.mouseMove(port, view.mapFromScene(p1.pos() + QPointF(30, 0)))
+    _pump(app, 0.05)
+    handle = scene._handle
+    assert handle is not None and handle.isVisible() and handle.node is p1
+    assert handle.pos().x() > p1.pos().x() + p1.rect().width() / 2
+
+    # Drag the arrow onto t1: a new arc p1 -> t1.
+    start = view.mapFromScene(handle.pos())
+    target = view.mapFromScene(QPointF(150, 0))
+    QTest.mousePress(port, Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mouseMove(port, (start + target) / 2)
+    QTest.mouseMove(port, target)
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, target)
+    _pump(app, 0.05)
+    arcs = page.net.pages[0].arcs
+    assert len(arcs) == 1 and arcs[0].orientation == "PtoT"
+    assert page.tool_switch.index() == 0                  # still the Select tool
+
+    # Place to place is refused.
+    messages = []
+    scene.message.connect(messages.append)
+    p1 = next(i for i in scene.place_items.values() if i.place.name == "p1")
+    QTest.mouseMove(port, view.mapFromScene(p1.pos() + QPointF(0, 30)))
+    _pump(app, 0.05)
+    start = view.mapFromScene(scene._handle.pos())
+    target = view.mapFromScene(QPointF(300, 0))
+    QTest.mousePress(port, Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mouseMove(port, target)
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, target)
+    assert len(page.net.pages[0].arcs) == 1 and "Can't connect two places" in messages[-1]
+
+    # Far from every node: no arrow.
+    QTest.mouseMove(port, view.mapFromScene(QPointF(150, 200)))
+    _pump(app, 0.05)
+    assert not scene._handle.isVisible()
+    page.document.dirty = False
+    window.close()
+
+
+def test_petri_analysis_follows_the_paper_and_trace_highlights(app):
+    """The Analysis tab shows Theorem 1 (N̄ live and bounded) and the §6
+    structure checks; N̄ opens as a net of its own; stepping through lights
+    up the path taken, and the Trace box switches that off."""
+    from PySide6.QtWidgets import QLabel
+
+    from cpnpy.gui.studio import petri_page
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.model.examples import order_handling_unsound
+
+    window = StudioWindow()
+    window.resize(1500, 950)
+    window.show()
+    window.open_example_net(order_handling_unsound())
+    page = window.current_page()
+    original = petri_page.run_in_background
+    petri_page.run_in_background = lambda work, done, failed=None: done(work())
+    try:
+        page.run_analysis()
+    finally:
+        petri_page.run_in_background = original
+
+    def texts(card):
+        return " ".join(label.text() for label in card.findChildren(QLabel))
+
+    theorem = texts(page.theorem_card)
+    assert "Bounded" in theorem and "Unbounded ⇒ not sound" in theorem
+    structure = texts(page.structure_card)
+    assert "Free-choice" in structure and "ship and reject share c3" in structure
+    assert "PT-handle" in structure and "S-coverable" in structure
+
+    before = len(window.documents) if hasattr(window, "documents") else None
+    page._open_short_circuited()
+    closed = window.current_page()
+    assert closed is not page
+    assert any(t.name == "t*" for t in closed.net.all_transitions())
+    if before is not None:
+        assert len(window.documents) == before + 1
+    closed.document.dirty = False
+
+    # -- the trace while stepping through
+    window.select_document(page.document) if hasattr(window, "select_document") else None
+    page.mode_switch.set_index(1)
+    page.trace_box.setChecked(True)
+    for name in ("register", "check stock"):
+        page._fire_transition(next(t for t in page.net.all_transitions() if t.name == name))
+    items = {i.transition.name: i for i in page.scene.transition_items.values()}
+    assert items["register"].trace_steps == [1] and items["check stock"].trace_steps == [2]
+    assert items["check stock"].trace == 1.0 > items["register"].trace > 0
+    assert items["ship"].trace_steps == []
+    lit = [a for a in page.scene.arc_items.values() if a.trace > 0]
+    assert len(lit) == 5                 # start→register→c1,c2 and c1→check stock→c3
+    page.trace_box.setChecked(False)
+    assert all(a.trace == 0 for a in page.scene.arc_items.values())
+    assert items["register"].trace_steps == []
+    page.trace_box.setChecked(True)
+    page.mode_switch.set_index(0)        # editing: no trace
+    assert items["register"].trace_steps == []
+    page.document.dirty = False
+    window.close()

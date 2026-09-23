@@ -167,6 +167,8 @@ class CpnPage(QWidget):
     log_generated = Signal(object)
 
     MODES = ["Edit", "Step through", "Simulate"]
+    #: Highlight the fired path while stepping (the Trace box; shared by all nets)
+    show_trace = True
     TOOLS = [("select", "Select", "Select and move things (drag on empty canvas to select "
               "several); double-click a place or transition to rename it"),
              ("place", "Place", "Click on the canvas to add a place"),
@@ -388,13 +390,23 @@ class CpnPage(QWidget):
                                     "and only show the result", checkable=True)
         self.repeat_box = QCheckBox("Repeat")
         self.repeat_box.setToolTip("When a run reaches a dead marking, start again")
+        self.trace_box = QCheckBox("Trace")
+        self.trace_box.setToolTip("Highlight the path the tokens took: every fired "
+                                  "transition gets its step numbers and its arcs light up, "
+                                  "the latest step strongest")
+        self.trace_box.setChecked(CpnPage.show_trace)
+        self.trace_box.toggled.connect(self._trace_toggled)
+        for box in (self.repeat_box, self.trace_box):
+            # As tall as the buttons, so the flow layout lines them up.
+            box.setFixedHeight(self.reset_button.sizeHint().height())
         self.speed.setFixedWidth(84)
         self.forward_steps.setFixedWidth(104)
         steps_label = label("steps", "muted")
         # A flow layout: on a narrow window the bar wraps instead of widening the page.
         self.sim_bar = flow(self.reset_button, self.back_button, self.step_button, 12,
                             self.play_button, self.speed, 12, self.forward_button,
-                            self.forward_steps, steps_label, 12, self.repeat_box)
+                            self.forward_steps, steps_label, 12, self.repeat_box, 12,
+                            self.trace_box)
         card.add(self.sim_bar)
         self.simulate_widgets = [self.play_button, self.speed, self.forward_button,
                                  self.forward_steps, steps_label, self.repeat_box]
@@ -702,6 +714,7 @@ class CpnPage(QWidget):
         last = self.simulator.log[-1].binding.transition_id if self.simulator.log else None
         for transition_id, item in self.scene.transition_items.items():
             item.set_halo(self.simulating and transition_id == last)
+        self._update_trace()
 
         self.step_tile.set(f"{self.simulator.step_count:,}")
         self.time_tile.set(format_time(self.simulator.clock))
@@ -714,6 +727,18 @@ class CpnPage(QWidget):
             self._fill_bindings()
             self._fill_marking()
             self._fill_history()
+
+    def _update_trace(self) -> None:
+        if self.simulating and self.trace_box.isChecked():
+            log = self.simulator.log[-200:]
+            self.scene.set_trace([(record.step, record.binding.transition_id)
+                                  for record in log])
+        else:
+            self.scene.set_trace(None)
+
+    def _trace_toggled(self, on: bool) -> None:
+        CpnPage.show_trace = on            # the next net opens the same way
+        self._update_trace()
 
     def _marking_for(self, place_id: str) -> tuple[int, str]:
         tokens = self.simulator.marking.get(self.net.marking_key(place_id))
@@ -859,7 +884,8 @@ class CpnPage(QWidget):
         self.sim_hint.setText(
             "" if editing else
             "Green = enabled. Click a green transition to fire it, or double-click a binding "
-            "in the inspector to choose the values. Back undoes." if index == 1 else
+            "in the inspector to choose the values. Back undoes. Trace lights up the path "
+            "so far." if index == 1 else
             "Play fires random bindings by itself (blue halo = fired last). Fast-forward runs "
             "many steps at once. History ▸ Export as event log makes a log you can mine.")
         self.sim_hint.setVisible(not editing)
@@ -876,11 +902,12 @@ class CpnPage(QWidget):
         from .tool_icons import tool_cursor
         tool = self.TOOLS[index][0]
         self.scene._cancel_connection()
+        self.scene.hide_connect_handle()
         self.scene.tool = tool
         delete = shortcut_text("Backspace")
         self.tool_hint.setText({
-            "select": f"Drag to move · double-click to rename · drag an arc to bend it · "
-                      f"{delete} deletes",
+            "select": f"Drag to move · hover a node and drag its arrow to connect · "
+                      f"double-click to rename · {delete} deletes",
             "place": "Click on the canvas to add a place",
             "transition": "Click on the canvas to add a transition",
             "arc": "Drag from a place to a transition (or back) — or click one, then the other",

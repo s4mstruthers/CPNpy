@@ -126,17 +126,30 @@ tokens, whether a transition is silent, an arc's weight and direction.
 
 **Analysis tab**
 
-- **WF-net check:** exactly one source place and one sink place, and every
-  node on a path between them.
-- **Soundness** (van der Aalst):
-  - option to complete;
-  - proper completion;
-  - no dead transitions.
+The checks follow van der Aalst's *Workflow Verification* paper, with its
+definition numbers:
+
+- **WF-net** (Definition 11): exactly one source place *i*, one sink place
+  *o*, and every node on a path between them.
+- **Soundness** (Definition 12):
+  - (i) option to complete;
+  - (ii) proper completion;
+  - (iii) no dead transitions.
 
   Every violation comes with a firing sequence as its counterexample, and
   **Show ▶** plays it on the net.
+- **Short-circuited net N̄** (Theorem 1): the net plus a transition *t\**
+  from *o* back to *i*. The net is sound iff (N̄, [i]) is **live and
+  bounded**; both are shown, with the transition that can't fire again and
+  the marking where that happens. Safe and deadlock-free are shown too.
+  **Open N̄ as a new net** draws it.
+- **Structure** (§6): **free-choice**, **well-structured** (no PT- or
+  TP-handles in N̄, with the two paths of a handle spelled out) and
+  **S-coverable**, plus Lemma 4's quick check for transitions that need *i*
+  or *o* together with another place.
 - **Behavioural properties** of the net as drawn: bounded, safe,
-  deadlock-free, dead transitions, live, reversible.
+  deadlock-free, dead transitions, live, reversible. A WF-net always stops
+  in [o], so that dead marking is marked as expected.
 - **Footprint:** the → ← ‖ # matrix of the net's behaviour, to compare with
   a log's footprint (α-algorithm, footprint conformance).
 - **Reachability graph…**, or a coverability graph with ω when the net is
@@ -151,6 +164,8 @@ tokens, whether a transition is silent, an arc's weight and direction.
 **Also on the Petri net page**
 
 - **Step through / Simulate:** the token game, fired by hand or at random.
+  With **Trace** ticked, every fired transition shows its step numbers and
+  the arcs the tokens used light up, the latest step strongest.
 - **Generate event log…:** plays the net out many times and opens the
   traces as a log.
 - **Saving:** nets are saved as **PNML** (ProM, WoPeD and PM4Py read it), or
@@ -224,7 +239,8 @@ sets, variables, functions, guards and timed tokens.
   time delays and declarations (syntax-highlighted). Undo and redo cover
   everything.
 - **Step through:** green transitions are enabled. Click one to fire it, or
-  pick an exact binding in the inspector. **Back** undoes a step.
+  pick an exact binding in the inspector. **Back** undoes a step, and
+  **Trace** highlights the path so far.
 - **Simulate:** Play (1–60 firings per second) or Fast-forward. The firing
   history can be exported **as an event log** and mined straight away.
 - **State space:** runs in a separate process, so it can be stopped at any
@@ -249,7 +265,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 |---|---|
 | Add a place / transition | Pick **Place** / **Transition**, click the canvas, type the name, press Return |
 | Rename | Double-click the place or transition, or use the Element tab |
-| Connect | Pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
+| Connect | Hover near a place or transition and drag the translucent arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |
 | Remove a bend | Drag it back into line with its neighbours |
@@ -307,7 +323,7 @@ course).
 ## For developers
 
 ```bash
-pytest -q                 # 124 tests, including GUI tests that run offscreen
+pytest -q                 # 133 tests, including GUI tests that run offscreen
 cpnpy --help              # command line: check, simulate, state space, mining
 ```
 

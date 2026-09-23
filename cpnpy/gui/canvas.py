@@ -35,9 +35,10 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QPainter, QPen, QTransform
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
-    QGraphicsItem, QGraphicsLineItem, QGraphicsScene, QGraphicsSceneMouseEvent, QGraphicsView,
+    QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsScene, QGraphicsSceneMouseEvent,
+    QGraphicsView,
 )
 
 from ..model.net import Arc, CPNet, Page, Place, Transition
@@ -52,6 +53,49 @@ from .items import (
 GRID_STEP = 28
 #: Perpendicular separation between two arcs joining the same pair of nodes.
 PARALLEL_ARC_SPACING = 14.0
+
+
+class _ConnectHandle(QGraphicsPathItem):
+    """The translucent arrow that appears next to a hovered place or
+    transition: drag it to another node to draw an arc.  It sits on the
+    side facing the mouse and keeps the same size at every zoom."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        self.setZValue(60)
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.CrossCursor)
+        self.setToolTip("Drag to another place or transition to add an arc")
+        path = QPainterPath()
+        path.moveTo(-9, -2.2)
+        path.lineTo(3, -2.2)
+        path.lineTo(3, -7)
+        path.lineTo(11, 0)
+        path.lineTo(3, 7)
+        path.lineTo(3, 2.2)
+        path.lineTo(-9, 2.2)
+        path.closeSubpath()
+        self.setPath(path)
+        accent = theme.palette().accent
+        self.setBrush(accent)
+        self.setPen(QPen(QColor(255, 255, 255, 220), 1.2))
+        #: The node it belongs to.
+        self.node = None
+        self.set_hot(False)
+
+    def set_hot(self, hot: bool) -> None:
+        """Mouse on the handle: fully visible and a little larger."""
+        self.setOpacity(0.95 if hot else 0.55)
+        self.setScale(1.15 if hot else 1.0)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addEllipse(QPointF(1, 0), 13, 13)         # easy to grab
+        return path
+
+    def boundingRect(self) -> QRectF:  # noqa: N802
+        return QRectF(-14, -14, 28, 28)
 
 
 def _rect(item: QGraphicsItem) -> tuple[float, float, float, float]:
@@ -96,6 +140,8 @@ class NetScene(QGraphicsScene):
         #: While the arc tool is mid-draw: the node it started from, the
         #: rubber-band line and the node under the mouse.
         self._connecting: dict | None = None
+        #: The "drag to connect" arrow next to a hovered node (made on demand).
+        self._handle: _ConnectHandle | None = None
         #: Edit mode: arcs and labels can be dragged (CPN IDE's rules, see
         #: :mod:`cpnpy.gui.arc_editing`).
         self.editable = True
@@ -133,6 +179,7 @@ class NetScene(QGraphicsScene):
         self._guides = []                      # cleared with the scene
         self._arc_drag = None
         self._connecting = None
+        self._handle = None                    # deleted with the scene
         self._snap_node = None
         self.place_items.clear()
         self.transition_items.clear()
@@ -216,6 +263,28 @@ class NetScene(QGraphicsScene):
         for transition_id, item in self.transition_items.items():
             item.set_enabled_count(counts.get(transition_id, 0))
 
+    #: How many steps the trace fades over.
+    TRACE_FADE = 8
+
+    def set_trace(self, fired: list[tuple[int, str]] | None) -> None:
+        """Highlight the path the tokens took: ``fired`` is ``(step number,
+        transition id)`` for each firing so far (None switches it off).
+
+        Every fired transition gets a badge with its step numbers, and its
+        input and output arcs are underlaid in the accent colour -- strongest
+        for the latest step, fading over :attr:`TRACE_FADE` steps.
+        """
+        steps: dict[str, list[int]] = {}
+        age: dict[str, int] = {}
+        for index, (step, transition_id) in enumerate(fired or []):
+            steps.setdefault(transition_id, []).append(step)
+            age[transition_id] = len(fired) - 1 - index
+        strength = {t: max(0.15, 1.0 - a / self.TRACE_FADE) for t, a in age.items()}
+        for transition_id, item in self.transition_items.items():
+            item.set_trace(steps.get(transition_id, []), strength.get(transition_id, 0.0))
+        for item in self.arc_items.values():
+            item.set_trace(strength.get(item.arc.transition_id, 0.0))
+
     def update_markings(self, describe: Callable[[str], tuple[int, str]]) -> None:
         """Show the simulator's current token contents on each place.
 
@@ -250,6 +319,16 @@ class NetScene(QGraphicsScene):
             return
 
         position = event.scenePos()
+        if self._connecting is not None and self._connecting.get("clicked"):
+            self._arc_press(position)             # the second click of click-click
+            return
+        if self._handle_hit(position):
+            node = self._handle.node
+            self.hide_connect_handle()
+            self._begin_connection(node, position)
+            event.accept()
+            return
+        self.hide_connect_handle()
         item = self.itemAt(position, QTransform())
         if self.tool == "select":
             # Remember where everything is, to tell on release whether this
@@ -295,6 +374,8 @@ class NetScene(QGraphicsScene):
         if self._connecting is not None:
             self._arc_move(event.scenePos())
             return
+        if not event.buttons():
+            self._update_connect_handle(event.scenePos())
         if self._arc_drag is not None:
             self._drag_arc(event)
             return
@@ -303,7 +384,7 @@ class NetScene(QGraphicsScene):
             self._snap_dragged_nodes()
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:  # noqa: N802
-        if self._connecting is not None and self.tool == "arc":
+        if self._connecting is not None:
             self._arc_release(event.scenePos())
             return
         if self._arc_drag is not None:
@@ -601,6 +682,10 @@ class NetScene(QGraphicsScene):
             self._cancel_connection()
             self.message.emit("Press on a place or transition and drag to the node to connect")
             return
+        self._begin_connection(node, position)
+
+    def _begin_connection(self, node, position: QPointF) -> None:
+        """Start drawing an arc from ``node``: a dashed line follows the mouse."""
         line = QGraphicsLineItem()
         pen = QPen(theme.palette().accent, 1.6, Qt.DashLine)
         pen.setCosmetic(True)
@@ -694,6 +779,70 @@ class NetScene(QGraphicsScene):
         self.rebuild()
         self.model_changed.emit()
 
+    # -- the "drag to connect" arrow ------------------------------------------------
+    #: How near (screen pixels) the mouse must come to a node for its arrow.
+    HANDLE_REACH = 26.0
+    #: Gap between a node's outline and its arrow (screen pixels).
+    HANDLE_GAP = 16.0
+
+    def _view_scale(self) -> float:
+        views = self.views()
+        return max(views[0].transform().m11(), 1e-6) if views else 1.0
+
+    def _handle_hit(self, position: QPointF) -> bool:
+        handle = self._handle
+        if handle is None or not handle.isVisible() or handle.node is None:
+            return False
+        gap = position - handle.pos()
+        return (gap.x() ** 2 + gap.y() ** 2) ** 0.5 <= 14.0 / self._view_scale()
+
+    def hide_connect_handle(self) -> None:
+        if self._handle is not None and self._handle.scene() is self:
+            self._handle.hide()
+            self._handle.node = None
+
+    def _update_connect_handle(self, position: QPointF) -> None:
+        """Show the arrow beside the node nearest the mouse (Select tool, edit
+        mode), on the side the mouse is on."""
+        if not (self.editable and self.tool == "select") or self.page is None \
+                or self._arc_drag is not None:
+            self.hide_connect_handle()
+            return
+        scale = self._view_scale()
+        if self._handle_hit(position):
+            self._handle.set_hot(True)
+            return
+        reach = self.HANDLE_REACH / scale
+        node = None
+        for item in [*self.place_items.values(), *self.transition_items.values()]:
+            if item.sceneBoundingRect().adjusted(-reach, -reach, reach, reach).contains(position):
+                node = item
+                break
+        if node is None:
+            self.hide_connect_handle()
+            return
+        import math
+        direction = position - node.pos()
+        length = math.hypot(direction.x(), direction.y())
+        ux, uy = (1.0, 0.0) if length < 1e-6 else (direction.x() / length,
+                                                     direction.y() / length)
+        rect = node.rect()
+        a, b = rect.width() / 2, rect.height() / 2
+        if isinstance(node, PlaceItem):                   # distance to the outline
+            edge = 1.0 / math.sqrt((ux / a) ** 2 + (uy / b) ** 2)
+        else:
+            edge = min(a / abs(ux) if abs(ux) > 1e-9 else math.inf,
+                       b / abs(uy) if abs(uy) > 1e-9 else math.inf)
+        if self._handle is None or self._handle.scene() is not self:
+            self._handle = _ConnectHandle()
+            self.addItem(self._handle)
+        handle = self._handle
+        handle.node = node
+        handle.setPos(node.pos() + QPointF(ux, uy) * (edge + self.HANDLE_GAP / scale))
+        handle.setRotation(math.degrees(math.atan2(uy, ux)))
+        handle.set_hot(False)
+        handle.show()
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key_Escape and self._connecting is not None:
             self._cancel_connection()
@@ -747,6 +896,8 @@ class NetScene(QGraphicsScene):
     def set_editable(self, editable: bool) -> None:
         """Edit mode on or off (arcs and labels can only be dragged when on)."""
         self.editable = editable
+        if not editable:
+            self.hide_connect_handle()
         for item in self.arc_items.values():
             item.update()
 
@@ -976,6 +1127,12 @@ class NetView(QGraphicsView):
         self.zoom_controls.raise_()
 
     # -- panning ----------------------------------------------------------------
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        scene = self.scene()
+        if isinstance(scene, NetScene):
+            scene.hide_connect_handle()
+        super().leaveEvent(event)
+
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MiddleButton:
             self.setDragMode(QGraphicsView.ScrollHandDrag)

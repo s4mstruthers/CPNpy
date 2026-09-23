@@ -323,6 +323,10 @@ class _NodeItem(QGraphicsPathItem):
         self._rect = rect
         #: Draw a soft accent halo (the transition that fired last).
         self.halo = False
+        #: Step numbers at which this transition fired (the trace badge).
+        self.trace_steps: list[int] = []
+        #: How recent its last firing is, 1 (just now) .. 0 (not in the trace).
+        self.trace = 0.0
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -354,13 +358,41 @@ class _NodeItem(QGraphicsPathItem):
         return True
 
     def boundingRect(self) -> QRectF:  # noqa: N802
-        # Room for the halo and the selection ring outside the outline.
-        return super().boundingRect().adjusted(-6, -6, 6, 6)
+        # Room for the halo and the selection ring outside the outline, and
+        # for the trace badge above the top-right corner.
+        extra = (24, 90) if self.trace_steps else (6, 6)
+        return super().boundingRect().adjusted(-6, -extra[0], extra[1], 6)
 
     def set_halo(self, on: bool) -> None:
         if on != self.halo:
             self.halo = on
             self.update()
+
+    def set_trace(self, steps: list[int], strength: float) -> None:
+        """Mark the node as part of the step-through trace (see NetScene.set_trace)."""
+        if steps == self.trace_steps and abs(strength - self.trace) < 1e-9:
+            return
+        self.prepareGeometryChange()
+        self.trace_steps, self.trace = list(steps), strength
+        self.update()
+
+    def _paint_trace_badge(self, painter: QPainter) -> None:
+        """The step numbers, in a small accent pill above the top-right corner."""
+        steps = self.trace_steps
+        text = ("… " if len(steps) > 3 else "") + ", ".join(str(s) for s in steps[-3:])
+        font = theme.ui_font(9, QFont.DemiBold)
+        painter.setFont(font)
+        metrics = QFontMetricsF(font)
+        width, height = metrics.horizontalAdvance(text) + 10, metrics.height() + 2
+        corner = self._rect.topRight()
+        pill = QRectF(corner.x() - width * 0.35, corner.y() - height - 3, width, height)
+        colour = QColor(theme.palette().accent)
+        colour.setAlphaF(0.45 + 0.55 * self.trace)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(colour)
+        painter.drawRoundedRect(pill, height / 2, height / 2)
+        painter.setPen(QColor("#ffffff"))
+        painter.drawText(pill, Qt.AlignCenter, text)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
         selected = bool(option.state & QStyle.State_Selected)
@@ -379,6 +411,8 @@ class _NodeItem(QGraphicsPathItem):
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(self.path())
+        if self.trace_steps:
+            self._paint_trace_badge(painter)
 
     def graphics(self):
         """The model's graphics record for this node."""
@@ -802,6 +836,9 @@ class ArcItem(QGraphicsPathItem):
     the line, and a bar in the middle of each horizontal or vertical segment.
     """
 
+    #: Trace highlight strength, 0 (off) .. 1 (the latest step).
+    trace = 0.0
+
     ARROW_LENGTH = 10.0
     ARROW_HALF_WIDTH = 4.2
     #: Where along the arc the inscription sits.  Not 0.5: see the module
@@ -1194,8 +1231,23 @@ class ArcItem(QGraphicsPathItem):
             painter.setBrush(fill)
             painter.drawEllipse(self.floating, radius, radius)
 
+    def set_trace(self, strength: float) -> None:
+        """Underlay the arc in the accent colour: tokens travelled along it
+        in the trace, ``strength`` 1 for the latest step fading to 0."""
+        if abs(strength - self.trace) > 1e-9:
+            self.trace = strength
+            self.update()
+
     def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
         painter.setRenderHint(QPainter.Antialiasing)
+        trace = self.trace
+        if trace > 0:
+            glow = QColor(theme.palette().accent)
+            glow.setAlphaF(0.15 + 0.45 * trace)
+            painter.setPen(QPen(glow, 3.0 + 4.0 * trace, Qt.SolidLine, Qt.RoundCap,
+                                Qt.RoundJoin))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(self.line_path)
         selected = bool(option.state & QStyle.State_Selected)
         if selected:
             colour = theme.palette().accent
