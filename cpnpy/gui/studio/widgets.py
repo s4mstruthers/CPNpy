@@ -681,4 +681,13 @@ def footprint_table(fp, compact: bool = False) -> "QTableWidget":
             else:
                 cell.setForeground(QColor(t.text_muted))
             table.setItem(i, j, cell)
+    if not compact:
+        # No bigger than its cells: a small matrix should not sit in a large
+        # grey area.  A large one still scrolls.
+        frame = 2 * table.frameWidth()
+        table.setMaximumSize(
+            table.verticalHeader().sizeHint().width() + len(activities)
+            * table.horizontalHeader().defaultSectionSize() + frame + 2,
+            table.horizontalHeader().sizeHint().height() + len(activities)
+            * table.verticalHeader().defaultSectionSize() + frame + 2)
     return table

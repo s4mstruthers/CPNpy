@@ -49,10 +49,16 @@ def command_check(arguments: argparse.Namespace) -> int:
     if net.errors:
         return 1
     print(f"'{net.name}' compiled cleanly: "
-          f"{sum(1 for _ in net.all_places())} places, "
-          f"{sum(1 for _ in net.all_transitions())} transitions, "
-          f"{sum(1 for _ in net.all_arcs())} arcs.")
+          f"{_count(net.all_places(), 'place')}, "
+          f"{_count(net.all_transitions(), 'transition')}, "
+          f"{_count(net.all_arcs(), 'arc')}.")
     return 0
+
+
+def _count(items, noun: str) -> str:
+    """``1 place`` / ``3 places``."""
+    number = sum(1 for _ in items)
+    return f"{number} {noun}{'' if number == 1 else 's'}"
 
 
 def command_info(arguments: argparse.Namespace) -> int:
@@ -305,7 +311,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
-    return arguments.handler(arguments)
+    try:
+        return arguments.handler(arguments)
+    except BrokenPipeError:
+        # The output went into `head` or similar, which stopped reading: not
+        # an error.  Point stdout at nowhere so the exit flush stays quiet.
+        import os
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -352,8 +352,8 @@ class CpnPage(QWidget):
         self.undo_button = _tool("↶", f"Undo the last change to the model "
                                   f"({shortcut_text('Ctrl+Z')})")
         self.redo_button = _tool("↷", f"Redo ({shortcut_text('Ctrl+Shift+Z')})")
-        top = hbox(self.structure_toggle, self.undo_button, self.redo_button, 8,
-                   self.mode_switch, 12, self.sim_status, self.values_button,
+        top = hbox(self.structure_toggle, self.undo_button, self.redo_button, 6,
+                   self.mode_switch, 6, self.sim_status, self.values_button,
                    self.inspector_toggle)
         top.setStretch(6, 1)
         card.add(top)
@@ -470,8 +470,9 @@ class CpnPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         self.inspector_tabs = SegmentedControl(self.INSPECTOR, compact=True)
-        # Room for "Problems (12)" too.
-        host.setMinimumWidth(max(360, self.inspector_tabs.sizeHint().width() + 24))
+        # Room for the tabs (the segmented control grows for "Problems (12)"),
+        # but no more: the page must fit a 13" laptop's window.
+        host.setMinimumWidth(max(320, self.inspector_tabs.sizeHint().width() + 12))
         layout.addLayout(hbox(self.inspector_tabs, None))
         self.inspector_stack = QStackedWidget()
         for build in (self._build_simulation_tab, self._build_element_tab,
@@ -645,7 +646,9 @@ class CpnPage(QWidget):
         self.max_nodes.setToolTip("Stop exploring after this many nodes (the report then "
                                   "says PARTIAL)")
         self.space_button = button("Calculate", self._calculate_state_space, kind="primary")
-        card.add(hbox(label("Node limit", "muted"), self.max_nodes, None, self.space_button))
+        # A flow layout: in a narrow inspector the button wraps below instead
+        # of being cut off.
+        card.add(flow(label("Node limit", "muted"), self.max_nodes, 12, self.space_button))
         self.space_status = label("", "muted", wrap=True)
         card.add(self.space_status)
         layout.addWidget(card)

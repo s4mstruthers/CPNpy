@@ -441,6 +441,7 @@ class LogPage(QWidget):
         start_end = (f"Start activities: {', '.join(sorted(fp.start))}     "
                      f"End activities: {', '.join(sorted(fp.end))}")
         card.add(label(start_end, "muted", wrap=True, selectable=True))
+        card.body.addStretch(0)
         layout.addWidget(card, 1)
 
     # -------------------------------------------------------------- discover

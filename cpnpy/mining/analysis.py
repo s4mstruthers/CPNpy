@@ -128,6 +128,18 @@ class StateGraph:
                     queue.append(previous)
         return seen
 
+    def distances(self) -> dict[int, int]:
+        """Firing-sequence length of the shortest path to each state."""
+        distance = {0: 0}
+        queue = deque([0])
+        while queue:
+            state = queue.popleft()
+            for _, successor in self._successors[state]:
+                if successor not in distance:
+                    distance[successor] = distance[state] + 1
+                    queue.append(successor)
+        return distance
+
     def path_to(self, target: int) -> list[str]:
         """A shortest firing sequence (transition ids) from the initial state."""
         parent: dict[int, tuple[int, str] | None] = {0: None}
@@ -662,6 +674,7 @@ def check_short_circuited(net: PetriNet, source: str, sink: str,
     report = ShortCircuitReport(closed, properties)
     graph = properties.graph
     if properties.live_transitions is not None:
+        distance = graph.distances()
         for transition in closed.transitions:
             if transition in properties.live_transitions:
                 continue
@@ -671,5 +684,6 @@ def check_short_circuited(net: PetriNet, source: str, sink: str,
             never = [s for s in range(len(graph.states)) if s not in can_fire]
             if never:
                 # the one reached by the shortest firing sequence
-                report.not_live[transition] = min(never, key=lambda s: len(graph.path_to(s)))
+                report.not_live[transition] = min(
+                    never, key=lambda s: distance.get(s, len(graph.states)))
     return report

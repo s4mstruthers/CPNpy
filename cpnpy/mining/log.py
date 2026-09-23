@@ -288,6 +288,12 @@ class EventLog:
 # ---------------------------------------------------------------------------
 _TRACE_PATTERN = re.compile(r"<([^<>]*)>\s*(?:\^\s*(\d+))?")
 
+# The textbook and the slides typeset traces as ⟨a,b,c⟩³: angle brackets and
+# superscript counts.  Text copied from a PDF therefore arrives in that form.
+_TYPESET = str.maketrans({"⟨": "<", "⟩": ">", "〈": "<", "〉": ">", "‹": "<", "›": ">"})
+_SUPERSCRIPTS = re.compile("[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+
 
 def parse_simple_log(text: str) -> SimpleLog:
     """Parse the notation used in the course and the textbook.
@@ -295,21 +301,25 @@ def parse_simple_log(text: str) -> SimpleLog:
     Accepted forms (whitespace is free, the outer brackets are optional)::
 
         [<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]
-        <a,b,c>3 <a,c>                      # ^ may be omitted? -> no: use ^
+        [⟨a,b,c,d⟩³, ⟨a,c,b,d⟩², ⟨a,e,d⟩]    # as typeset in the book
         [<>^2, <a>]                         # the empty trace is allowed
 
     Activity names may contain spaces (``<register request, pay>``).  A
     multiplicity defaults to 1.  Repeated sequences are added together, so
-    ``<a>, <a>`` is the same as ``<a>^2``.
+    ``<a>, <a>`` is the same as ``<a>^2``; a multiplicity of 0 leaves the
+    trace out.
 
     Raises ``ValueError`` if nothing trace-like is found, because silently
     returning an empty log would make a typo look like a finding.
     """
+    text = text.translate(_TYPESET)
+    text = _SUPERSCRIPTS.sub(lambda m: "^" + m.group().translate(_SUPERSCRIPT_DIGITS), text)
     log: SimpleLog = Counter()
     for match in _TRACE_PATTERN.finditer(text):
         body, count = match.group(1), match.group(2)
         activities = tuple(part.strip() for part in body.split(",") if part.strip())
         log[activities] += int(count) if count else 1
+    log = Counter({trace: count for trace, count in log.items() if count > 0})
     if not log:
         raise ValueError("No traces found. Write traces as <a,b,c>^n, e.g. [<a,b,c>^3, <a,c>]")
     return log

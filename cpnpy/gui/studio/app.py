@@ -79,20 +79,30 @@ def app_icon() -> QIcon:
 
 
 def _icon(kind: str) -> QIcon:
-    """Tiny painted icons, so the app ships no image files."""
+    """Tiny painted icons, so the app ships no image files.
+
+    Drawn twice: in colour, and in the selected row's text colour, which Qt
+    uses for the selected row (a blue icon on the blue highlight vanished).
+    """
+    icon = QIcon(_icon_pixmap(kind, None))
+    icon.addPixmap(_icon_pixmap(kind, QColor(style.tokens().accent_text)), QIcon.Selected)
+    return icon
+
+
+def _icon_pixmap(kind: str, ink: QColor | None) -> QPixmap:
     pixmap = QPixmap(32, 32)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    colour = QColor({"log": style.categorical(0), "cpn": style.categorical(2)}.get(
-        kind, style.categorical(6)))
+    colour = ink if ink is not None else QColor(
+        {"log": style.categorical(0), "cpn": style.categorical(2)}.get(kind, style.categorical(6)))
     pen = QPen(colour, 3)
     pen.setCapStyle(Qt.RoundCap)
     painter.setPen(pen)
     if kind == "compare":
         painter.setPen(Qt.NoPen)
         for index, (x, height) in enumerate(((5, 12), (12, 20), (19, 8), (26, 16))):
-            painter.setBrush(QColor(style.categorical(index % 2)))
+            painter.setBrush(ink if ink is not None else QColor(style.categorical(index % 2)))
             painter.drawRoundedRect(QRectF(x - 2, 27 - height, 5, height), 1.5, 1.5)
     elif kind == "cpn":
         painter.drawEllipse(QRectF(3, 9, 13, 13))
@@ -108,7 +118,7 @@ def _icon(kind: str) -> QIcon:
         painter.drawEllipse(QRectF(4, 10, 11, 11))
         painter.drawRect(QRectF(19, 9, 9, 13))
     painter.end()
-    return QIcon(pixmap)
+    return pixmap
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +241,8 @@ class NotationDialog(QDialog):
         form.addRow("Name", self.name)
         layout.addLayout(form)
         layout.addWidget(label("Write traces as <a,b,c>^n, separated by commas. Activity "
-                               "names may contain spaces. <> is the empty trace.", "muted",
+                               "names may contain spaces. <> is the empty trace. Pasting "
+                               "⟨a,b,c⟩³ from the book or the slides works too.", "muted",
                                wrap=True))
         layout.addWidget(self.editor)
         layout.addLayout(hbox(self.feedback, None, self.examples))
@@ -342,7 +353,7 @@ class StudioWindow(QMainWindow):
         self.content.addWidget(scroll(self._build_welcome(), horizontal=True))
         root.addWidget(self.content)
         root.setStretchFactor(1, 1)
-        root.setSizes([240, 1240])
+        root.setSizes([220, 1260])
         self.setCentralWidget(root)
         self.statusBar().showMessage("Ready")
         self._build_menus()
@@ -468,9 +479,13 @@ class StudioWindow(QMainWindow):
         # widget is sized by its sizeHint and its wrapped labels get clipped.
         outer.addLayout(hbox(None, holder, None))
         outer.addSpacing(20)
-        outer.addWidget(label("Tip: drop files anywhere on this window to open them. "
-                              "Hover a file in the sidebar and click ✕ (or press ⌫) to "
-                              "remove it.", "muted", wrap=True), 0, Qt.AlignHCenter)
+        tip = label("Tip: drop files anywhere on this window to open them. "
+                    "Hover a file in the sidebar and click ✕ (or press ⌫) to "
+                    "remove it.", "muted", wrap=True)
+        tip.setAlignment(Qt.AlignHCenter)
+        tip.setMaximumWidth(760)
+        tip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        outer.addLayout(hbox(None, tip, None))
         outer.addStretch(2)
         return page
 
@@ -796,8 +811,8 @@ class StudioWindow(QMainWindow):
 
     def _document_items(self) -> list[QTreeWidgetItem]:
         items = []
-        for section in (self.logs_section, self.models_section, self.cpn_section,
-                        self.compare_section):
+        for section in (self.logs_section, self.petri_section, self.models_section,
+                        self.cpn_section, self.compare_section):
             items += [section.child(i) for i in range(section.childCount())]
         return items
 
@@ -854,7 +869,8 @@ class StudioWindow(QMainWindow):
             # A section header: offer to clear that section.
             section = item
             ids = [section.child(i).data(0, Qt.UserRole) for i in range(section.childCount())]
-            kind = {id(self.logs_section): "Logs", id(self.models_section): "Models",
+            kind = {id(self.logs_section): "Logs", id(self.petri_section): "Petri Nets",
+                    id(self.models_section): "Models",
                     id(self.compare_section): "Comparisons"}.get(id(section), "Coloured Nets")
             menu.addAction(f"Remove All {kind}…", lambda: self.remove_documents(ids))
         else:
@@ -883,7 +899,9 @@ class StudioWindow(QMainWindow):
                     label_text = "Export Model as PNML…"
                 menu.addAction(label_text, self.export_selected)
                 if document.path:
-                    menu.addAction("Show in Finder", lambda p=document.path: self.reveal(p))
+                    reveal = {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(
+                        sys.platform, "Open Containing Folder")
+                    menu.addAction(reveal, lambda p=document.path: self.reveal(p))
                 menu.addSeparator()
                 menu.addAction("Remove from Workspace", self.remove_selected)
             else:

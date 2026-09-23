@@ -881,3 +881,36 @@ def test_properties_show_their_definitions(app):
     dialog.close()
     page.document.dirty = False
     window.close()
+
+
+def test_removing_a_petri_net_and_a_log_without_times(app, monkeypatch):
+    """Regressions: removing a Petri net raised ValueError (its sidebar
+    section was missing from the ordering), and the dotted chart of a log
+    without timestamps raised AttributeError while it was being built."""
+    import sys
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.gui.studio.dotted_chart import DottedChartPanel
+    from cpnpy.mining import EventLog, parse_simple_log
+
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *info: errors.append(info))
+    window = StudioWindow()
+    window.show()
+    shared_axis = DottedChartPanel.shared.x_mode
+    notation = LogDocument(EventLog.from_simple_log(parse_simple_log("[<a,b>^2, <a,c>]"), "L"))
+    window.add_document(notation)
+    page = window.current_page()
+    page.tabs.set_index(3)                         # the dotted chart
+    _pump(app, 0.3)
+    assert errors == []
+    assert page.findChild(DottedChartPanel).settings.x_mode == 4       # logical order
+    assert DottedChartPanel.shared.x_mode == shared_axis               # the default is untouched
+
+    root = Path(__file__).resolve().parents[1]
+    window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+    net = window.documents[-1]
+    window.remove_documents([net.id])
+    assert net not in window.documents and net.id not in window.pages
+    assert errors == []
+    window.close()

@@ -273,3 +273,18 @@ def test_against_pm4py(tmp_path):
     assert precision(net, simple) == pytest.approx(
         pm4py.precision_token_based_replay(frame, pn, im, fm), abs=1e-6)
     del pd
+
+
+def test_textbook_typesetting_is_accepted():
+    # Copied from the book or the slides: angle brackets and superscripts.
+    assert parse_simple_log("[⟨a,b,c,d⟩³, ⟨a,c,b,d⟩², ⟨a,e,d⟩]") == \
+        parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]")
+    assert parse_simple_log("[⟨a⟩¹², ⟨b⟩]") == Counter({("a",): 12, ("b",): 1})
+    # A multiplicity of zero leaves the trace out entirely.
+    assert parse_simple_log("[<a>^0, <b>]") == Counter({("b",): 1})
+
+
+def test_csv_dates_with_fractional_seconds():
+    from cpnpy.mining.csv_import import parse_timestamp
+    assert parse_timestamp("05/01/2023 10:00:00.250").microsecond == 250_000
+    assert parse_timestamp("2023/01/05 10:00:00.5").microsecond == 500_000
