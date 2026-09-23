@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml>
+  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">
+    <name><text>Loop with a silent step</text></name>
+    <page id="page1">
+      <place id="p1"><name><text>i</text></name><initialMarking><text>1</text></initialMarking><graphics><position x="0.0" y="0.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p2"><name><text>p1</text></name><graphics><position x="200.0" y="0.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p3"><name><text>p2</text></name><graphics><position x="400.0" y="0.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p4"><name><text>o</text></name><graphics><position x="600.0" y="0.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p5"><name><text>p3</text></name><graphics><position x="300.0" y="110.0"/><dimension x="40" y="40"/></graphics></place>
+      <transition id="t6"><name><text>a</text></name><graphics><position x="100.0" y="0.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t7"><name><text>b</text></name><graphics><position x="300.0" y="0.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t8"><name><text>d</text></name><graphics><position x="500.0" y="0.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t9"><name><text>c</text></name><graphics><position x="400.0" y="110.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t10"><name><text>tau</text></name><toolspecific tool="ProM" version="6.4" activity="$invisible$" localNodeID="" /><graphics><position x="200.0" y="110.0"/><dimension x="40" y="40"/></graphics></transition>
+      <arc id="arc1" source="p1" target="t6"></arc>
+      <arc id="arc2" source="t6" target="p2"></arc>
+      <arc id="arc3" source="p2" target="t7"></arc>
+      <arc id="arc4" source="t7" target="p3"></arc>
+      <arc id="arc5" source="p3" target="t8"></arc>
+      <arc id="arc6" source="t8" target="p4"></arc>
+      <arc id="arc7" source="p3" target="t9"></arc>
+      <arc id="arc8" source="t9" target="p5"></arc>
+      <arc id="arc9" source="p5" target="t10"></arc>
+      <arc id="arc10" source="t10" target="p2"></arc>
+    </page>
+    <finalmarkings><marking>
+      <place idref="p4"><text>1</text></place>
+    </marking></finalmarkings>
+  </net>
+</pnml>

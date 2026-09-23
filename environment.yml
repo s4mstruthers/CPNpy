@@ -1,0 +1,21 @@
+# Conda environment for CPNpy (CPN editor + CPNpy Studio).
+#
+#   conda env create -f environment.yml      # first time
+#   conda activate cpnpy
+#   conda env update -f environment.yml --prune   # after pulling changes
+#
+# Python and the Qt bindings come from conda-forge (native Apple Silicon
+# builds).  CPNpy itself is installed from this folder in *editable* mode
+# ("-e ."), so edits to the source take effect without reinstalling.
+name: cpnpy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pyside6>=6.6
+  - pytest>=8.0
+  - pip
+  - pip:
+      - -e .
+      # Optional extra miners and a live cross-check (AGPL-3.0); uncomment:
+      # - pm4py>=2.7

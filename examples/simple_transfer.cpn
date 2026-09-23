@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!DOCTYPE workspaceElements PUBLIC "-//CPN//DTD CPNXML 1.0//EN" "http://cpntools.org/DTD/6/cpn.dtd">
+<workspaceElements>
+  <generator tool="CPNpy" version="0.1.0" format="6"/>
+  <cpnet>
+    <globbox>
+      <block id="IDW1">
+        <id>Declarations</id>
+        <color id="IDW2">
+          <id>COLOUR</id>
+          <enum>
+            <id>red</id>
+            <id>green</id>
+            <id>blue</id>
+          </enum>
+          <layout>colset COLOUR = with red | green | blue;</layout>
+        </color>
+        <var id="IDW3">
+          <type>
+            <id>COLOUR</id>
+          </type>
+          <id>c</id>
+          <layout>var c : COLOUR;</layout>
+        </var>
+      </block>
+    </globbox>
+    <page id="ID1">
+      <pageattr name="Top"/>
+      <place id="ID2">
+        <posattr x="-190.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>A</text>
+        <ellipse w="60.000000" h="40.000000"/>
+        <token x="-10.000000" y="0.000000"/>
+        <marking x="0.000000" y="0.000000" hidden="false">
+          <snap snap_id="0" anchor.horizontal="0" anchor.vertical="0"/>
+        </marking>
+        <type id="IDW4">
+          <posattr x="30.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>COLOUR</text>
+        </type>
+        <initmark id="IDW5">
+          <posattr x="35.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>1`red ++ 2`green</text>
+        </initmark>
+      </place>
+      <place id="ID3">
+        <posattr x="190.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>B</text>
+        <ellipse w="60.000000" h="40.000000"/>
+        <token x="-10.000000" y="0.000000"/>
+        <marking x="0.000000" y="0.000000" hidden="false">
+          <snap snap_id="0" anchor.horizontal="0" anchor.vertical="0"/>
+        </marking>
+        <type id="IDW6">
+          <posattr x="30.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>COLOUR</text>
+        </type>
+        <initmark id="IDW7">
+          <posattr x="35.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </initmark>
+      </place>
+      <trans id="ID4" explicit="false">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>move</text>
+        <box w="60.000000" h="40.000000"/>
+        <binding x="7.200000" y="-3.000000"/>
+        <cond id="IDW8">
+          <posattr x="-40.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </cond>
+        <time id="IDW9">
+          <posattr x="40.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </time>
+        <code id="IDW10">
+          <posattr x="40.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </code>
+        <priority id="IDW11">
+          <posattr x="-40.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </priority>
+      </trans>
+      <arc id="ID5" orientation="PtoT" order="1">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID4"/>
+        <placeend idref="ID2"/>
+        <annot id="IDW12">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>c</text>
+        </annot>
+      </arc>
+      <arc id="ID6" orientation="TtoP" order="2">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID4"/>
+        <placeend idref="ID3"/>
+        <annot id="IDW13">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>c</text>
+        </annot>
+      </arc>
+      <constraints/>
+    </page>
+    <instances>
+      <instance id="IDW14" page="ID1"/>
+    </instances>
+    <options/>
+    <binders/>
+    <monitorblock name="Monitors"/>
+  </cpnet>
+</workspaceElements>

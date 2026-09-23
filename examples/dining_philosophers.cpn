@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!DOCTYPE workspaceElements PUBLIC "-//CPN//DTD CPNXML 1.0//EN" "http://cpntools.org/DTD/6/cpn.dtd">
+<workspaceElements>
+  <generator tool="CPNpy" version="0.1.0" format="6"/>
+  <cpnet>
+    <globbox>
+      <block id="IDW1">
+        <id>Declarations</id>
+        <color id="IDW2">
+          <id>PH</id>
+          <index/>
+          <layout>colset PH = index ph with 1..3;</layout>
+        </color>
+        <color id="IDW3">
+          <id>CS</id>
+          <index/>
+          <layout>colset CS = index cs with 1..3;</layout>
+        </color>
+        <var id="IDW4">
+          <type>
+            <id>PH</id>
+          </type>
+          <id>p</id>
+          <layout>var p : PH;</layout>
+        </var>
+        <ml id="IDW5">
+          fun Chopsticks (ph(i)) = 1`cs(i) ++ 1`cs(if i = 3 then 1 else i+1);
+          <layout>fun Chopsticks (ph(i)) = 1`cs(i) ++ 1`cs(if i = 3 then 1 else i+1);</layout>
+        </ml>
+      </block>
+    </globbox>
+    <page id="ID1">
+      <pageattr name="Philosophers"/>
+      <place id="ID2">
+        <posattr x="-300.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>Think</text>
+        <ellipse w="60.000000" h="40.000000"/>
+        <token x="-10.000000" y="0.000000"/>
+        <marking x="0.000000" y="0.000000" hidden="false">
+          <snap snap_id="0" anchor.horizontal="0" anchor.vertical="0"/>
+        </marking>
+        <type id="IDW6">
+          <posattr x="30.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>PH</text>
+        </type>
+        <initmark id="IDW7">
+          <posattr x="35.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>1`ph(1) ++ 1`ph(2) ++ 1`ph(3)</text>
+        </initmark>
+      </place>
+      <place id="ID3">
+        <posattr x="300.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>Eat</text>
+        <ellipse w="60.000000" h="40.000000"/>
+        <token x="-10.000000" y="0.000000"/>
+        <marking x="0.000000" y="0.000000" hidden="false">
+          <snap snap_id="0" anchor.horizontal="0" anchor.vertical="0"/>
+        </marking>
+        <type id="IDW8">
+          <posattr x="30.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>PH</text>
+        </type>
+        <initmark id="IDW9">
+          <posattr x="35.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </initmark>
+      </place>
+      <place id="ID4">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>Unused</text>
+        <ellipse w="60.000000" h="40.000000"/>
+        <token x="-10.000000" y="0.000000"/>
+        <marking x="0.000000" y="0.000000" hidden="false">
+          <snap snap_id="0" anchor.horizontal="0" anchor.vertical="0"/>
+        </marking>
+        <type id="IDW10">
+          <posattr x="30.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>CS</text>
+        </type>
+        <initmark id="IDW11">
+          <posattr x="35.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>1`cs(1) ++ 1`cs(2) ++ 1`cs(3)</text>
+        </initmark>
+      </place>
+      <trans id="ID5" explicit="false">
+        <posattr x="0.000000" y="150.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>take</text>
+        <box w="60.000000" h="40.000000"/>
+        <binding x="7.200000" y="-3.000000"/>
+        <cond id="IDW12">
+          <posattr x="-40.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </cond>
+        <time id="IDW13">
+          <posattr x="40.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </time>
+        <code id="IDW14">
+          <posattr x="40.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </code>
+        <priority id="IDW15">
+          <posattr x="-40.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </priority>
+      </trans>
+      <trans id="ID6" explicit="false">
+        <posattr x="0.000000" y="-150.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <text>put</text>
+        <box w="60.000000" h="40.000000"/>
+        <binding x="7.200000" y="-3.000000"/>
+        <cond id="IDW16">
+          <posattr x="-40.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </cond>
+        <time id="IDW17">
+          <posattr x="40.000000" y="20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </time>
+        <code id="IDW18">
+          <posattr x="40.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </code>
+        <priority id="IDW19">
+          <posattr x="-40.000000" y="-20.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text/>
+        </priority>
+      </trans>
+      <arc id="ID7" orientation="PtoT" order="1">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID5"/>
+        <placeend idref="ID2"/>
+        <annot id="IDW20">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>p</text>
+        </annot>
+      </arc>
+      <arc id="ID8" orientation="PtoT" order="2">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID5"/>
+        <placeend idref="ID4"/>
+        <annot id="IDW21">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>Chopsticks(p)</text>
+        </annot>
+      </arc>
+      <arc id="ID9" orientation="TtoP" order="3">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID5"/>
+        <placeend idref="ID3"/>
+        <annot id="IDW22">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>p</text>
+        </annot>
+      </arc>
+      <arc id="ID10" orientation="PtoT" order="4">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID6"/>
+        <placeend idref="ID3"/>
+        <annot id="IDW23">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>p</text>
+        </annot>
+      </arc>
+      <arc id="ID11" orientation="TtoP" order="5">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID6"/>
+        <placeend idref="ID2"/>
+        <annot id="IDW24">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>p</text>
+        </annot>
+      </arc>
+      <arc id="ID12" orientation="TtoP" order="6">
+        <posattr x="0.000000" y="0.000000"/>
+        <fillattr colour="White" pattern="" filled="false"/>
+        <lineattr colour="Black" thick="1" type="Solid"/>
+        <textattr colour="Black" bold="false"/>
+        <arrowattr headsize="1.200000" currentcyckle="2"/>
+        <transend idref="ID6"/>
+        <placeend idref="ID4"/>
+        <annot id="IDW25">
+          <posattr x="0.000000" y="0.000000"/>
+          <fillattr colour="White" pattern="" filled="false"/>
+          <lineattr colour="Black" thick="1" type="Solid"/>
+          <textattr colour="Black" bold="false"/>
+          <text>Chopsticks(p)</text>
+        </annot>
+      </arc>
+      <constraints/>
+    </page>
+    <instances>
+      <instance id="IDW26" page="ID1"/>
+    </instances>
+    <options/>
+    <binders/>
+    <monitorblock name="Monitors"/>
+  </cpnet>
+</workspaceElements>

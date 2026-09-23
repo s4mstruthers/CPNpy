@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# Build / packaging metadata for CPNpy.
+#
+# We use the modern PEP 621 layout ([project] table) with setuptools as the
+# build backend.  This is the least surprising choice for a pure-Python project
+# and works with pip, uv, and py2app alike.
+# ---------------------------------------------------------------------------
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cpnpy"
+version = "0.1.0"
+description = "Coloured Petri Nets and process mining, natively on macOS (a CPN Tools / CPN IDE / ProM work-alike)"
+readme = "README.md"
+# 3.10 is the floor: we use PEP 604 unions and structural pattern matching.
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Sam Struthers" }]
+
+# The engine deliberately has ZERO runtime dependencies: colour sets, the CPN ML
+# interpreter, the simulator and the state space tool are all pure standard
+# library.  That keeps the core importable from a notebook, a script, or a test
+# runner without dragging in a GUI toolkit.
+dependencies = []
+
+[project.optional-dependencies]
+# The desktop application.  Installed separately so that `import cpnpy` stays
+# cheap for headless use (PySide6 is ~150 MB).
+gui = ["PySide6>=6.6"]
+dev = ["pytest>=8.0"]
+# Optional: extra discovery algorithms (Heuristics -> Petri net, ILP) and a
+# cross-check of the built-in algorithms.  PM4Py is AGPL-3.0 licensed.
+pm4py = ["pm4py>=2.7"]
+
+[project.scripts]
+# Command-line entry points created by `pip install -e .`
+cpnpy = "cpnpy.cli:main"
+
+[project.gui-scripts]
+cpn-ide = "cpnpy.gui.app:main"
+cpnpy-studio = "cpnpy.gui.studio.app:main"
+
+[tool.setuptools.packages.find]
+include = ["cpnpy*"]
+
+[tool.setuptools.package-data]
+"cpnpy.gui" = ["resources/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml>
+  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">
+    <name><text>Order handling (sound)</text></name>
+    <page id="page1">
+      <place id="p1"><name><text>start</text></name><initialMarking><text>1</text></initialMarking><graphics><position x="0.0" y="0.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p2"><name><text>c1</text></name><graphics><position x="200.0" y="-60.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p3"><name><text>c2</text></name><graphics><position x="200.0" y="60.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p4"><name><text>c3</text></name><graphics><position x="400.0" y="-60.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p5"><name><text>c4</text></name><graphics><position x="400.0" y="60.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p6"><name><text>end</text></name><graphics><position x="620.0" y="0.0"/><dimension x="40" y="40"/></graphics></place>
+      <transition id="t7"><name><text>register</text></name><graphics><position x="100.0" y="0.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t8"><name><text>check stock</text></name><graphics><position x="300.0" y="-60.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t9"><name><text>check credit</text></name><graphics><position x="300.0" y="60.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t10"><name><text>ship</text></name><graphics><position x="510.0" y="50.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t11"><name><text>reject</text></name><graphics><position x="510.0" y="-50.0"/><dimension x="40" y="40"/></graphics></transition>
+      <arc id="arc1" source="p1" target="t7"></arc>
+      <arc id="arc2" source="t7" target="p2"></arc>
+      <arc id="arc3" source="t7" target="p3"></arc>
+      <arc id="arc4" source="p2" target="t8"></arc>
+      <arc id="arc5" source="p3" target="t9"></arc>
+      <arc id="arc6" source="t8" target="p4"></arc>
+      <arc id="arc7" source="t9" target="p5"></arc>
+      <arc id="arc8" source="p4" target="t10"></arc>
+      <arc id="arc9" source="p5" target="t10"></arc>
+      <arc id="arc10" source="t10" target="p6"></arc>
+      <arc id="arc11" source="p4" target="t11"></arc>
+      <arc id="arc12" source="p5" target="t11"></arc>
+      <arc id="arc13" source="t11" target="p6"></arc>
+    </page>
+    <finalmarkings><marking>
+      <place idref="p6"><text>1</text></place>
+    </marking></finalmarkings>
+  </net>
+</pnml>
