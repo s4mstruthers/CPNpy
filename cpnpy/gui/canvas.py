@@ -86,7 +86,7 @@ class _ConnectHandle(QGraphicsPathItem):
 
     def set_hot(self, hot: bool) -> None:
         """Mouse on the handle: fully visible and a little larger."""
-        self.setOpacity(0.95 if hot else 0.55)
+        self.setOpacity(0.7 if hot else 0.3)
         self.setScale(1.15 if hot else 1.0)
 
     def shape(self) -> QPainterPath:
@@ -690,6 +690,7 @@ class NetScene(QGraphicsScene):
         pen = QPen(theme.palette().accent, 1.6, Qt.DashLine)
         pen.setCosmetic(True)
         line.setPen(pen)
+        line.setOpacity(0.55)                  # a hint, not a wall over the drawing
         line.setZValue(40)
         self.addItem(line)
         line.setLine(node.pos().x(), node.pos().y(), position.x(), position.y())
