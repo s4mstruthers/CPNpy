@@ -365,9 +365,7 @@ pytest -q                 # 133 tests, including GUI tests that run offscreen
 cpnpy --help              # command line: check, simulate, state space, mining
 ```
 
-The same commands work on macOS, Windows and Linux. GitHub runs the tests on
-all three for every push (`.github/workflows/tests.yml`); the result shows
-as a ✓ or ✕ next to each commit.
+The same commands work on macOS, Windows and Linux.
 
 The engines (`cpnpy.mining`, `cpnpy.ml`, `cpnpy.sim`, `cpnpy.analysis`)
 have **no dependencies**, so they work in a notebook or a script:
