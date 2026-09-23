@@ -35,6 +35,7 @@ from ...mining.conformance.quality import generalisation, precision, simplicity
 from ...mining.conformance.token_replay import token_replay
 from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
+from .. import theme
 from . import style
 from .documents import ModelDocument
 from .graph_builders import petri_net_specs, state_graph_specs
@@ -82,7 +83,7 @@ class AlignmentStrip(QWidget):
             else:
                 chips.append((f"≫ {move.model}", style.categorical(6), None))
         font = painter.font()
-        font.setPointSizeF(10.5)
+        theme.set_px(font, 10.5)
         paint_chips(painter, QRectF(self.rect()).adjusted(0, 4, 0, -4), chips, font, 140)
 
 

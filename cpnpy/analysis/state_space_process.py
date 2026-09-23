@@ -80,6 +80,10 @@ def _child(model_path: str, max_nodes: int, output_path: str) -> int:
     import time
 
     stop = threading.Event()
+    # The parent reads UTF-8; Windows pipes would otherwise use the ANSI code page.
+    for stream in (sys.stdout, sys.stdin):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
     def listen() -> None:
         for line in sys.stdin:
@@ -145,7 +149,9 @@ class StateSpaceJob:
             [sys.executable, "-m", "cpnpy.analysis.state_space_process", self.model_path,
              str(self.max_nodes), self.output_path],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, bufsize=1, cwd=str(Path(__file__).resolve().parents[2]))
+            text=True, encoding="utf-8", bufsize=1, cwd=str(Path(__file__).resolve().parents[2]),
+            # Windows: don't flash a console window for the worker.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.phase = "Exploring"
         threading.Thread(target=self._read, daemon=True).start()
 

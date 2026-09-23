@@ -13,6 +13,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QToolTip, QWidget
 
+from .. import theme
 from . import style
 
 
@@ -34,7 +35,7 @@ class ColumnChart(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         font = painter.font()
-        font.setPointSizeF(10)
+        theme.set_px(font, 10)
         painter.setFont(font)
         metrics = QFontMetricsF(font)
         self._bars = []

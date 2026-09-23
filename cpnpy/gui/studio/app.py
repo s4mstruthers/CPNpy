@@ -833,9 +833,12 @@ class StudioWindow(QMainWindow):
         self._save_session()
 
     def reveal(self, path: str) -> None:
+        """Show the file in Finder / Explorer (selected), or open its folder."""
         if sys.platform == "darwin":
-            subprocess.run(["open", "-R", path], check=False)     # select it in Finder
-        else:
+            subprocess.run(["open", "-R", path], check=False)
+        elif sys.platform == "win32":
+            subprocess.run(["explorer", "/select,", str(Path(path))], check=False)
+        else:   # Linux: no standard "select this file", so open the folder
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
     def _sidebar_menu(self, position) -> None:
@@ -1121,6 +1124,14 @@ class StudioWindow(QMainWindow):
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
+    if sys.platform == "win32":
+        # Without its own AppUserModelID, Windows groups the window under
+        # python.exe and shows Python's icon in the taskbar.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CPNpy.Studio")
+        except (AttributeError, OSError):
+            pass
     application = QApplication.instance() or QApplication(argv)
     application.setApplicationName(APPLICATION_NAME)
     application.setWindowIcon(app_icon())

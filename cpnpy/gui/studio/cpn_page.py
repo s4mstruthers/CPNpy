@@ -75,7 +75,9 @@ def format_time(value) -> str:
 
 
 def _mono() -> str:
-    return "'SF Mono', Menlo, 'DejaVu Sans Mono', monospace"
+    # The first one installed wins: macOS, Windows, Linux, then any.
+    return ("'SF Mono', Menlo, Consolas, 'Cascadia Mono', 'DejaVu Sans Mono', "
+            "'Liberation Mono', 'Courier New', monospace")
 
 
 def binding_html(net: CPNet, element) -> str:
@@ -117,7 +119,7 @@ class _TwoLineDelegate(QStyledItemDelegate):
         text_rect = rect.adjusted(10, 5, -8, 0)
         painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop, index.data(Qt.DisplayRole) or "")
         font.setWeight(QFont.Normal)
-        font.setPointSizeF(font.pointSizeF() * 0.88)
+        theme.set_px(font, theme.px(font) * 0.88)
         painter.setFont(font)
         painter.setPen(QColor(t.accent_text if selected else t.text_muted))
         painter.drawText(text_rect.adjusted(0, 18, 0, 0), Qt.AlignLeft | Qt.AlignTop,

@@ -36,37 +36,76 @@
 
 ## Install
 
-CPNpy runs in a **conda** environment called `cpnpy`, defined in
-`environment.yml`. If you don't have conda yet, install
-[Miniforge](https://github.com/conda-forge/miniforge), which is native on
-Apple Silicon:
+CPNpy runs on **macOS, Windows and Linux** (Python 3.10 or newer, with Qt
+through PySide6). The easiest way to set it up is a **conda** environment
+called `cpnpy`, defined in `environment.yml`.
 
-```bash
-brew install miniforge
-conda init zsh                      # once; then open a new terminal
-```
+### 1. Get conda (once)
 
-Get the code and create the environment:
+Install [Miniforge](https://github.com/conda-forge/miniforge), a small conda
+that uses the conda-forge packages.
+
+| System | How |
+|---|---|
+| macOS | `brew install miniforge`, then `conda init zsh` and open a new terminal. (Or the installer from the Miniforge page.) |
+| Windows | Download and run **Miniforge3-Windows-x86_64.exe** from the Miniforge page. Then use the **Miniforge Prompt** from the Start menu (or run `conda init powershell` once in it to use conda in PowerShell). |
+| Linux | `curl -LO https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh`, then `bash Miniforge3-Linux-x86_64.sh` and open a new terminal. |
+
+### 2. Get the code and create the environment
+
+The same commands on every system (Terminal on macOS and Linux, Miniforge
+Prompt or PowerShell on Windows):
 
 ```bash
 git clone <the URL of this repository>    # the green "Code" button on GitHub
 cd CPNpy
-conda env create -f environment.yml     # Python 3.12, PySide6, pytest, CPNpy itself
+conda env create -f environment.yml       # Python 3.12, PySide6, pytest, CPNpy itself
 conda activate cpnpy
 ```
 
-Start the app:
+No git? Use **Code ▸ Download ZIP** on GitHub, unzip it and `cd` into the
+folder.
+
+### 3. Start the app
 
 ```bash
 cpnpy-studio
 ```
 
-After pulling changes that touch `environment.yml` or `pyproject.toml`, run
+`python -m cpnpy.gui.studio` does the same. After pulling changes that touch
+`environment.yml` or `pyproject.toml`, run
 `conda env update -f environment.yml --prune`.
 
-> CPNpy is developed and tested on macOS. As a Python + Qt app it should also
-> run on Windows and Linux (shortcuts are then shown with Ctrl instead of ⌘),
-> but that hasn't been tested yet.
+<details>
+<summary><b>Without conda</b> (plain Python and pip)</summary>
+
+With Python 3.10 or newer from python.org or your package manager, make a
+virtual environment in the project folder:
+
+| System | Commands |
+|---|---|
+| macOS / Linux | `python3 -m venv .venv`<br>`source .venv/bin/activate` |
+| Windows (PowerShell) | `py -m venv .venv`<br>`.venv\Scripts\Activate.ps1` |
+| Windows (cmd) | `py -m venv .venv`<br>`.venv\Scripts\activate.bat` |
+
+Then, on every system:
+
+```bash
+pip install -e ".[gui,dev]"
+cpnpy-studio
+```
+
+If PowerShell refuses to run `Activate.ps1`, allow local scripts once with
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+</details>
+
+**Linux:** Qt needs a few system libraries that desktop installs usually
+have. If the app doesn't start with an error about the "xcb" platform
+plugin, install them, e.g. on Ubuntu/Debian:
+`sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libegl1`.
+
+Keyboard shortcuts follow the system: **⌘** on a Mac, **Ctrl** on Windows
+and Linux (see [Keyboard shortcuts](#keyboard-shortcuts)).
 
 ---
 
@@ -74,7 +113,7 @@ After pulling changes that touch `environment.yml` or `pyproject.toml`, run
 
 **Check whether a WF-net is sound**
 
-1. **File ▸ New Petri Net** (⌘N).
+1. **File ▸ New Petri Net** (⌘N / Ctrl+N).
 2. Pick **Place** and click on the canvas. Type a name and press Return, and
    the tool switches back to Select on its own. Do the same with
    **Transition**.
@@ -92,7 +131,7 @@ handling (unsound)**.
 
 **Mine a log**
 
-1. **✎ Log from notation…** (⌘L) and type `[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]`,
+1. **✎ Log from notation…** (⌘L / Ctrl+L) and type `[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]`,
    or open a `.xes` / `.csv` file.
 2. Look through the tabs: *Overview*, *Variants*, *Dotted chart*, *Process
    map*, *Footprint*.
@@ -103,7 +142,7 @@ handling (unsound)**.
 
 **Simulate a coloured net**
 
-**File ▸ Open Coloured Petri Net…** (⇧⌘O), then *Step through* or
+**File ▸ Open Coloured Petri Net…** (⇧⌘O / Ctrl+Shift+O), then *Step through* or
 *Simulate*.
 
 ---
@@ -272,8 +311,8 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 | Slide a straight segment | Drag the bar in the middle of a horizontal or vertical segment |
 | Reconnect an arc | Drag one of its ends onto another node |
 | Move a label | Drag it (names can be dragged once **Names outside** is ticked) |
-| Delete | Select, then ⌫ or Delete |
-| Undo / redo | ⌘Z / ⇧⌘Z, or ↶ ↷ |
+| Delete | Select, then Delete or Backspace (⌫) |
+| Undo / redo | ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Shift+Z), or ↶ ↷ |
 
 The tool buttons have icons, and the mouse cursor over the canvas shows the
 active tool: a plain pointer for Select, a crosshair with a circle, square
@@ -283,25 +322,24 @@ or arrow for the others.
 
 ## Keyboard shortcuts
 
-Shown as on a Mac. On Windows and Linux the app shows **Ctrl** where a Mac
-has **⌘** (and ⌥ = Alt, ⇧ = Shift).
+The app shows each shortcut the way your system writes it.
 
-| Action | Shortcut |
-|---|---|
-| New Petri net | ⌘N |
-| New coloured Petri net | ⇧⌘N |
-| Open… | ⌘O |
-| Open coloured Petri net… | ⇧⌘O |
-| Log from notation… | ⌘L |
-| Compare logs… | ⇧⌘C |
-| Save / Save As | ⌘S / ⇧⌘S |
-| Undo / Redo | ⌘Z / ⇧⌘Z |
-| Delete selection | ⌫ |
-| Step (fire one random enabled transition) | ⌘. |
-| Zoom in / out / fit / 100 % | ⌘+ / ⌘− / ⌘0 / ⌥⌘0 |
-| Zoom with the mouse | ⌘-scroll or pinch |
-| Toggle sidebar | ⌥⌘S |
-| Cancel drawing an arc | Esc |
+| Action | macOS | Windows / Linux |
+|---|---|---|
+| New Petri net | ⌘N | Ctrl+N |
+| New coloured Petri net | ⇧⌘N | Ctrl+Shift+N |
+| Open… | ⌘O | Ctrl+O |
+| Open coloured Petri net… | ⇧⌘O | Ctrl+Shift+O |
+| Log from notation… | ⌘L | Ctrl+L |
+| Compare logs… | ⇧⌘C | Ctrl+Shift+C |
+| Save / Save As | ⌘S / ⇧⌘S | Ctrl+S / Ctrl+Shift+S |
+| Undo / Redo | ⌘Z / ⇧⌘Z | Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) |
+| Delete selection | ⌫ | Delete or Backspace |
+| Step (fire one random enabled transition) | ⌘. | Ctrl+. |
+| Zoom in / out / fit / 100 % | ⌘+ / ⌘− / ⌘0 / ⌥⌘0 | Ctrl++ / Ctrl+− / Ctrl+0 / Ctrl+Alt+0 |
+| Zoom with the mouse | ⌘-scroll or pinch | Ctrl+scroll or pinch |
+| Toggle sidebar | ⌥⌘S | Ctrl+Alt+S |
+| Cancel drawing an arc | Esc | Esc |
 
 ---
 
@@ -326,6 +364,10 @@ course).
 pytest -q                 # 133 tests, including GUI tests that run offscreen
 cpnpy --help              # command line: check, simulate, state space, mining
 ```
+
+The same commands work on macOS, Windows and Linux. GitHub runs the tests on
+all three for every push (`.github/workflows/tests.yml`); the result shows
+as a ✓ or ✕ next to each commit.
 
 The engines (`cpnpy.mining`, `cpnpy.ml`, `cpnpy.sim`, `cpnpy.analysis`)
 have **no dependencies**, so they work in a notebook or a script:

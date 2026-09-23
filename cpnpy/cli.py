@@ -161,7 +161,7 @@ def _read_log(path: str):
     if lower.endswith(".csv"):
         return read_csv(path)
     if lower.endswith(".txt"):
-        return EventLog.from_simple_log(parse_simple_log(Path(path).read_text()), Path(path).stem)
+        return EventLog.from_simple_log(parse_simple_log(Path(path).read_text(encoding="utf-8")), Path(path).stem)
     return read_xes(path)
 
 

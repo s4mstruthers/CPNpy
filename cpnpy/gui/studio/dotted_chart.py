@@ -386,9 +386,7 @@ class DottedChart(QWidget):
     @staticmethod
     def _small_font():
         from .. import theme
-        font = theme.ui_font(10)
-        font.setPointSizeF(10)
-        return font
+        return theme.ui_font(10)
 
     # -- painting ----------------------------------------------------------------
     def _invalidate(self) -> None:

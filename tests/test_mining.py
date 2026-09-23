@@ -77,7 +77,7 @@ def test_csv_import(tmp_path):
         "1;register;2024-01-01 09:00;Ann\n"
         "1;pay;2024-01-01 11:00;Bob\n"
         "2;register;02-01-2024 10:00;Ann\n"
-        "1;check;2024-01-01 10:00;Ann\n")
+        "1;check;2024-01-01 10:00;Ann\n", encoding="utf-8")
     log = read_csv(path)
     assert log.simple_log() == Counter({("register", "check", "pay"): 1, ("register",): 1})
     assert log[0][1].resource == "Ann"
@@ -264,7 +264,7 @@ def test_against_pm4py(tmp_path):
     simple = log.simple_log()
     net = inductive_miner(simple, noise_threshold=0.2).net
     path = tmp_path / "net.pnml"
-    path.write_text(pnml_string(net))
+    path.write_text(pnml_string(net), encoding="utf-8")
     pn, im, fm = pm4py.read_pnml(str(path))
     frame = pm4py.read_xes(str(DATA / "plane_wilma_10.xes"))
     frame = frame[frame["lifecycle:transition"] == "complete"]

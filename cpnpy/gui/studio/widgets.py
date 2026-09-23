@@ -320,7 +320,7 @@ class SequenceDelegate(QStyledItemDelegate):
         if option.state & QStyle.State_Selected:
             painter.fillRect(option.rect, QColor(style.tokens().accent_soft))
         font = option.font
-        font.setPointSizeF(max(font.pointSizeF() - 1, 9))
+        theme.set_px(font, max(theme.px(font) - 1, 9))
         paint_chips(painter, QRectF(option.rect).adjusted(6, 3, -6, -3), sequence, font)
         painter.restore()
 

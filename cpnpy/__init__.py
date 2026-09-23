@@ -1,4 +1,4 @@
-"""CPNpy -- Coloured Petri Nets and process mining, natively on macOS.
+"""CPNpy -- Coloured Petri Nets, Petri nets and process mining, on macOS, Windows and Linux.
 
 A from-scratch implementation of the modelling, simulation and analysis parts
 of CPN Tools / CPN IDE in pure Python, with a PySide6 desktop application.

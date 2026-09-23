@@ -131,14 +131,47 @@ def palette() -> Palette:
 # ---------------------------------------------------------------------------
 # Typography
 # ---------------------------------------------------------------------------
-def ui_font(size: int = 13, weight: QFont.Weight = QFont.Normal) -> QFont:
-    """The system UI font.
+def _logical_dpi() -> float:
+    """Logical dots per inch: 72 on macOS, usually 96 on Windows and Linux."""
+    from PySide6.QtGui import QGuiApplication
+    screen = QGuiApplication.primaryScreen() if QGuiApplication.instance() else None
+    if screen is not None and screen.logicalDotsPerInchY() > 0:
+        return screen.logicalDotsPerInchY()
+    import sys
+    return 72.0 if sys.platform == "darwin" else 96.0
 
-    ``QFontDatabase.systemFont`` returns SF Pro on macOS, which is what makes
-    the window look native rather than like a generic Qt application.
+
+def set_px(font: QFont, pixels: float) -> QFont:
+    """Size ``font`` in logical pixels -- the unit of the whole layout.
+
+    Every size in the application (fonts, paddings, node sizes) is meant in
+    logical pixels.  Qt font sizes are in points, and a point is one pixel on
+    macOS (72 dpi) but 1⅓ pixels on Windows and most Linux desktops (96 dpi),
+    where a "13 pt" font would come out a third too big and overflow boxes
+    sized for it.  Converting through the logical DPI makes the text the same
+    size relative to everything else on every platform.  (Fractional sizes
+    are kept, which ``QFont.setPixelSize`` would round away.)
+    """
+    font.setPointSizeF(max(1.0, pixels) * 72.0 / _logical_dpi())
+    return font
+
+
+def px(font: QFont) -> float:
+    """The size of ``font`` in logical pixels (see :func:`set_px`)."""
+    if font.pixelSize() > 0:
+        return float(font.pixelSize())
+    return font.pointSizeF() * _logical_dpi() / 72.0
+
+
+def ui_font(size: float = 13, weight: QFont.Weight = QFont.Normal) -> QFont:
+    """The system UI font, ``size`` logical pixels high.
+
+    ``QFontDatabase.systemFont`` returns SF Pro on macOS, Segoe UI on
+    Windows and the desktop's font on Linux, so the window looks native
+    rather than like a generic Qt application.
     """
     font = QFontDatabase.systemFont(QFontDatabase.GeneralFont)
-    font.setPointSize(size)
+    set_px(font, size)
     font.setWeight(weight)
     return font
 
@@ -150,7 +183,7 @@ def mono_font(size: int = 12) -> QFont:
     particularly the backquote in ``2`x``, which is nearly invisible otherwise.
     """
     font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
-    font.setPointSize(size)
+    set_px(font, size)
     return font
 
 

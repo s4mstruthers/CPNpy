@@ -66,8 +66,7 @@ class EdgeSpec:
 
 def _font(size: float = 11.5, bold: bool = False) -> QFont:
     from .. import theme
-    font = theme.ui_font(int(round(size)))
-    font.setPointSizeF(size)
+    font = theme.ui_font(size)
     font.setBold(bold)
     return font
 
