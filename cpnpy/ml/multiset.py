@@ -358,3 +358,60 @@ class TimedMultiset:
         )
 
     __str__ = __repr__
+
+
+class TimedTokens:
+    """Tokens with a time attached: the value of ``x@+5``, ``x@5`` or ``+++``.
+
+    CPN Tools writes timed multisets as terms joined by ``+++``, each term
+    carrying either a *delay* (``1`x@+5``: available 5 time units after the
+    transition fires) or an absolute *time stamp* (``1`x@5``, mostly in
+    initial markings).  ``groups`` keeps one ``(tokens, time, absolute)``
+    entry per term; :meth:`stamped` turns them into concrete time stamps once
+    the clock is known.
+    """
+
+    __slots__ = ("groups",)
+
+    def __init__(self, groups: Iterable[tuple[Multiset, Any, bool]]) -> None:
+        self.groups: tuple[tuple[Multiset, Any, bool], ...] = tuple(groups)
+
+    def __add__(self, other: "TimedTokens") -> "TimedTokens":
+        """``+++``: the terms of both."""
+        if not isinstance(other, TimedTokens):
+            return NotImplemented
+        return TimedTokens(self.groups + other.groups)
+
+    def untimed(self) -> Multiset:
+        """All the tokens, without their times."""
+        result = Multiset.empty()
+        for tokens, _time, _absolute in self.groups:
+            result = result + tokens
+        return result
+
+    def delayed(self, delay: Any) -> "TimedTokens":
+        """``(...)@+d`` around tokens that already have a delay: add ``d``."""
+        return TimedTokens((tokens, time if absolute else time + delay, absolute)
+                           for tokens, time, absolute in self.groups)
+
+    def scaled(self, factor: int) -> "TimedTokens":
+        return TimedTokens((tokens * factor, time, absolute)
+                           for tokens, time, absolute in self.groups)
+
+    def stamped(self, clock: Any) -> list[tuple[Multiset, Any]]:
+        """``(tokens, time stamp)`` per term, delays counted from ``clock``."""
+        return [(tokens, time if absolute else clock + time)
+                for tokens, time, absolute in self.groups]
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, TimedTokens) and self.groups == other.groups
+
+    def __hash__(self) -> int:
+        return hash(self.groups)
+
+    def __repr__(self) -> str:
+        terms = [f"{tokens}@{'' if absolute else '+'}{time}"
+                 for tokens, time, absolute in self.groups]
+        return "+++".join(terms) if terms else "empty"
+
+    __str__ = __repr__

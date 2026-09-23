@@ -50,6 +50,8 @@ KEYWORDS = frozenset(
 # the first entry that matches, so ``++`` must precede ``+``.
 _MULTI_CHAR_OPERATORS = (
     "@+",   # time delay (CPN extension)
+    "+++",  # timed multiset union
+    "---",  # timed multiset difference
     "++",   # multiset union
     "--",   # multiset difference
     "^^",   # list append (CPN Tools spelling)

@@ -89,13 +89,68 @@ class DeclarationBlock:
         the standard colour sets each time, so removing a declaration really
         removes it.
         """
+        from ..ml.parser import parse_expression
         self.colour_sets = standard_colour_sets()
         self.variables = {}
 
-        for name, source in self.colour_sets_in_order():
-            colour_set = parse_colour_set_declaration(source, self.colour_sets)
-            self.colour_sets[colour_set.name] = colour_set
-            _install_constructors(colour_set, evaluator)
+        for colour_set in self.colour_sets.values():         # INT.all () ...
+            _install_colour_set_functions(colour_set, evaluator)
+
+        # Colour sets and ML declarations may depend on each other in either
+        # direction: `val n = 5; colset N = int with 1..n;`, a subset by a
+        # predicate function, or `val phs = PH.all ();`.  The three lists do
+        # not record how the modeller interleaved them, so compile in passes:
+        # each pass compiles whatever it can, and a declaration that fails
+        # waits for the next pass.  Only when a whole pass makes no progress
+        # is the first remaining problem reported.
+        pending_sets = list(self.colour_sets_in_order())
+        pending_ml = list(self.ml_sources)
+        pending_refs = list(self.globref_sources)
+        while pending_sets or pending_ml or pending_refs:
+            problems: list[CPNMLError] = []
+            progress = False
+
+            waiting_sets = []
+            for name, source in pending_sets:
+                try:
+                    colour_set = parse_colour_set_declaration(source, self.colour_sets, evaluator)
+                except CPNMLError as problem:
+                    waiting_sets.append((name, source))
+                    # Say which declaration failed: positions are relative to it.
+                    problems.append(type(problem)(f"colset {name}: {problem.message}",
+                                                  problem.position))
+                    continue
+                self.colour_sets[colour_set.name] = colour_set
+                _install_constructors(colour_set, evaluator)
+                _install_colour_set_functions(colour_set, evaluator)
+                progress = True
+            pending_sets = waiting_sets
+
+            waiting_ml = []
+            for source in pending_ml:
+                try:
+                    evaluator.run_declarations(parse_declarations(source))
+                except CPNMLError as problem:
+                    waiting_ml.append(source)
+                    problems.append(problem)
+                    continue
+                progress = True
+            pending_ml = waiting_ml
+
+            waiting_refs = []
+            for name, initial in pending_refs:
+                try:
+                    evaluator.globals.define(name, evaluator.evaluate(parse_expression(initial)))
+                except CPNMLError as problem:
+                    waiting_refs.append((name, initial))
+                    problems.append(type(problem)(f"globref {name}: {problem.message}",
+                                                  problem.position))
+                    continue
+                progress = True
+            pending_refs = waiting_refs
+
+            if not progress:
+                raise problems[0]
 
         for name, colour_set_name, _source in self.variable_sources:
             if colour_set_name not in self.colour_sets:
@@ -104,14 +159,6 @@ class DeclarationBlock:
                     f"'{colour_set_name}'"
                 )
             self.variables[name] = colour_set_name
-
-        # ML declarations may refer to colour set constants, so they run last.
-        for source in self.ml_sources:
-            evaluator.run_declarations(parse_declarations(source))
-
-        for name, initial in self.globref_sources:
-            from ..ml.parser import parse_expression
-            evaluator.globals.define(name, evaluator.evaluate(parse_expression(initial)))
 
     def colour_sets_in_order(self) -> list[tuple[str, str]]:
         return list(self.colour_set_sources)
@@ -155,15 +202,82 @@ def _install_constructors(colour_set: ColourSet, evaluator: Evaluator) -> None:
             evaluator.globals.define(colour_set.true_alias, True)
 
 
+def _install_colour_set_functions(colour_set: ColourSet, evaluator: Evaluator) -> None:
+    """CPN Tools' colour set functions: ``PH.all()``, ``PH.ran()`` and friends.
+
+    Every colour set ``CS`` comes with
+
+    ``CS.all ()``    the multiset with one of each colour (finite sets only)
+    ``CS.size ()``   the number of colours
+    ``CS.ran ()``    a colour drawn at random
+    ``CS.ord c``     the position of ``c``, counting from 0
+    ``CS.col i``     the colour at position ``i``
+    ``CS.legal c``   whether ``c`` is a member
+    ``CS.mkstr c``   ``c`` as a string
+
+    The colours are listed on first use only, so declaring a large colour set
+    costs nothing until one of these is called.
+    """
+    from ..ml.builtins import Builtin
+    from ..ml.errors import EvalError
+    from ..ml.multiset import Multiset
+    from ..ml.values import format_value
+
+    name = colour_set.name
+    cache: list[list[Any]] = []
+
+    def members() -> list[Any]:
+        if not cache:
+            if not colour_set.is_finite():
+                raise EvalError(f"{name} is infinite, so it has no {name}.all/ran/ord/col")
+            cache.append(list(colour_set.members()))
+        return cache[0]
+
+    def ordinal(colour: Any) -> int:
+        try:
+            return members().index(colour)
+        except ValueError:
+            raise EvalError(f"{format_value(colour)} is not a colour of {name}") from None
+
+    def column(index: Any) -> Any:
+        colours = members()
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(colours):
+            raise EvalError(f"{name}.col expects 0..{len(colours) - 1}, got {format_value(index)}")
+        return colours[index]
+
+    def random_colour(_unit: Any) -> Any:
+        colours = members()
+        if not colours:
+            raise EvalError(f"{name} is empty, so {name}.ran has nothing to choose")
+        return evaluator.rng.choice(colours)
+
+    functions = {
+        "all": lambda _unit: Multiset.from_values(members()),
+        "size": lambda _unit: len(members()),
+        "ran": random_colour,
+        "ord": ordinal,
+        "col": column,
+        "legal": lambda colour: bool(colour_set.contains(colour)),
+        "mkstr": lambda colour: format_value(colour),
+    }
+    for function_name, function in functions.items():
+        qualified = f"{name}.{function_name}"
+        evaluator.globals.define(qualified, Builtin(qualified, function))
+
+
 # ===========================================================================
 # The colour set declaration parser
 # ===========================================================================
 class _ColourSetParser(Parser):
     """Extends the ML parser cursor with the ``colset`` grammar."""
 
-    def __init__(self, tokens: Sequence[Token], registry: dict[str, ColourSet], source: str) -> None:
+    def __init__(self, tokens: Sequence[Token], registry: dict[str, ColourSet], source: str,
+                 evaluator: Evaluator | None = None) -> None:
         super().__init__(tokens, source)
         self.registry = registry
+        #: Evaluates named range bounds and subset predicates; without it only
+        #: literals are accepted and subsets keep every value.
+        self.evaluator = evaluator
 
     # -- helpers -------------------------------------------------------------
     def _resolve(self, name: str) -> ColourSet:
@@ -175,21 +289,41 @@ class _ColourSetParser(Parser):
         return self.registry[name]
 
     def _constant_int(self) -> int:
-        """Read an integer bound, allowing a previously declared ``val``.
-
-        CPN Tools permits ``int with 1..n`` where ``n`` is a declared constant.
-        We only support literals here and report a clear error otherwise,
-        because resolving it would need the evaluator, which is not available
-        while colour sets are still being built.
+        """Read an integer bound: a literal, or an expression such as ``n``
+        or ``n * 2`` over values declared with ``val`` (as CPN Tools allows).
         """
-        token = self.next_token()
-        if token.kind != "INT":
-            raise ParseError(
-                "colour set ranges must use integer literals in this implementation "
-                f"(found {token.value!r})",
-                token.position,
-            )
-        return int(token.value)  # type: ignore[arg-type]
+        token = self.peek()
+        if token.kind == "INT" and (self.peek(1).kind == "EOF" or self._bound_ends(1)):
+            self.next_token()
+            return int(token.value)  # type: ignore[arg-type]
+        value = self._evaluate_until_bound_end("a colour set range")
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ParseError(f"a colour set range must be an integer, got {value!r}",
+                             token.position)
+        return value
+
+    def _bound_ends(self, offset: int = 0) -> bool:
+        """Does the token at ``offset`` end a range bound?"""
+        token = self.peek(offset)
+        if token.kind == "EOF":
+            return True
+        if token.kind == "OP" and token.value in ("..", ";"):
+            return True
+        return token.kind in ("ID", "KEYWORD") and token.value in ("timed", "and")
+
+    def _evaluate_until_bound_end(self, what: str) -> Any:
+        """Evaluate the tokens up to the end of a bound (``..``, ``;``, ...)."""
+        from ..ml.parser import parse_expression
+        start = self.peek().position
+        while not self._bound_ends():
+            self.next_token()
+        end = self.peek().position if not self.at_end() else len(self.source)
+        text = self.source[start:end].strip()
+        if not text:
+            raise ParseError(f"expected {what}", start)
+        if self.evaluator is None:
+            raise ParseError(f"{what} must be an integer literal here (found {text!r})", start)
+        return self.evaluator.evaluate(parse_expression(text))
 
     def _string_literal(self) -> str:
         token = self.next_token()
@@ -385,9 +519,22 @@ class _ColourSetParser(Parser):
                 self.next_token()
             end = self.peek().position if not self.at_end() else len(self.source)
             source = self.source[start:end].strip()
-            # Placeholder predicate; :class:`CPNet` recompiles it once the ML
-            # declarations are in place.
-            return SubsetColourSet(name, base, lambda _v: True, predicate_source=source)
+            if self.evaluator is None:
+                # Parsed only for its shape (no evaluator): keep every value.
+                return SubsetColourSet(name, base, lambda _v: True, predicate_source=source)
+            from ..ml.parser import parse_expression
+            evaluator = self.evaluator
+            # Evaluated now, so an undeclared predicate makes this colour set
+            # wait until the ML declarations have defined it.
+            function = evaluator.evaluate(parse_expression(source))
+
+            def predicate(value: Any) -> bool:
+                try:
+                    return evaluator.apply(function, value) is True
+                except CPNMLError:
+                    return False
+
+            return SubsetColourSet(name, base, predicate, predicate_source=source)
 
         if self._at_word("with"):
             self.next_token()
@@ -405,7 +552,18 @@ class _ColourSetParser(Parser):
             end = self.peek().position
             source = self.source[start:end]
             self.expect_operator("]")
-            return SubsetColourSet(name, base, lambda _v: True, predicate_source=f"MEMBERS[{source}]")
+            if self.evaluator is None:
+                return SubsetColourSet(name, base, lambda _v: True,
+                                       predicate_source=f"MEMBERS[{source}]")
+            from ..ml.parser import parse_expression
+            listed = list(self.evaluator.evaluate(parse_expression(f"[{source}]")))
+            for value in listed:
+                if not base.contains(value):
+                    raise ParseError(f"{value!r} in subset '{name}' is not a member of "
+                                     f"'{base.name}'", start)
+            return SubsetColourSet(name, base, lambda value: value in listed,
+                                   predicate_source=f"MEMBERS[{source}]",
+                                   members=listed)
 
         raise ParseError("'subset' must be followed by 'by' or 'with'", self.peek().position)
 
@@ -420,9 +578,14 @@ class _ColourSetParser(Parser):
         self.next_token()
 
 
-def parse_colour_set_declaration(source: str, registry: dict[str, ColourSet]) -> ColourSet:
-    """Parse one ``colset ... = ...;`` declaration against ``registry``."""
-    return _ColourSetParser(tokenise(source), registry, source).parse()
+def parse_colour_set_declaration(source: str, registry: dict[str, ColourSet],
+                                 evaluator: Evaluator | None = None) -> ColourSet:
+    """Parse one ``colset ... = ...;`` declaration against ``registry``.
+
+    With an ``evaluator``, range bounds may name declared values and subset
+    predicates are compiled; without one, only literal bounds are accepted.
+    """
+    return _ColourSetParser(tokenise(source), registry, source, evaluator).parse()
 
 
 def parse_variable_declaration(source: str) -> list[VariableDeclaration]:

@@ -122,8 +122,9 @@ Three rules, implemented in `cpnpy/sim/simulator.py`:
 
 - a token in a timed place carries a **time stamp**; only tokens whose stamp
   has been reached may be consumed;
-- produced tokens are stamped `clock + delay`, from the arc's `@+` or the
-  transition's own time inscription;
+- produced tokens are stamped `clock + delay`, where the delay is the
+  transition's own time inscription plus the output arc's `@+` (as in CPN
+  Tools, the two add up);
 - when nothing is enabled now but some place holds a token stamped for the
   future, the clock **jumps** to the earliest such stamp.
 

@@ -135,8 +135,8 @@ class Transition:
 
     ``guard_text`` holds the boolean condition (CPN Tools writes it in square
     brackets on the diagram, but stores it without them).  ``time_text`` is the
-    transition-level delay ``@+ e`` applied to all output tokens that do not
-    carry their own delay.
+    transition-level delay ``@+ e`` applied to all output tokens; an output
+    arc's own ``@+`` adds to it.
     """
 
     id: str = field(default_factory=lambda: new_id("ID"))
@@ -266,6 +266,9 @@ class CPNet:
 
     def __init__(self, name: str = "Untitled", seed: int | None = None) -> None:
         self.name = name
+        #: Seed for the model's own random functions (``uniform``, ``discrete``
+        #: ...).  Kept so that :meth:`compile` can seed the fresh evaluator.
+        self.seed = seed
         self.declarations = DeclarationBlock()
         self.pages: list[Page] = []
         #: Drawn and edited as a plain Petri net (black tokens, arc weights;
@@ -323,7 +326,7 @@ class CPNet:
         empty list means the model is ready to simulate.
         """
         self.errors = []
-        self.evaluator = Evaluator(seed=None)
+        self.evaluator = Evaluator(seed=self.seed)
         self._build_fusion_map()
 
         # 1. Declarations first: colour sets, variables, val/fun bindings.
@@ -433,20 +436,34 @@ class CPNet:
             colour_set = self.colour_set_of(place)
             timed = bool(colour_set and colour_set.timed)
 
-            tokens = Multiset.empty()
+            # (tokens, time stamp) groups: `1`x@5 +++ 1`y@0` stamps each term.
+            groups: list[tuple[Multiset, Any]] = []
             if place.initial_marking_ast is not None:
                 from ..ml.evaluator import expand_lists, to_multiset
+                from ..ml.multiset import TimedTokens
                 value = self.evaluator.evaluate(place.initial_marking_ast, self.evaluator.globals)
-                tokens = expand_lists(to_multiset(value), colour_set)
+                if isinstance(value, TimedTokens):
+                    groups = value.stamped(0)
+                else:
+                    groups = [(to_multiset(value), 0)]
+                groups = [(expand_lists(part, colour_set), stamp) for part, stamp in groups]
                 if colour_set is not None:
-                    for token, _count in tokens.items():
-                        if not colour_set.contains(token):
-                            self._record(
-                                place.id, place.name, "initial marking",
-                                f"token {token} is not a member of '{colour_set.name}'",
-                            )
+                    for part, _stamp in groups:
+                        for token, _count in part.items():
+                            if not colour_set.contains(token):
+                                self._record(
+                                    place.id, place.name, "initial marking",
+                                    f"token {token} is not a member of '{colour_set.name}'",
+                                )
             key = self.marking_key(place.id)
-            stored = TimedMultiset.from_multiset(tokens, 0) if timed else tokens
+            if timed:
+                stored = TimedMultiset.empty()
+                for part, stamp in groups:
+                    stored = stored.add(TimedMultiset.from_multiset(part, stamp))
+            else:
+                stored = Multiset.empty()
+                for part, _stamp in groups:
+                    stored = stored + part
             # Members of a fusion set share one marking. CPN Tools expects their
             # initial marking expressions to agree; if they do not, the first
             # non-empty one wins and the rest are ignored.

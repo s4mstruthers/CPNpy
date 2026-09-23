@@ -12,14 +12,22 @@ CPN Tools puts them.  Lowest binding power first:
     1    ``orelse``               left
     2    ``andalso``              left
     3    ``= <> < > <= >=``       left
-    4    ``:: @ ^^``              right
-    5    ``+ - ^ ++ --``          left
-    6    ``* / div mod``          left
-    7    ``~``  ``not`` (prefix)  --
-    8    `` ` `` (coefficient)    non-associative
-    9    application ``f x``      left
-    10   atoms                    --
+    4    ``+++ ---`` (timed)      left
+    5    ``@+`` (time delay)      non-associative
+    6    ``:: @ ^^``              right
+    7    ``+ - ^ ++ --``          left
+    8    ``* / div mod``          left
+    9    ``~``  ``not`` (prefix)  --
+    10   `` ` `` (coefficient)    non-associative
+    11   application ``f x``      left
+    12   atoms                    --
     ==== ======================== ==============
+
+The timed levels follow CPN Tools' timed multisets:
+``1`x@+5 +++ 1`y@+3`` delays two tokens differently, ``(1`x ++ 1`y)@+5``
+and ``1`x ++ 1`y @+ 5`` delay both, and ``1`3@5 +++ 1`4@0`` gives an
+initial marking with time stamps (``@`` with a number on the right is a time
+stamp; between two lists it is list append).
 
 Two consequences are worth internalising, because they explain how ordinary
 CPN inscriptions parse:
@@ -71,17 +79,26 @@ _BINARY_LEVELS: dict[int, frozenset[str]] = {
     1: frozenset({"orelse"}),
     2: frozenset({"andalso"}),
     3: frozenset({"=", "<>", "<", ">", "<=", ">="}),
-    4: frozenset({"::", "@", "^^"}),
-    5: frozenset({"+", "-", "^", "++", "--"}),
-    6: frozenset({"*", "/", "div", "mod"}),
+    4: frozenset({"+++", "---"}),
+    5: frozenset({"@+"}),
+    6: frozenset({"::", "@", "^^"}),
+    7: frozenset({"+", "-", "^", "++", "--"}),
+    8: frozenset({"*", "/", "div", "mod"}),
 }
-_RIGHT_ASSOCIATIVE = frozenset({4})
+_RIGHT_ASSOCIATIVE = frozenset({6})
+_DELAY_LEVEL = 5
 _LOWEST_LEVEL = 1
-_HIGHEST_BINARY_LEVEL = 6
+_HIGHEST_BINARY_LEVEL = 8
 
 # Tokens that can begin an atom.  The application parser uses this to decide
 # whether the next token continues an application (``f x``) or ends it.
-_ATOM_START_KEYWORDS = frozenset({"true", "false", "nil", "empty"})
+_ATOM_START_KEYWORDS = frozenset({"true", "false", "nil", "empty", "op"})
+
+# Infix operators that ``op`` turns into ordinary two-argument functions:
+# ``op +`` is ``fn (a, b) => a + b``, as in Standard ML.
+_OP_SECTIONS = frozenset(
+    spelling for level in (3, 4, 6, 7, 8) for spelling in _BINARY_LEVELS[level]
+)
 _ATOM_START_OPERATORS = frozenset({"(", "[", "{", "#"})
 
 
@@ -225,6 +242,14 @@ class Parser:
         operators = _BINARY_LEVELS[level]
         left = self._parse_binary(level + 1)
 
+        if level == _DELAY_LEVEL:
+            # `tokens @+ delay`: at most once, the delay being an ordinary
+            # arithmetic expression (`x @+ d + 1` delays by d + 1).
+            if self.at_operator("@+"):
+                token = self.next_token()
+                return Delay(left, self._parse_binary(level + 1), token.position)
+            return left
+
         while True:
             token = self.peek()
             # `div` and `mod` are keywords, every other operator is an OP token.
@@ -299,6 +324,8 @@ class Parser:
             if token.value == "empty":
                 self.next_token()
                 return EmptyMultiset(token.position)
+            if token.value == "op":
+                return self._parse_op_section()
             # `if`/`let`/`case`/`fn` in argument position must be bracketed in
             # ML, so reaching here means the input really is malformed.
             raise ParseError(
@@ -319,6 +346,21 @@ class Parser:
             f"unexpected {self._describe(token)} where an expression was expected",
             token.position,
         )
+
+    def _parse_op_section(self) -> Expr:
+        """``op +``: an infix operator as a function on pairs."""
+        start = self.next_token().position                 # the `op` keyword
+        token = self.next_token()
+        spelling = token.value if token.kind in ("OP", "KEYWORD") else None
+        if spelling not in _OP_SECTIONS:
+            raise ParseError(
+                f"'op' must be followed by an infix operator, not {self._describe(token)}",
+                token.position,
+            )
+        left, right = "op'left", "op'right"                # cannot clash with ML names
+        pattern = PTuple((PVar(left, start), PVar(right, start)), start)
+        body = BinOp(str(spelling), Var(left, start), Var(right, start), start)
+        return FnExpr(((pattern, body),), start)
 
     def _parse_parenthesised(self) -> Expr:
         """``()``, ``(e)`` or ``(e1, e2, ...)`` -- unit, grouping, or a tuple."""

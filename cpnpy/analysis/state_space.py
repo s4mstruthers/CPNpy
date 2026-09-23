@@ -200,16 +200,18 @@ class StateSpace:
 
         enabled = simulator.all_enabled()
         if not enabled:
-            if simulator.advance_time():
-                advanced = simulator.clock
+            # Let time pass, one token-release moment at a time, until
+            # something is enabled -- like Simulator.step.  Stopping after the
+            # first jump would call a state dead when the token released
+            # first enables nothing but a later one does.
+            while not enabled and simulator.advance_time():
                 enabled = simulator.all_enabled()
-                if enabled:
-                    # The time jump is itself a state change, so we model it as
-                    # firing from the *advanced* state.
-                    for element in enabled:
-                        marking, clock = simulator.fire(element, state.marking, advanced)
-                        yield element, State(marking, clock)
-                return
+            # The time jump is itself a state change, so we model it as
+            # firing from the *advanced* state.
+            advanced = simulator.clock
+            for element in enabled:
+                marking, clock = simulator.fire(element, state.marking, advanced)
+                yield element, State(marking, clock)
             return
 
         for element in enabled:
@@ -400,21 +402,21 @@ class StateSpace:
         if not terminals:
             return []
 
-        live: list[Transition] = []
-        for transition in self.net.all_transitions():
-            if transition.is_substitution:
-                continue
-            if all(
-                any(
-                    arc.binding.transition_id == transition.id
-                    for node in component
-                    for arc in self.arcs.get(node, [])
-                    if arc.target in set(component)
-                )
-                for component in terminals
-            ):
-                live.append(transition)
-        return live
+        # The transitions occurring inside each terminal component.
+        occurring: list[set[str]] = []
+        for component in terminals:
+            members = set(component)
+            occurring.append({
+                arc.binding.transition_id
+                for node in component
+                for arc in self.arcs.get(node, [])
+                if arc.target in members
+            })
+        return [
+            transition for transition in self.net.all_transitions()
+            if not transition.is_substitution
+            and all(transition.id in inside for inside in occurring)
+        ]
 
     def home_markings(self) -> list[int]:
         """Markings reachable from every reachable marking.
