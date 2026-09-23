@@ -1,0 +1,1755 @@
+"""The coloured-Petri-net workspace: edit, simulate and analyse a CPN model.
+
+This is the CPN Tools / CPN IDE half of the application, in the same visual
+language as the process-mining pages::
+
+    ┌ header: model name · summary ·············· Save  Save As…  Export image… ┐
+    │ ┌ Model ──────┐ ┌ canvas ─────────────────────────┐ ┌ inspector ─────────┐ │
+    │ │ Pages │ Decl│ │ Edit | Step through | Simulate  │ │ Simulation         │ │
+    │ │ • Top       │ │ tools / simulation bar          │ │ Element            │ │
+    │ │ • Sub       │ │                                 │ │ Problems           │ │
+    │ │             │ │        the net                  │ │ State space        │ │
+    │ └─────────────┘ └─────────────────── − 100% + Fit ┘ └────────────────────┘ │
+    └──────────────────────────────────────────────────────────────────────────────┘
+
+Modes (the same three as for Petri nets in the mining half):
+
+* **Edit** -- draw places, transitions and arcs; select one to edit its
+  inscriptions in the *Element* tab.  Clicking never fires anything.
+* **Step through** -- enabled transitions are green; click one to fire a
+  random enabled binding of it, pick a specific binding in the inspector,
+  press Step for a random one, or Back to undo.
+* **Simulate** -- Play fires by itself at the chosen speed; Fast-forward
+  runs many steps as fast as possible.  The firing history can be turned
+  into an event log (*Export as event log…*) and mined straight away.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QShortcut
+from PySide6.QtWidgets import (
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QHeaderView, QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+    QPlainTextEdit, QSpinBox, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
+    QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
+)
+from html import escape
+
+from ...io.cpn_writer import write_cpn
+from ...ml.values import format_value
+from ...model.net import Arc, CPNet, Place, Transition
+from ...sim.simulator import DeadMarkingError, Simulator
+from .. import theme
+from ..canvas import NetScene, NetView
+from . import style
+from .derivation_view import HtmlDelegate
+from .documents import CpnDocument
+from .graph_view import EdgeSpec, GraphView, NodeSpec
+from .ml_highlighter import MlHighlighter
+from .widgets import (
+    Card, ElidedLabel, PageHeader, SegmentedControl, StatTile, Verdict, button, flow, hbox, label,
+    scroll, vbox,
+)
+
+
+def _tool(text: str, tooltip: str, checkable: bool = False) -> QToolButton:
+    tool = QToolButton()
+    tool.setObjectName("canvasTool")
+    tool.setText(text)
+    tool.setToolTip(tooltip)
+    tool.setCheckable(checkable)
+    tool.setCursor(Qt.PointingHandCursor)
+    return tool
+
+
+def format_time(value) -> str:
+    """Model time without float noise: 12, 12.5, 3.142."""
+    if isinstance(value, float):
+        return f"{value:.3f}".rstrip("0").rstrip(".") if value != int(value) else str(int(value))
+    return str(value)
+
+
+def _mono() -> str:
+    return "'SF Mono', Menlo, 'DejaVu Sans Mono', monospace"
+
+
+def binding_html(net: CPNet, element) -> str:
+    """``Check in  i = 1, r = 0`` with the name in bold and values in mono."""
+    transition = net.find_transition(element.transition_id)
+    name = escape(transition.name if transition else element.transition_id)
+    muted = style.tokens().text_muted
+    def value(v) -> str:
+        text = format_value(v)
+        return text if len(text) <= 48 else text[:46] + " …"
+    parts = [f"<span style='color:{muted}'>{escape(k)}</span>&nbsp;=&nbsp;"
+             f"<span style='font-family:{_mono()}'>{escape(value(v))}</span>"
+             for k, v in element.assignments]
+    return f"<b>{name}</b>&nbsp;&nbsp;" + ", ".join(parts)
+
+
+class _TwoLineDelegate(QStyledItemDelegate):
+    """List rows with a title and a muted second line (UserRole + 1)."""
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        t = style.tokens()
+        painter.save()
+        selected = bool(option.state & QStyle.State_Selected)
+        rect = option.rect.adjusted(4, 2, -4, -2)
+        if selected:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(t.accent))
+            painter.drawRoundedRect(rect, 7, 7)
+        elif option.state & QStyle.State_MouseOver:
+            painter.setPen(Qt.NoPen)
+            hover = QColor(t.text)
+            hover.setAlphaF(0.06)
+            painter.setBrush(hover)
+            painter.drawRoundedRect(rect, 7, 7)
+        font = QFont(option.font)
+        font.setWeight(QFont.DemiBold)
+        painter.setFont(font)
+        painter.setPen(QColor(t.accent_text if selected else t.text))
+        text_rect = rect.adjusted(10, 5, -8, 0)
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignTop, index.data(Qt.DisplayRole) or "")
+        font.setWeight(QFont.Normal)
+        font.setPointSizeF(font.pointSizeF() * 0.88)
+        painter.setFont(font)
+        painter.setPen(QColor(t.accent_text if selected else t.text_muted))
+        painter.drawText(text_rect.adjusted(0, 18, 0, 0), Qt.AlignLeft | Qt.AlignTop,
+                         index.data(Qt.UserRole + 1) or "")
+        painter.restore()
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802
+        return QSize(160, 46)
+
+
+class CaseVariableDialog(QDialog):
+    """Options for turning the firing history into an event log."""
+
+    def __init__(self, variables: list[str], preferred: str | None, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Export simulation as event log")
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.addWidget(label(
+            "Every firing becomes an event: the activity is the transition's name and the "
+            "timestamp is the model time. Choose the variable whose value identifies the case "
+            "(e.g. the passenger id); firings that do not bind it are left out.", "muted",
+            wrap=True))
+        form = QFormLayout()
+        self.variable = QComboBox()
+        self.variable.addItems(variables)
+        if preferred in variables:
+            self.variable.setCurrentText(preferred)
+        self.unit = QComboBox()
+        self.unit.addItems(["seconds", "minutes", "hours", "days"])
+        self.unit.setCurrentText("minutes")
+        form.addRow("Case identifier", self.variable)
+        form.addRow("One time unit is", self.unit)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
+class CpnPage(QWidget):
+    status = Signal(str)
+    saved = Signal()
+    #: The model was edited (True) or saved (False).
+    dirty_changed = Signal(bool)
+    #: A simulation run was exported as an event log.
+    log_generated = Signal(object)
+
+    MODES = ["Edit", "Step through", "Simulate"]
+    TOOLS = [("select", "↖ Select", "Select and move elements (drag on empty canvas to "
+              "select several)"),
+             ("place", "◯ Place", "Click on the canvas to add a place"),
+             ("transition", "▭ Transition", "Click on the canvas to add a transition"),
+             ("arc", "→ Arc", "Click a place and then a transition (or the reverse)")]
+    INSPECTOR = ["Simulation", "Element", "Problems", "State space"]
+    MAX_BINDINGS_SHOWN = 400
+
+    def __init__(self, document: CpnDocument, parent=None) -> None:
+        super().__init__(parent)
+        self.document = document
+        self.net: CPNet = document.net
+        self.net.compile()
+        self.simulator = Simulator(self.net)
+        self.element = None
+        self.busy = False                      # a state space is being computed
+        self.fast_forward_left = 0
+        self.runs_completed = 0
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self.header = PageHeader(self.net.name, "")
+        self.save_button = button("Save", self.save, tooltip="Save the model (⌘S)")
+        self.header.actions.addWidget(self.save_button)
+        self.header.actions.addWidget(button("Save As…", self.export))
+        self.header.actions.addWidget(button("Export image…", self._export_image))
+        root.addWidget(self.header)
+
+        splitter = QSplitter()
+        splitter.setHandleWidth(14)
+        splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
+        splitter.addWidget(self._build_structure())
+        splitter.addWidget(self._build_canvas())
+        splitter.addWidget(self._build_inspector())
+        splitter.setStretchFactor(1, 1)
+        splitter.setCollapsible(1, False)
+        splitter.setSizes([250, 780, 400])
+        self.splitter = splitter
+        wrapper = QWidget()
+        wrapper.setLayout(vbox(splitter, margins=(20, 0, 20, 16)))
+        root.addWidget(wrapper, 1)
+
+        self.scene.show_page(self.net.pages[0] if self.net.pages else None)
+        self._mode_changed(0)
+        self.refresh_all()
+        QTimer.singleShot(0, self.view.zoom_to_fit)
+
+    # =====================================================================
+    # Construction
+    # =====================================================================
+    def _build_structure(self) -> QWidget:
+        card = Card()
+        self.structure_panel = card
+        self.structure_switch = SegmentedControl(["Pages", "Declarations"], compact=True)
+        card.setMinimumWidth(max(200, self.structure_switch.sizeHint().width() + 36))
+        card.add(hbox(self.structure_switch, None))
+        self.structure_stack = QStackedWidget()
+
+        # -- pages
+        pages = QWidget()
+        self.page_list = QListWidget()
+        self.page_list.setObjectName("sourceList")
+        self.page_list.setItemDelegate(_TwoLineDelegate(self.page_list))
+        self.page_list.setMouseTracking(True)
+        self.page_list.setFrameShape(QListWidget.NoFrame)
+        self.page_list.currentRowChanged.connect(self._page_selected)
+        self.page_list.itemDoubleClicked.connect(lambda _item: self._rename_page())
+        self.page_list.setToolTip("Double-click a page to rename it")
+        pages.setLayout(vbox(self.page_list,
+                             hbox(button("＋ Add page", self._add_page, kind="ghost"), None),
+                             spacing=4))
+        self.structure_stack.addWidget(pages)
+
+        # -- declarations
+        declarations = QWidget()
+        self.declarations_editor = QPlainTextEdit()
+        self.declarations_editor.setFont(theme.mono_font(11))
+        self.declarations_editor.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.declarations_editor.setPlaceholderText(
+            "colset NO = int;\nvar n : NO;\nfun next n = n + 1;")
+        self.highlighter = MlHighlighter(self.declarations_editor.document())
+        self.declarations_status = label("", "muted", wrap=True)
+        self.apply_button = button("Apply", self._apply_declarations, kind="primary",
+                                   tooltip="Re-read the declarations and recompile the model")
+        self.revert_button = button("Revert", self._reload_declarations)
+        self.declarations_editor.textChanged.connect(self._declarations_edited)
+        declarations.setLayout(vbox(
+            label("CPN ML: colset, var, val, fun, globref — each ending in ;", "muted",
+                  wrap=True),
+            self.declarations_editor, self.declarations_status,
+            hbox(None, self.revert_button, self.apply_button), spacing=6))
+        self.structure_stack.addWidget(declarations)
+        self.structure_switch.changed.connect(self._structure_tab)
+        card.add(self.structure_stack, 1)
+        self._reload_declarations()
+        return card
+
+    def _values_mode(self, index: int) -> None:
+        for i, action in enumerate(self.values_actions):
+            action.setChecked(i == index)
+        self.scene.show_token_values = (None, True, False)[index]
+        self.scene.update_markings(self._marking_for)
+
+    def _toggle_inspector(self) -> None:
+        show = not self.inspector_panel.isVisible()
+        self.inspector_panel.setVisible(show)
+        self.inspector_toggle.setText("Inspector ⇥" if show else "⇤ Inspector")
+        if self.view.auto_fit:
+            QTimer.singleShot(0, self.view.zoom_to_fit)
+
+    def _toggle_structure(self, show: bool) -> None:
+        self.structure_panel.setVisible(show)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if not getattr(self, "_shown_once", False):
+            self._shown_once = True
+            # On a small screen start with the canvas as large as possible
+            # (single-page models rarely need the pages list).
+            if self.width() < 1500 and len(self.net.pages) == 1:
+                self._toggle_structure(False)
+
+    def _structure_tab(self, index: int) -> None:
+        """Declarations are long lines of code: give them room while shown."""
+        self.structure_stack.setCurrentIndex(index)
+        splitter = getattr(self, "splitter", None)
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        wanted = 440 if index == 1 else 250
+        if index == 1 and sizes[0] >= wanted:
+            return
+        spare = sizes[0] - wanted
+        splitter.setSizes([wanted, max(300, sizes[1] + spare), sizes[2]])
+
+    def _build_canvas(self) -> QWidget:
+        card = Card()
+        self.mode_switch = SegmentedControl(self.MODES)
+        self.mode_switch.setToolTip("Edit: draw and change the model\n"
+                                    "Step through: fire transitions one at a time\n"
+                                    "Simulate: let the model run by itself")
+        self.tool_switch = SegmentedControl([text for _, text, _ in self.TOOLS], compact=True)
+        for tool_button, (_, _, tip) in zip(self.tool_switch.buttons, self.TOOLS):
+            tool_button.setToolTip(tip)
+        self.sim_status = ElidedLabel("", "muted")
+        self.structure_toggle = _tool("☰ Model", "Show or hide the pages and declarations "
+                                      "panel")
+        # What to write next to the green token counts (a compact menu button).
+        self.values_button = _tool("Tokens ▾", "What to write next to the green token "
+                                   "counts. Hidden values still show on hover and in the "
+                                   "Marking table.")
+        self.values_button.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.values_button)
+        self.values_actions = []
+        for index, text in enumerate(["Values as in the model (CPN Tools’ “hide marking”)",
+                                      "All values", "Counts only"]):
+            action = menu.addAction(text)
+            action.setCheckable(True)
+            action.setChecked(index == 0)
+            action.triggered.connect(lambda _=False, i=index: self._values_mode(i))
+            self.values_actions.append(action)
+        self.values_button.setMenu(menu)
+        self.inspector_toggle = _tool("Inspector ⇥", "Show or hide the inspector, to give "
+                                      "the canvas the full width")
+        self.undo_button = _tool("↶", "Undo the last change to the model (⌘Z)")
+        self.redo_button = _tool("↷", "Redo (⇧⌘Z)")
+        top = hbox(self.structure_toggle, self.undo_button, self.redo_button, 8,
+                   self.mode_switch, 12, self.sim_status, self.values_button,
+                   self.inspector_toggle)
+        top.setStretch(6, 1)
+        card.add(top)
+        self.tool_row = QWidget()
+        self.tool_hint = ElidedLabel("", "muted")
+        # Layout: automatic tidying plus quick tools for arranging by hand.
+        self.layout_button = _tool("✦ Layout ▾", "Tidy the page automatically, then adjust it "
+                                   "by hand: align nodes, straighten or curve arcs, snap to "
+                                   "the grid. Everything can be undone (⌘Z).")
+        self.layout_button.setPopupMode(QToolButton.InstantPopup)
+        self.layout_menu = QMenu(self.layout_button)
+        self.layout_menu.aboutToShow.connect(self._fill_layout_menu)
+        self.layout_button.setMenu(self.layout_menu)
+        tools = hbox(self.tool_switch, 12, self.tool_hint, self.layout_button)
+        tools.setStretch(2, 1)
+        self.tool_row.setLayout(tools)
+        card.add(self.tool_row)
+
+        # -- simulation bar ---------------------------------------------------
+        self.reset_button = _tool("⟲ Reset", "Back to the initial marking at time 0")
+        self.back_button = _tool("◀ Back", "Undo the last firing")
+        self.step_button = _tool("Step ▶", "Fire one random enabled binding (⌘.)")
+        self.play_button = _tool("▶ Play", "Fire random enabled bindings automatically",
+                                 checkable=True)
+        self.speed = QSpinBox()
+        self.speed.setRange(1, 60)
+        self.speed.setValue(5)
+        self.speed.setSuffix(" / s")
+        self.speed.setToolTip("Play speed: firings per second")
+        self.forward_steps = QSpinBox()
+        self.forward_steps.setRange(1, 1_000_000)
+        self.forward_steps.setValue(1000)
+        self.forward_steps.setGroupSeparatorShown(True)
+        self.forward_steps.setToolTip("How many steps Fast-forward fires (it stops earlier at "
+                                      "a dead marking)")
+        self.forward_button = _tool("⏭ Fast-forward", "Fire many steps as fast as possible "
+                                    "and only show the result", checkable=True)
+        self.repeat_box = QCheckBox("Repeat")
+        self.repeat_box.setToolTip("When a run reaches a dead marking, start again")
+        self.speed.setFixedWidth(84)
+        self.forward_steps.setFixedWidth(104)
+        steps_label = label("steps", "muted")
+        # A flow layout: on a narrow window the bar wraps instead of widening the page.
+        self.sim_bar = flow(self.reset_button, self.back_button, self.step_button, 12,
+                            self.play_button, self.speed, 12, self.forward_button,
+                            self.forward_steps, steps_label, 12, self.repeat_box)
+        card.add(self.sim_bar)
+        self.simulate_widgets = [self.play_button, self.speed, self.forward_button,
+                                 self.forward_steps, steps_label, self.repeat_box]
+        self.sim_hint = label("", "muted", wrap=True)
+        card.add(self.sim_hint)
+
+        # -- canvas -------------------------------------------------------------
+        self.scene = NetScene(self.net)
+        self.scene.extend_menu = self._extend_canvas_menu
+        self._fill_layout_menu()             # never an empty menu (it is refilled on opening)
+        self.view = NetView(self.scene)
+        self.view.setMinimumSize(300, 240)
+        card.add(self.view, 1)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.scene.selection_changed.connect(self._selection_changed)
+        self.scene.model_changed.connect(self._model_changed)
+        # Undo: remember the model before every change the canvas makes.
+        self.undo_stack: list[dict] = []
+        self.redo_stack: list[dict] = []
+        self._pending_move: dict | None = None
+        self.scene.about_to_change.connect(self._checkpoint)
+        self.scene.drag_started.connect(self._drag_started)
+        self.scene.moved.connect(self._moved)
+        self.undo_button.clicked.connect(self.undo)
+        self.redo_button.clicked.connect(self.redo)
+        for keys, slot in ((QKeySequence.Undo, self.undo), (QKeySequence.Redo, self.redo),
+                           (QKeySequence("Ctrl+Shift+Z"), self.redo)):
+            shortcut = QShortcut(keys, self)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(slot)
+        self._update_undo_buttons()
+        self.scene.transition_activated.connect(self._fire_transition)
+        self.mode_switch.changed.connect(self._mode_changed)
+        self.tool_switch.changed.connect(self._tool_changed)
+        self.reset_button.clicked.connect(self._reset)
+        self.back_button.clicked.connect(self._back)
+        self.step_button.clicked.connect(lambda: self._step(None))
+        self.play_button.toggled.connect(self._play_toggled)
+        self.speed.valueChanged.connect(
+            lambda v: self.timer.setInterval(int(1000 / v)))
+        self.forward_button.toggled.connect(self._forward_toggled)
+        self.inspector_toggle.clicked.connect(self._toggle_inspector)
+        self.structure_toggle.clicked.connect(
+            lambda: self._toggle_structure(not self.structure_panel.isVisible()))
+        for key in (QKeySequence.Delete, QKeySequence(Qt.Key_Backspace)):
+            shortcut = QShortcut(key, self.view)
+            shortcut.setContext(Qt.WidgetShortcut)
+            shortcut.activated.connect(self._delete_selection)
+        QShortcut(QKeySequence("Ctrl+."), self, lambda: self._step(None))
+        return card
+
+    def _build_inspector(self) -> QWidget:
+        host = QWidget()
+        self.inspector_panel = host
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        self.inspector_tabs = SegmentedControl(self.INSPECTOR, compact=True)
+        # Room for "Problems (12)" too.
+        host.setMinimumWidth(max(360, self.inspector_tabs.sizeHint().width() + 24))
+        layout.addLayout(hbox(self.inspector_tabs, None))
+        self.inspector_stack = QStackedWidget()
+        for build in (self._build_simulation_tab, self._build_element_tab,
+                      self._build_problems_tab, self._build_state_space_tab):
+            self.inspector_stack.addWidget(scroll(build()))
+        self.inspector_tabs.changed.connect(self.inspector_stack.setCurrentIndex)
+        layout.addWidget(self.inspector_stack, 1)
+        return host
+
+    # -- inspector: simulation ------------------------------------------------------
+    def _build_simulation_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 4, 0)
+        layout.setSpacing(10)
+        self.step_tile = StatTile("Step", "0")
+        self.time_tile = StatTile("Model time", "0")
+        self.enabled_tile = StatTile("Enabled", "–")
+        layout.addLayout(hbox(self.step_tile, self.time_tile, self.enabled_tile))
+
+        bindings = Card("Enabled bindings", "Each is a transition with values for its "
+                        "variables. Double-click one to fire exactly that binding.")
+        self.binding_filter = QLineEdit()
+        self.binding_filter.setPlaceholderText("Filter…")
+        self.binding_filter.setClearButtonEnabled(True)
+        self.binding_filter.textChanged.connect(lambda _: self._fill_bindings())
+        self.binding_list = QListWidget()
+        self.binding_list.setFont(theme.ui_font(12))
+        self.binding_list.setItemDelegate(HtmlDelegate(self.binding_list))
+        self.binding_list.setResizeMode(QListWidget.Adjust)      # re-wrap rows on resize
+        self.binding_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.binding_list.setMinimumHeight(150)
+        self.binding_list.setMaximumHeight(260)
+        self.binding_list.itemDoubleClicked.connect(
+            lambda item: self._step(item.data(Qt.UserRole)))
+        self.fire_selected = button("Fire selected", lambda: self._step(
+            self.binding_list.currentItem().data(Qt.UserRole)
+            if self.binding_list.currentItem() else None))
+        self.binding_note = label("", "muted", wrap=True)
+        bindings.add(self.binding_filter)
+        bindings.add(self.binding_list)
+        bindings.add(hbox(self.binding_note, None, self.fire_selected))
+        layout.addWidget(bindings)
+
+        marking = Card("Marking", "Tokens on each place. Click a row to find the place.")
+        self.only_marked = QCheckBox("Only places with tokens")
+        self.only_marked.setChecked(True)
+        self.only_marked.toggled.connect(lambda _: self._fill_marking())
+        marking.add(self.only_marked)
+        self.marking_table = QTableWidget(0, 3)
+        self.marking_table.setHorizontalHeaderLabels(["Place", "#", "Tokens"])
+        self.marking_table.verticalHeader().hide()
+        self.marking_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.marking_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.marking_table.setAlternatingRowColors(True)
+        self.marking_table.setShowGrid(False)
+        self.marking_table.setWordWrap(False)
+        header = self.marking_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.marking_table.setMinimumHeight(180)
+        self.marking_table.cellClicked.connect(self._marking_row_clicked)
+        marking.add(self.marking_table)
+        layout.addWidget(marking)
+
+        history = Card("History", "Firings so far, newest first. Double-click one to go "
+                       "back to the state right after it.")
+        self.history_list = QListWidget()
+        self.history_list.setFont(theme.ui_font(12))
+        self.history_list.setItemDelegate(HtmlDelegate(self.history_list))
+        self.history_list.setResizeMode(QListWidget.Adjust)      # re-wrap rows on resize
+        self.history_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.history_list.setMinimumHeight(140)
+        self.history_list.setMaximumHeight(240)
+        self.history_list.itemDoubleClicked.connect(self._rewind_to_item)
+        history.add(self.history_list)
+        self.export_log_button = button("Export as event log…", self._export_log,
+                                        tooltip="Turn the firings so far into an event log "
+                                                "and open it for mining (dotted chart, "
+                                                "discovery, …)")
+        history.add(hbox(None, self.export_log_button))
+        layout.addWidget(history)
+        layout.addStretch(1)
+        return page
+
+    # -- inspector: element -----------------------------------------------------------
+    def _build_element_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 4, 0)
+        self.element_card = Card("Nothing selected")
+        self.element_hint = label("Click a place, transition or arc on the canvas to see and "
+                                  "edit its inscriptions. Changes apply when you press Return "
+                                  "or leave the field.", "muted", wrap=True)
+        self.element_card.add(self.element_hint)
+        self.form = QFormLayout()
+        self.form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.form.setHorizontalSpacing(12)
+        self.form.setVerticalSpacing(10)
+        self.form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.name_edit = self._line_edit(mono=False)
+        self.colour_set_box = QComboBox()
+        self.colour_set_box.setEditable(True)
+        self.colour_set_box.activated.connect(self._commit_element)
+        self.colour_set_box.lineEdit().editingFinished.connect(self._commit_element)
+        self.initial_edit = self._line_edit()
+        self.guard_edit = self._line_edit()
+        self.time_edit = self._line_edit()
+        self.expression_edit = self._line_edit()
+        self.orientation_box = QComboBox()
+        self.orientation_box.addItems(["Place → Transition (input)",
+                                       "Transition → Place (output)",
+                                       "Both directions"])
+        self.orientation_box.activated.connect(self._commit_element)
+        self.rows: dict[str, tuple[QWidget, QWidget]] = {}
+        for key, caption, widget in (
+                ("name", "Name", self.name_edit),
+                ("colour_set", "Colour set", self.colour_set_box),
+                ("initial", "Initial marking", self.initial_edit),
+                ("guard", "Guard", self.guard_edit),
+                ("time", "Time delay  @+", self.time_edit),
+                ("expression", "Inscription", self.expression_edit),
+                ("orientation", "Direction", self.orientation_box)):
+            caption_label = label(caption, "muted")
+            self.form.addRow(caption_label, widget)
+            self.rows[key] = (caption_label, widget)
+        self.element_card.add(self.form)
+        self.element_info = label("", "muted", wrap=True, selectable=True)
+        self.element_card.add(self.element_info)
+        self.element_problems = QVBoxLayout()
+        self.element_card.add(self.element_problems)
+        layout.addWidget(self.element_card)
+        layout.addStretch(1)
+        self._show_element(None)
+        return page
+
+    def _line_edit(self, mono: bool = True) -> QLineEdit:
+        edit = QLineEdit()
+        if mono:
+            edit.setFont(theme.mono_font(12))
+        edit.editingFinished.connect(self._commit_element)
+        return edit
+
+    # -- inspector: problems ------------------------------------------------------------
+    def _build_problems_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 4, 0)
+        self.problems_card = Card("Problems", "Inscriptions and declarations that did not "
+                                  "compile. Click Show to jump to the element.")
+        layout.addWidget(self.problems_card)
+        layout.addStretch(1)
+        return page
+
+    # -- inspector: state space ----------------------------------------------------------
+    def _build_state_space_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 4, 0)
+        layout.setSpacing(10)
+        card = Card("State space", "Every reachable marking (with its model time) and the "
+                    "binding elements between them, explored breadth-first from the initial "
+                    "marking — the analysis CPN Tools calls the state space tool.")
+        self.max_nodes = QSpinBox()
+        self.max_nodes.setRange(10, 1_000_000)
+        self.max_nodes.setValue(20_000)
+        self.max_nodes.setGroupSeparatorShown(True)
+        self.max_nodes.setToolTip("Stop exploring after this many nodes (the report then "
+                                  "says PARTIAL)")
+        self.space_button = button("Calculate", self._calculate_state_space, kind="primary")
+        card.add(hbox(label("Node limit", "muted"), self.max_nodes, None, self.space_button))
+        self.space_status = label("", "muted", wrap=True)
+        card.add(self.space_status)
+        layout.addWidget(card)
+        self.space_results = Card()
+        self.space_results.setVisible(False)
+        layout.addWidget(self.space_results)
+        layout.addStretch(1)
+        return page
+
+    # =====================================================================
+    # Refreshing
+    # =====================================================================
+    def _subtitle(self) -> str:
+        places = sum(1 for _ in self.net.all_places())
+        transitions = sum(1 for _ in self.net.all_transitions())
+        pages = len(self.net.pages)
+        where = Path(self.document.path).name if self.document.path else "not saved yet"
+        state = " · edited" if self.document.dirty else ""
+        return (f"Coloured Petri net · {pages} page{'s' * (pages != 1)} · {places} places · "
+                f"{transitions} transitions · {where}{state}")
+
+    def restyle(self) -> None:
+        """Colours changed (light/dark): redraw the canvas items."""
+        self.scene.rebuild()
+        self.refresh_all()
+        self.highlighter.rehighlight()
+
+    def refresh_title(self) -> None:
+        self.header.set_text(self.net.name, self._subtitle())
+
+    def refresh_all(self) -> None:
+        self.refresh_title()
+        self._fill_pages()
+        self._fill_problems()
+        self.scene.refresh_labels()
+        self.refresh_simulation()
+
+    def _fill_pages(self) -> None:
+        self.page_list.blockSignals(True)
+        self.page_list.clear()
+        for page in self.net.pages:
+            item = QListWidgetItem(page.name)
+            item.setData(Qt.UserRole + 1, f"{len(page.places)} places · "
+                                          f"{len(page.transitions)} transitions")
+            self.page_list.addItem(item)
+        if self.scene.page in self.net.pages:
+            self.page_list.setCurrentRow(self.net.pages.index(self.scene.page))
+        self.page_list.blockSignals(False)
+
+    def refresh_simulation(self, light: bool = False) -> None:
+        """Enabling, markings, tiles, bindings and history.
+
+        ``light`` skips the lists (used while playing fast): the canvas and
+        the tiles are what one watches then.
+        """
+        counts: dict[str, int] = {}
+        self.enabled_elements = []
+        try:
+            for transition in self.net.all_transitions():
+                elements = self.simulator.enabled_bindings(transition)
+                if elements:
+                    counts[transition.id] = len(elements)
+                    self.enabled_elements.extend(elements)
+        except Exception as error:  # noqa: BLE001 - a model error, surfaced not swallowed
+            self.status.emit(f"Enabling could not be computed: {error}")
+        self.scene.update_enabling(counts)
+        self.scene.update_markings(self._marking_for)
+        last = self.simulator.log[-1].binding.transition_id if self.simulator.log else None
+        for transition_id, item in self.scene.transition_items.items():
+            item.set_halo(self.simulating and transition_id == last)
+
+        self.step_tile.set(f"{self.simulator.step_count:,}")
+        self.time_tile.set(format_time(self.simulator.clock))
+        transitions = len(counts)
+        self.enabled_tile.set(f"{len(self.enabled_elements):,}",
+                              f"binding{'s' * (len(self.enabled_elements) != 1)} of "
+                              f"{transitions} transition{'s' * (transitions != 1)}")
+        self._update_sim_status()
+        if not light:
+            self._fill_bindings()
+            self._fill_marking()
+            self._fill_history()
+
+    def _marking_for(self, place_id: str) -> tuple[int, str]:
+        tokens = self.simulator.marking.get(self.net.marking_key(place_id))
+        count = tokens.size()
+        return (0, "") if not count else (count, str(tokens))
+
+    def _dead(self) -> bool:
+        """Nothing enabled now, and waiting (advancing time) cannot help."""
+        if self.enabled_elements:
+            return False
+        from ...ml.multiset import TimedMultiset
+        for place in self.net.all_places():
+            tokens = self.simulator.marking.get(self.net.marking_key(place.id))
+            if isinstance(tokens, TimedMultiset) and \
+                    tokens.next_time_after(self.simulator.clock) is not None:
+                return False
+        return True
+
+    def _update_sim_status(self) -> None:
+        if not self.simulating:
+            problems = len(self.net.errors)
+            self.sim_status.setText("✓ compiles" if not problems else
+                                    f"⚠ {problems} problem{'s' * (problems != 1)} — see "
+                                    "the Problems tab")
+            return
+        if self.enabled_elements:
+            state = f"{len(self.enabled_elements):,} enabled"
+        elif self._dead():
+            state = "✕ dead marking: nothing can happen any more"
+        else:
+            state = "waiting: tokens become available later (Step advances time)"
+        runs = f" · {self.runs_completed} run(s)" if self.mode_switch.index() == 2 and \
+            self.runs_completed else ""
+        self.sim_status.setText(f"Step {self.simulator.step_count:,} · time "
+                                f"{format_time(self.simulator.clock)} · {state}{runs}")
+        self.back_button.setEnabled(bool(self.simulator.log))
+        self.step_button.setEnabled(not self._dead())
+
+    def _fill_bindings(self) -> None:
+        wanted = self.binding_filter.text().strip().lower()
+        self.binding_list.clear()
+        shown = 0
+        matching = 0
+        for element in getattr(self, "enabled_elements", []):
+            text = element.describe(self.net)
+            if wanted and wanted not in text.lower():
+                continue
+            matching += 1
+            if shown >= self.MAX_BINDINGS_SHOWN:
+                continue
+            item = QListWidgetItem(binding_html(self.net, element))
+            item.setData(Qt.UserRole, element)
+            item.setToolTip(text)
+            self.binding_list.addItem(item)
+            shown += 1
+        total = len(getattr(self, "enabled_elements", []))
+        if not total:
+            self.binding_note.setText("Nothing is enabled." + ("" if self._dead() else
+                                      " Step advances the clock to the next token."))
+        elif shown < matching:
+            self.binding_note.setText(f"Showing {shown:,} of {matching:,}; filter to narrow.")
+        elif wanted:
+            self.binding_note.setText(f"{matching:,} of {total:,} match")
+        else:
+            self.binding_note.setText(f"{total:,} enabled")
+        self.fire_selected.setEnabled(bool(shown))
+
+    def _fill_marking(self) -> None:
+        rows = []
+        for place in self.net.all_places():
+            tokens = self.simulator.marking.get(self.net.marking_key(place.id))
+            count = tokens.size()
+            if count or not self.only_marked.isChecked():
+                rows.append((place, count, str(tokens) if count else "empty"))
+        self.marking_table.setRowCount(len(rows))
+        mono = theme.mono_font(11)
+        for row, (place, count, text) in enumerate(rows):
+            name = QTableWidgetItem(place.name)
+            name.setData(Qt.UserRole, place.id)
+            number = QTableWidgetItem(f"{count:,}")
+            number.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            tokens = QTableWidgetItem(text)
+            tokens.setFont(mono)
+            tokens.setToolTip(text if len(text) < 2000 else text[:2000] + " …")
+            if not count:
+                tokens.setForeground(QColor(style.tokens().text_muted))
+            self.marking_table.setItem(row, 0, name)
+            self.marking_table.setItem(row, 1, number)
+            self.marking_table.setItem(row, 2, tokens)
+
+    def _fill_history(self) -> None:
+        self.history_list.clear()
+        muted = style.tokens().text_muted
+        for record in reversed(self.simulator.log[-300:]):
+            item = QListWidgetItem(
+                f"<span style='color:{muted}'>{record.step:,} · t = "
+                f"{escape(format_time(record.time))}</span>&nbsp;&nbsp;"
+                + binding_html(self.net, record.binding))
+            item.setData(Qt.UserRole, record.step)
+            self.history_list.addItem(item)
+        if not self.simulator.log:
+            item = QListWidgetItem(f"<span style='color:{muted}'>Nothing has fired yet.</span>")
+            item.setFlags(Qt.NoItemFlags)
+            self.history_list.addItem(item)
+
+    def _fill_problems(self) -> None:
+        errors = list(self.net.errors)
+        count = len(errors)
+        self.inspector_tabs.buttons[2].setText(f"Problems ({count})" if count else "Problems")
+        card = self.problems_card
+        card.clear()
+        if not errors:
+            card.add(Verdict("Model compiles", "good", "Every declaration and inscription "
+                             "parsed. The model is ready to simulate."))
+            return
+        for issue in errors[:200]:
+            row = QWidget()
+            title = f"{issue.element_name or 'Declarations'} — {issue.field_name}"
+            layout = hbox(Verdict(title, "critical", issue.message), spacing=6)
+            if issue.element_id:
+                layout.addWidget(button("Show", lambda _=False, i=issue.element_id:
+                                        self.reveal_element(i), kind="ghost"), 0, Qt.AlignTop)
+            elif issue.field_name == "declarations":
+                layout.addWidget(button("Show", lambda: self.structure_switch.set_index(1),
+                                        kind="ghost"), 0, Qt.AlignTop)
+            row.setLayout(layout)
+            card.add(row)
+
+    # =====================================================================
+    # Modes and tools
+    # =====================================================================
+    @property
+    def simulating(self) -> bool:
+        return self.mode_switch.index() in (1, 2)
+
+    def _mode_changed(self, index: int) -> None:
+        self._stop_running()
+        editing = index == 0
+        self.tool_row.setVisible(editing)
+        self.sim_bar.setVisible(not editing)
+        for widget in self.simulate_widgets:
+            widget.setVisible(index == 2)
+        self.sim_hint.setText(
+            "" if editing else
+            "Green = enabled. Click a green transition to fire it, or double-click a binding "
+            "in the inspector to choose the values. Back undoes." if index == 1 else
+            "Play fires random bindings by itself (blue halo = fired last). Fast-forward runs "
+            "many steps at once. History ▸ Export as event log makes a log you can mine.")
+        self.sim_hint.setVisible(not editing)
+        self.scene.fire_on_click = not editing
+        self.scene.set_editable(editing)
+        self.layout_button.setEnabled(editing)
+        if not editing:
+            self.tool_switch.set_index(0)
+            if self.net.errors:
+                self.status.emit("The model has problems; fix them (Problems tab) for "
+                                 "reliable simulation.")
+        self.refresh_simulation()
+
+    def _tool_changed(self, index: int) -> None:
+        tool = self.TOOLS[index][0]
+        self.scene.tool = tool
+        self.tool_hint.setText({
+            "select": "Drag to move · select an arc to drag its bends · drag labels to "
+                      "move them · right-click for layout tools · ⌫ deletes",
+            "place": "Click on the canvas to add a place",
+            "transition": "Click on the canvas to add a transition",
+            "arc": "Click the source, then the target (a place and a transition)",
+        }[tool])
+        self.scene.set_editable(self.scene.editable)      # handles only with the select tool
+        self.view.setDragMode(NetView.RubberBandDrag if tool == "select" else NetView.NoDrag)
+        self.view.setCursor(Qt.ArrowCursor if tool == "select" else Qt.CrossCursor)
+
+    # =====================================================================
+    # Simulation
+    # =====================================================================
+    def _step(self, element=None) -> bool:
+        if self.busy:
+            return False
+        if not self.simulating:
+            self.mode_switch.set_index(1)
+        try:
+            fired = self.simulator.step(element)
+        except DeadMarkingError:
+            self.status.emit(f"Dead marking at time {format_time(self.simulator.clock)} "
+                             f"after {self.simulator.step_count:,} steps")
+            self.refresh_simulation()
+            return False
+        except Exception as error:  # noqa: BLE001
+            self._stop_running()
+            QMessageBox.warning(self, "Simulation error", str(error))
+            return False
+        text = fired.describe(self.net)
+        self.status.emit(f"Fired {text if len(text) < 140 else text[:138] + ' …'}")
+        self.refresh_simulation(light=self.timer.isActive() and self.speed.value() > 12)
+        return True
+
+    def _fire_transition(self, transition: Transition) -> None:
+        """Clicking an enabled transition fires one of its bindings."""
+        elements = self.simulator.enabled_bindings(transition)
+        if elements:
+            self._step(self.simulator.choice_rng.choice(elements))
+
+    def _back(self) -> None:
+        if self.simulator.log:
+            self.simulator.rewind_to(self.simulator.step_count - 1)
+            self.refresh_simulation()
+
+    def _reset(self) -> None:
+        self._stop_running()
+        self.simulator.reset()
+        self.runs_completed = 0
+        self.status.emit("Back at the initial marking")
+        self.refresh_simulation()
+
+    def _rewind_to_item(self, item: QListWidgetItem) -> None:
+        step = item.data(Qt.UserRole)
+        if step is not None:
+            self._stop_running()
+            self.simulator.rewind_to(step)
+            self.status.emit(f"Went back to the state after step {step:,}")
+            self.refresh_simulation()
+
+    def _play_toggled(self, on: bool) -> None:
+        self.play_button.setText("⏸ Pause" if on else "▶ Play")
+        if on:
+            self.forward_button.setChecked(False)
+            self.timer.start(int(1000 / self.speed.value()))
+        else:
+            self.timer.stop()
+            self.refresh_simulation()
+
+    def _tick(self) -> None:
+        if self._step(None):
+            return
+        # A dead marking: the run is over.
+        self.runs_completed += 1
+        if self.repeat_box.isChecked():
+            self.simulator.reset()
+            self.refresh_simulation(light=True)
+        else:
+            self.play_button.setChecked(False)
+
+    def _forward_toggled(self, on: bool) -> None:
+        self.forward_button.setText("■ Stop" if on else "⏭ Fast-forward")
+        if on:
+            self.play_button.setChecked(False)
+            self.fast_forward_left = self.forward_steps.value()
+            QTimer.singleShot(0, self._forward_chunk)
+        else:
+            self.fast_forward_left = 0
+
+    def _forward_chunk(self) -> None:
+        """Fire a chunk of steps, then yield to the event loop (keeps the UI alive)."""
+        if self.fast_forward_left <= 0:
+            self.forward_button.setChecked(False)
+            self.refresh_simulation()
+            return
+        chunk = min(200, self.fast_forward_left)
+        taken = self.simulator.run(chunk)
+        self.fast_forward_left -= chunk
+        if taken < chunk:                       # dead marking
+            self.runs_completed += 1
+            if self.repeat_box.isChecked() and self.fast_forward_left > 0:
+                self.simulator.reset()
+            else:
+                self.fast_forward_left = 0
+        self.refresh_simulation(light=True)
+        self.status.emit(f"Fast-forward: step {self.simulator.step_count:,}, time "
+                         f"{format_time(self.simulator.clock)}")
+        QTimer.singleShot(0, self._forward_chunk)
+
+    def _stop_running(self) -> None:
+        if hasattr(self, "play_button"):
+            self.play_button.setChecked(False)
+            self.forward_button.setChecked(False)
+        if hasattr(self, "timer"):
+            self.timer.stop()
+
+    def _export_log(self) -> None:
+        records = list(self.simulator.log)
+        if not records:
+            self.status.emit("Nothing has fired yet: simulate first, then export.")
+            return
+        counts: dict[str, int] = {}
+        for record in records:
+            for name, _value in record.binding.assignments:
+                counts[name] = counts.get(name, 0) + 1
+        if not counts:
+            QMessageBox.information(self, "Export as event log",
+                                    "The transitions that fired have no variables, so there "
+                                    "is nothing to identify cases by.")
+            return
+        variables = sorted(counts, key=lambda n: (-counts[n], n))
+        preferred = next((v for v in variables if v.lower() in ("id", "case", "caseid", "cid",
+                                                                "pid", "passenger")), variables[0])
+        dialog = CaseVariableDialog(variables, preferred, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        log = simulation_to_log(self.net, records, dialog.variable.currentText(),
+                                dialog.unit.currentText())
+        self.status.emit(f"Exported {len(log):,} cases from {len(records):,} firings")
+        self.log_generated.emit(log)
+
+    # =====================================================================
+    # Selection and editing
+    # =====================================================================
+    def _selection_changed(self, element) -> None:
+        self._show_element(element)
+        # While editing, selecting something opens its properties.  While
+        # simulating, clicks fire transitions: stay on the Simulation tab.
+        if element is not None and self.mode_switch.index() == 0:
+            self.inspector_tabs.set_index(1)
+            if not self.inspector_panel.isVisible():
+                self._toggle_inspector()
+
+    def reveal_element(self, element_id: str) -> None:
+        """Switch to the element's page, select it and centre on it."""
+        element = self.net.find_place(element_id) or self.net.find_transition(element_id) or \
+            next((a for a in self.net.all_arcs() if a.id == element_id), None)
+        if element is None:
+            return
+        page = self.net.page_of(element)
+        if page is not None and page is not self.scene.page:
+            self.scene.show_page(page)
+            self._fill_pages()
+            self.refresh_simulation()
+        item = (self.scene.place_items.get(element_id) or
+                self.scene.transition_items.get(element_id) or
+                self.scene.arc_items.get(element_id))
+        if item is not None:
+            self.scene.clearSelection()
+            item.setSelected(True)
+            self.view.centerOn(item)
+
+    def _marking_row_clicked(self, row: int, _column: int) -> None:
+        item = self.marking_table.item(row, 0)
+        if item is not None:
+            tab = self.inspector_tabs.index()
+            self.reveal_element(item.data(Qt.UserRole))
+            self.inspector_tabs.set_index(tab)          # stay on the marking
+
+    def _set_rows(self, keys: set[str]) -> None:
+        for key, (caption, widget) in self.rows.items():
+            caption.setVisible(key in keys)
+            widget.setVisible(key in keys)
+
+    def _show_element(self, element) -> None:
+        self.element = element
+        card = self.element_card
+        while self.element_problems.count():
+            item = self.element_problems.takeAt(0)
+            if item.widget():
+                item.widget().hide()
+                item.widget().deleteLater()
+        self.element_info.setText("")
+        self.element_hint.setVisible(element is None)
+        if element is None:
+            card.title_label.setText("Nothing selected")
+            self._set_rows(set())
+            return
+        if isinstance(element, Place):
+            card.title_label.setText(f"Place · {element.name}")
+            self.colour_set_box.blockSignals(True)
+            self.colour_set_box.clear()
+            self.colour_set_box.addItems(sorted(self.net.declarations.colour_sets))
+            self.colour_set_box.setCurrentText(element.colour_set_name)
+            self.colour_set_box.blockSignals(False)
+            self.name_edit.setText(element.name)
+            self.initial_edit.setText(element.initial_marking_text)
+            self._set_rows({"name", "colour_set", "initial"})
+            tokens = self.simulator.marking.get(self.net.marking_key(element.id))
+            self.element_info.setText(f"Current marking: {tokens.size():,} token(s)"
+                                      + (f"\n{tokens}" if tokens.size() else ""))
+        elif isinstance(element, Transition):
+            kind = "Substitution transition" if element.is_substitution else "Transition"
+            card.title_label.setText(f"{kind} · {element.name}")
+            self.name_edit.setText(element.name)
+            self.guard_edit.setText(element.guard_text)
+            self.time_edit.setText(element.time_text)
+            self._set_rows({"name", "guard", "time"})
+            enabled = len(self.simulator.enabled_bindings(element))
+            self.element_info.setText(f"{enabled:,} enabled binding(s) in the current marking.")
+        elif isinstance(element, Arc):
+            place = self.net.find_place(element.place_id)
+            transition = self.net.find_transition(element.transition_id)
+            card.title_label.setText("Arc")
+            self.expression_edit.setText(element.expression_text)
+            self.orientation_box.setCurrentIndex(
+                {"PtoT": 0, "TtoP": 1, "BOTHDIR": 2}.get(element.orientation, 0))
+            self._set_rows({"expression", "orientation"})
+            self.element_info.setText(f"Between place “{place.name if place else '?'}” and "
+                                      f"transition “{transition.name if transition else '?'}”.")
+        for issue in self.net.errors:
+            if issue.element_id == getattr(element, "id", None):
+                self.element_problems.addWidget(Verdict(issue.field_name, "critical",
+                                                        issue.message))
+
+    def _commit_element(self) -> None:
+        element = self.element
+        if element is None:
+            return
+        before = self._element_state(element)
+        snapshot = self._snapshot()
+        if isinstance(element, Place):
+            element.name = self.name_edit.text().strip() or element.name
+            element.colour_set_name = self.colour_set_box.currentText().strip()
+            element.initial_marking_text = self.initial_edit.text()
+        elif isinstance(element, Transition):
+            element.name = self.name_edit.text().strip() or element.name
+            element.guard_text = self.guard_edit.text()
+            element.time_text = self.time_edit.text()
+        elif isinstance(element, Arc):
+            element.expression_text = self.expression_edit.text()
+            element.orientation = ["PtoT", "TtoP", "BOTHDIR"][self.orientation_box.currentIndex()]
+        if self._element_state(element) != before:
+            self._push_undo(snapshot)
+            self._edited()
+            self._show_element(element)
+
+    @staticmethod
+    def _element_state(element) -> tuple:
+        return tuple(getattr(element, name, None) for name in (
+            "name", "colour_set_name", "initial_marking_text", "guard_text", "time_text",
+            "expression_text", "orientation"))
+
+    def _model_changed(self) -> None:
+        self._edited()
+
+    # -- undo / redo --------------------------------------------------------------------
+    UNDO_LIMIT = 100
+
+    def _snapshot(self) -> dict:
+        """A copy of everything an edit can change (not the simulation)."""
+        block = self.net.declarations
+        page = self.scene.page
+        return {
+            "pages": copy_pages(self.net.pages),
+            "declarations": (list(block.colour_set_sources), list(block.variable_sources),
+                             list(block.ml_sources), list(block.globref_sources)),
+            "name": self.net.name,
+            "fusion": {k: list(v) for k, v in self.net.fusion_sets.items()},
+            "page": self.net.pages.index(page) if page in self.net.pages else 0,
+        }
+
+    def _push_undo(self, snapshot: dict) -> None:
+        self.undo_stack.append(snapshot)
+        del self.undo_stack[:-self.UNDO_LIMIT]
+        self.redo_stack.clear()
+        self._update_undo_buttons()
+
+    def _checkpoint(self) -> None:
+        """Called just before a change: remember how things were."""
+        self._pending_move = None
+        self._push_undo(self._snapshot())
+
+    def _drag_started(self) -> None:
+        self._pending_move = self._snapshot()
+
+    def _moved(self) -> None:
+        if self._pending_move is not None:
+            self._push_undo(self._pending_move)
+            self._pending_move = None
+        self.set_dirty(True)
+
+    def undo(self) -> None:
+        if self.undo_stack:
+            self.redo_stack.append(self._snapshot())
+            self._restore(self.undo_stack.pop())
+            self.status.emit("Undone")
+
+    def redo(self) -> None:
+        if self.redo_stack:
+            self.undo_stack.append(self._snapshot())
+            self._restore(self.redo_stack.pop())
+            self.status.emit("Redone")
+
+    def _restore(self, snapshot: dict) -> None:
+        self.net.pages = copy_pages(snapshot["pages"])      # the stack keeps its own copy
+        block = self.net.declarations
+        (block.colour_set_sources, block.variable_sources, block.ml_sources,
+         block.globref_sources) = (list(x) for x in snapshot["declarations"])
+        self.net.name = snapshot["name"]
+        self.net.fusion_sets = {k: list(v) for k, v in snapshot["fusion"].items()}
+        index = min(snapshot["page"], len(self.net.pages) - 1)
+        self.scene.page = self.net.pages[index] if self.net.pages else None
+        self.element = None
+        self._show_element(None)
+        self._edited()
+        self._reload_declarations()
+        self._update_undo_buttons()
+        self.dirty_changed.emit(True)        # the sidebar re-reads the (maybe restored) name
+
+    # -- layout menu -------------------------------------------------------------------
+    TIDY_CHOICES = (("Best fit for the window", "auto", 1.0),
+                    ("Top to bottom", "TB", 1.0),
+                    ("Left to right", "LR", 1.0),
+                    ("Left to right, more space", "LR", 1.5),
+                    ("Top to bottom, more space", "TB", 1.5))
+
+    def _add_tidy_actions(self, menu: QMenu) -> None:
+        for text, direction, spacing in self.TIDY_CHOICES:
+            menu.addAction(text, lambda d=direction, f=spacing: self.tidy_layout(d, f))
+        menu.addAction("Best fit, straight arcs (easiest to adjust)",
+                       lambda: self.tidy_layout("auto", 1.0, straight=True))
+
+    def _fill_layout_menu(self) -> None:
+        """Rebuilt each time it opens, so it reflects the current selection."""
+        menu = self.layout_menu
+        menu.clear()
+        scene = self.scene
+        menu.addSection("Tidy automatically")
+        self._add_tidy_actions(menu)
+
+        nodes, arcs = scene.selected_nodes(), scene.selected_arcs()
+        menu.addSection("Selected nodes" if nodes else "Select nodes to align them")
+        for text, how, needed in (("Align in a row", "row", 2),
+                                  ("Align in a column", "column", 2),
+                                  ("Space evenly across", "spread-x", 3),
+                                  ("Space evenly down", "spread-y", 3)):
+            action = menu.addAction(text, lambda h=how: scene.align(h))
+            action.setEnabled(len(nodes) >= needed)
+        reset = menu.addAction("Labels back to their default spots", scene.reset_labels)
+        reset.setEnabled(bool(nodes or arcs))
+
+        menu.addSection("Arcs")
+        if arcs:
+            menu.addAction(f"Straighten selected arc{'s' if len(arcs) > 1 else ''}",
+                           lambda: scene.straighten_arcs(arcs))
+        menu.addAction("Straighten all arcs", lambda: scene.straighten_arcs(None))
+        menu.addAction("Curved arcs everywhere", lambda: scene.set_curved(True))
+        menu.addAction("Angular arcs everywhere", lambda: scene.set_curved(False))
+
+        menu.addSection("Dragging")
+        snap = menu.addAction("Snap to grid")
+        snap.setCheckable(True)
+        snap.setChecked(bool(scene.snap_step))
+        snap.toggled.connect(self.set_snap)
+        tip = menu.addAction("Tip: select an arc and drag its handles; drag any label")
+        tip.setEnabled(False)
+
+    def _extend_canvas_menu(self, menu: QMenu) -> None:
+        tidy_menu = menu.addMenu("Tidy layout")
+        self._add_tidy_actions(tidy_menu)
+
+    def set_snap(self, on: bool) -> None:
+        from ..canvas import GRID_STEP
+        self.scene.snap_step = GRID_STEP if on else 0
+        self.status.emit("Nodes and bends now snap to the grid" if on else "Snap to grid off")
+
+    def tidy_layout(self, direction: str = "LR", spacing: float = 1.0,
+                    straight: bool = False) -> None:
+        """Lay the current page out automatically (undoable).
+
+        ``straight`` drops the routed bends, leaving straight arcs that are
+        quick to adjust by hand.
+        """
+        from ...model.auto_layout import tidy
+        page = self.scene.page
+        if page is None or not (page.places or page.transitions):
+            return
+        if direction == "auto":
+            direction = self._best_direction(page, spacing)
+        self._checkpoint()
+        engine = tidy(page, direction, spacing)
+        if straight:
+            for arc in page.arcs:
+                arc.bendpoints = []
+                arc.graphics.label_offsets.pop("annot", None)
+        self._edited()
+        self.view.zoom_to_fit()
+        if engine == "graphviz":
+            self.status.emit("Tidied the layout with Graphviz — ⌘Z (or ↶) brings the previous "
+                             "one back")
+        else:
+            self.status.emit("Tidied with the simple built-in layout. For a much better one "
+                             "install Graphviz (conda install -c conda-forge graphviz). "
+                             "⌘Z undoes.")
+
+    def _best_direction(self, page, spacing: float) -> str:
+        """The direction whose drawing has the shape closest to the canvas
+        (so zoom-to-fit shows it largest)."""
+        from ...model.auto_layout import tidy
+        view = self.view.viewport()
+        window = max(view.width(), 1) / max(view.height(), 1)
+        best, best_scale = "LR", -1.0
+        for direction in ("LR", "TB"):
+            trial = copy_pages([page])[0]
+            tidy(trial, direction, spacing)
+            nodes = [*trial.places, *trial.transitions]
+            xs = [n.graphics.x for n in nodes]
+            ys = [n.graphics.y for n in nodes]
+            width = max(xs) - min(xs) + 200
+            height = max(ys) - min(ys) + 160
+            scale = min(view.width() / width, view.height() / height)
+            if scale > best_scale:
+                best, best_scale = direction, scale
+        return best
+
+    def _update_undo_buttons(self) -> None:
+        self.undo_button.setEnabled(bool(self.undo_stack))
+        self.redo_button.setEnabled(bool(self.redo_stack))
+
+    def _delete_selection(self) -> None:
+        if self.mode_switch.index() == 0:
+            self.scene.delete_selected()
+
+    def _edited(self) -> None:
+        """Something that can change behaviour was edited: recompile and restart."""
+        self._stop_running()
+        self.net.compile()
+        self.simulator = Simulator(self.net)
+        self.scene.rebuild()
+        self.set_dirty(True)
+        self.refresh_all()
+        if self.element is not None:
+            self.reveal_element(self.element.id)
+
+    def set_dirty(self, dirty: bool) -> None:
+        if self.document.dirty != dirty:
+            self.document.dirty = dirty
+            self.dirty_changed.emit(dirty)
+        self.refresh_title()
+
+    # -- pages --------------------------------------------------------------------------
+    def _page_selected(self, row: int) -> None:
+        if 0 <= row < len(self.net.pages):
+            self.scene.show_page(self.net.pages[row])
+            self.refresh_simulation()
+            self.view.zoom_to_fit()
+
+    def _add_page(self) -> None:
+        name, ok = QInputDialog.getText(self, "Add page", "Page name:",
+                                        text=f"Page {len(self.net.pages) + 1}")
+        if not ok or not name.strip():
+            return
+        self._checkpoint()
+        page = self.net.add_page(name.strip())
+        self.scene.show_page(page)
+        self._edited()
+        self.mode_switch.set_index(0)
+
+    def _rename_page(self) -> None:
+        row = self.page_list.currentRow()
+        if not 0 <= row < len(self.net.pages):
+            return
+        page = self.net.pages[row]
+        name, ok = QInputDialog.getText(self, "Rename page", "Page name:", text=page.name)
+        if ok and name.strip() and name.strip() != page.name:
+            self._checkpoint()
+            page.name = name.strip()
+            self.set_dirty(True)
+            self._fill_pages()
+
+    # -- declarations -------------------------------------------------------------------
+    def _declarations_text(self) -> str:
+        block = self.net.declarations
+        lines: list[str] = [source.strip() for _name, source in block.colour_set_sources]
+        seen: set[str] = set()
+        for _name, _colour_set, source in block.variable_sources:
+            if source not in seen:
+                seen.add(source)
+                lines.append(source.strip())
+        lines += [source.strip() for source in block.ml_sources]
+        lines += [f"globref {name} = {initial};" for name, initial in block.globref_sources]
+        return "\n".join(lines)
+
+    def _reload_declarations(self) -> None:
+        self.declarations_editor.blockSignals(True)
+        self.declarations_editor.setPlainText(self._declarations_text())
+        self.declarations_editor.blockSignals(False)
+        self._declarations_edited()
+
+    def _declarations_edited(self) -> None:
+        changed = self.declarations_editor.toPlainText().strip() != \
+            self._declarations_text().strip()
+        self.apply_button.setEnabled(changed)
+        self.revert_button.setEnabled(changed)
+        errors = [e for e in self.net.errors if e.field_name == "declarations"]
+        t = style.tokens()
+        if changed:
+            self.declarations_status.setText("Edited — press Apply to recompile.")
+            self.declarations_status.setStyleSheet(f"color: {t.text_muted}")
+        elif errors:
+            self.declarations_status.setText("✕ " + errors[0].message)
+            self.declarations_status.setStyleSheet(f"color: {style.STATUS['critical']}")
+        else:
+            count = len(self.net.declarations.colour_sets)
+            self.declarations_status.setText(f"✓ compiled · {count} colour sets available")
+            self.declarations_status.setStyleSheet(f"color: {t.text_muted}")
+
+    def _apply_declarations(self) -> None:
+        """Re-read the text: declarations end with ``;`` at the end of a line."""
+        self._checkpoint()
+        block = self.net.declarations
+        block.colour_set_sources.clear()
+        block.variable_sources.clear()
+        block.ml_sources.clear()
+        block.globref_sources.clear()
+        buffer: list[str] = []
+        for line in self.declarations_editor.toPlainText().splitlines():
+            stripped = line.rstrip()
+            if not stripped.strip():
+                continue
+            buffer.append(stripped)
+            if stripped.endswith(";"):
+                self.net.add_declaration("\n".join(buffer))
+                buffer = []
+        if buffer:
+            self.net.add_declaration("\n".join(buffer))
+        self._edited()
+        self._reload_declarations()
+
+    # =====================================================================
+    # State space
+    # =====================================================================
+    def _calculate_state_space(self) -> None:
+        """Explore in a separate process; the button turns into Cancel meanwhile.
+
+        A process, not a thread: exploration is pure Python, and in a thread
+        it would hold the interpreter lock and make the whole window stutter.
+        """
+        if self.busy:                                   # the button says "Stop"
+            self._space_job.cancel()
+            self._space_cancel_at = time.monotonic()
+            self.space_button.setEnabled(False)
+            self.space_status.setText("Stopping… (keeping what was found so far)")
+            return
+        if self.net.errors:
+            self.space_status.setText("Fix the problems in the Problems tab first: the state "
+                                      "space of a model that does not compile is meaningless.")
+            return
+        from ...analysis.state_space_process import StateSpaceJob
+        try:
+            job = StateSpaceJob(self.net, self.max_nodes.value())
+            job.start()
+        except Exception as error:  # noqa: BLE001
+            self.space_status.setText(f"Could not start the state space tool: {error}")
+            return
+        self._space_job = job
+        self._space_cancel_at = None
+        self.busy = True
+        self._set_space_button(running=True)
+        self.space_status.setText("Starting…")
+        if not hasattr(self, "space_timer"):
+            self.space_timer = QTimer(self)
+            self.space_timer.timeout.connect(self._space_tick)
+        self.space_timer.start(200)
+
+    def _set_space_button(self, running: bool) -> None:
+        button_ = self.space_button
+        button_.setText("■ Stop" if running else "Calculate")
+        button_.setToolTip("Stop exploring and show what was found so far" if running else "")
+        button_.setObjectName("" if running else "primary")
+        button_.style().unpolish(button_)
+        button_.style().polish(button_)
+        button_.setEnabled(True)
+
+    def shutdown(self) -> None:
+        """The page is being closed: stop background work and timers."""
+        self._stop_running()
+        if self.busy and getattr(self, "_space_job", None) is not None:
+            self._space_job.kill()
+            self.busy = False
+        if hasattr(self, "space_timer"):
+            self.space_timer.stop()
+
+    def _space_tick(self) -> None:
+        job = self._space_job
+        outcome = job.poll()
+        if outcome is None:
+            # A stop request normally takes effect within a second or two;
+            # if the worker is stuck in one huge step, end it outright.
+            if self._space_cancel_at is not None and \
+                    time.monotonic() - self._space_cancel_at > 8:
+                job.kill()
+                outcome = ("error", "stopped")
+            else:
+                nodes, arcs, phase = job.progress()
+                if self._space_cancel_at is not None and phase == "Exploring":
+                    phase = "Stopping"
+                self.space_status.setText(
+                    f"{phase}… {nodes:,} nodes, {arcs:,} arcs so far. It runs separately, "
+                    "so you can keep working; Stop keeps what was found.")
+                return
+        self.space_timer.stop()
+        self.busy = False
+        self._set_space_button(running=False)
+        kind, payload = outcome
+        if kind == "done":
+            self._show_state_space(payload)
+        elif payload == "stopped":
+            self.space_status.setText("Stopped.")
+        else:
+            self.space_status.setText(f"State space failed: {payload}")
+
+    def _show_state_space(self, results: dict) -> None:
+        nodes_found = results["nodes"]
+        if results["cancelled"]:
+            text = (f"Stopped by you after {nodes_found:,} nodes: the properties below "
+                    "describe only the explored part.")
+        elif results["partial"]:
+            text = (f"Partial: the node limit ({nodes_found:,}) was reached, so the "
+                    "properties below describe only the explored part. Raise the limit to "
+                    "explore further.")
+        else:
+            text = "Full state space: the properties below are proofs about every reachable " \
+                   "marking."
+        self.space_status.setText(text)
+        card = self.space_results
+        card.clear()
+        card.setVisible(True)
+        dead = results["dead"]
+        home = results["home"]
+        partial = results["partial"]
+        card.add(hbox(StatTile("Nodes", f"{nodes_found:,}",
+                               f"{results['unexplored']:,} not yet explored" if partial
+                               else "full"),
+                      StatTile("Arcs", f"{results['arcs']:,}"),
+                      StatTile("SCCs", f"{results['sccs']:,}")))
+
+        def listed(nodes: list[int]) -> str:
+            shown = ", ".join(str(n) for n in nodes[:12])
+            return shown + (f" … ({len(nodes):,} in total)" if len(nodes) > 12 else "")
+
+        # In a partial state space only some statements are meaningful: a
+        # dead marking found is real, but "no home marking" or "transition
+        # never occurs" may just mean exploration had not got there yet.
+        where = " among the explored nodes" if partial else ""
+        if dead:
+            card.add(Verdict(f"{len(dead):,} dead marking(s){where}", "warning",
+                             f"Nodes {listed(dead)}. A dead marking has no enabled binding; "
+                             "for a model that should terminate these are its end states."))
+        else:
+            card.add(Verdict(f"No dead markings{where}", "good" if not partial else "unknown",
+                             "Something can always happen." if not partial else
+                             "Unexplored nodes are not counted: they may still hide one."))
+        if home is None:
+            card.add(Verdict("Home markings: not determined", "unknown",
+                             "Needs the full state space."))
+        elif not home:
+            card.add(Verdict("No home marking", "warning",
+                             "No marking can be reached from every other marking."))
+        elif len(home) == nodes_found:
+            card.add(Verdict("Every marking is a home marking", "good",
+                             "The initial marking can always be reached again."))
+        else:
+            card.add(Verdict(f"{len(home):,} home marking(s)", "good", f"Nodes {listed(home)}."))
+        dead_transitions = results["dead_transitions"]
+        names = ", ".join(dead_transitions)
+        if partial:
+            card.add(Verdict("Transitions not seen yet" if dead_transitions
+                             else "Every transition occurred", "unknown" if dead_transitions
+                             else "good",
+                             f"{names} did not occur in the explored part (not proof that "
+                             "they are dead)." if dead_transitions else
+                             "So none of them is dead."))
+        else:
+            card.add(Verdict("Dead transitions" if dead_transitions else "No dead transitions",
+                             "critical" if dead_transitions else "good",
+                             names if dead_transitions
+                             else "Every transition occurs somewhere in the state space."))
+        live = results["live"]
+        if live is None:
+            card.add(Verdict("Live transitions: not determined", "unknown",
+                             "Needs the full state space."))
+        else:
+            card.add(Verdict(f"{len(live)} live transition(s)", "good" if live else "unknown",
+                             ", ".join(live) if live else
+                             "No transition can always fire again (usual for a model that "
+                             "ends)."))
+
+        card.add(label("BOUNDS", "sectionLabel"))
+        bounds = results["bounds"]
+        multiset = results["multiset"]
+        table = QTableWidget(len(bounds), 3)
+        table.setHorizontalHeaderLabels(["Place", "Lower", "Upper"])
+        table.verticalHeader().hide()
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setShowGrid(False)
+        table.setAlternatingRowColors(True)
+        for row, (place_id, place_name, lower, upper) in enumerate(bounds):
+            name = QTableWidgetItem(place_name)
+            tip = multiset.get(place_id, "")
+            name.setToolTip(f"Upper multiset bound:\n"
+                            f"{tip if len(tip) < 1500 else tip[:1500] + ' …'}")
+            table.setItem(row, 0, name)
+            for column, value in ((1, lower), (2, upper)):
+                cell = QTableWidgetItem(f"{value:,}")
+                cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(row, column, cell)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        table.setMinimumHeight(min(360, 34 + 28 * len(bounds)))
+        card.add(table)
+
+        if results["graph"] is not None:
+            card.add(label("GRAPH", "sectionLabel"))
+            view = GraphView()
+            view.setMinimumHeight(320)
+            nodes, edges = state_space_specs(*results["graph"])
+            view.graph.populate(nodes, edges, layer_gap=70)
+            view.fit()
+            card.add(view)
+
+        card.add(label("REPORT", "sectionLabel"))
+        report = QPlainTextEdit(results["report"])
+        report.setReadOnly(True)
+        report.setFont(theme.mono_font(11))
+        report.setLineWrapMode(QPlainTextEdit.NoWrap)
+        report.setMinimumHeight(260)
+        card.add(report)
+        self.status.emit(f"State space: {nodes_found:,} nodes, {results['arcs']:,} arcs")
+
+    # =====================================================================
+    # Files
+    # =====================================================================
+    def save(self) -> bool:
+        if not self.document.path:
+            return self.export()
+        return self._write(Path(self.document.path))
+
+    def export(self) -> bool:
+        suggested = self.document.path or f"{self.net.name}.cpn"
+        path, _ = QFileDialog.getSaveFileName(self, "Save CPN model", suggested,
+                                              "CPN Tools model (*.cpn)")
+        if not path:
+            return False
+        if not path.lower().endswith(".cpn"):
+            path += ".cpn"
+        return self._write(Path(path))
+
+    def _write(self, path: Path) -> bool:
+        try:
+            write_cpn(self.net, path)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.critical(self, "Could not save model", str(error))
+            return False
+        self.document.path = str(path)
+        self.set_dirty(False)
+        self.status.emit(f"Saved {path.name}")
+        self.saved.emit()
+        return True
+
+    def _export_image(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "Export image",
+                                              f"{self.net.name}.png", "PNG (*.png);;SVG (*.svg)")
+        if not path:
+            return
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QImage
+        rect = self.scene.itemsBoundingRect().adjusted(-20, -20, 20, 20)
+        selected = self.scene.selectedItems()
+        self.scene.clearSelection()
+        if path.lower().endswith(".svg"):
+            from PySide6.QtSvg import QSvgGenerator
+            generator = QSvgGenerator()
+            generator.setFileName(path)
+            generator.setSize(rect.size().toSize())
+            generator.setViewBox(QRectF(0, 0, rect.width(), rect.height()))
+            painter = QPainter(generator)
+            self.scene.render(painter, QRectF(0, 0, rect.width(), rect.height()), rect)
+            painter.end()
+        else:
+            image = QImage(int(rect.width() * 2), int(rect.height() * 2), QImage.Format_ARGB32)
+            image.fill(theme.palette().canvas)
+            painter = QPainter(image)
+            painter.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
+            self.scene.render(painter, QRectF(image.rect()), rect)
+            painter.end()
+            image.save(path)
+        for item in selected:
+            item.setSelected(True)
+        self.status.emit(f"Exported {Path(path).name}")
+
+
+# ---------------------------------------------------------------------------
+# Helpers that do not need the page
+# ---------------------------------------------------------------------------
+def copy_pages(pages: list) -> list:
+    """Deep copy of a model's pages, for undo.
+
+    The parsed inscriptions (rebuilt by every compile) and the XML elements
+    kept from the source file (never modified) are shared, not copied, which
+    keeps a snapshot cheap.
+    """
+    import copy
+    memo: dict[int, object] = {}
+    for page in pages:
+        if page.source_element is not None:
+            memo[id(page.source_element)] = page.source_element
+        for element in (*page.places, *page.transitions, *page.arcs):
+            for name in ("source_element", "initial_marking_ast", "guard_ast", "time_ast",
+                         "expression_ast"):
+                value = getattr(element, name, None)
+                if value is not None:
+                    memo[id(value)] = value
+    return copy.deepcopy(pages, memo)
+
+
+def state_space_specs(nodes: list, arcs: list) -> tuple[list[NodeSpec], list[EdgeSpec]]:
+    """Graph drawing for a small state space.
+
+    ``nodes`` holds ``(index, description, is_dead)`` and ``arcs`` holds
+    ``(source, target, binding description)``, as produced by
+    :func:`cpnpy.analysis.state_space_process.summarise`.
+    """
+    t = style.tokens()
+    specs = [NodeSpec(str(index), "state", text=str(index), tooltip=description,
+                      emphasis=index == 0, fill=t.accent_soft if index == 0 else None,
+                      stroke=style.STATUS["critical"] if dead else None)
+             for index, description, dead in nodes]
+    labels: dict[tuple[int, int], list[str]] = {}
+    for source, target, binding in arcs:
+        labels.setdefault((source, target), []).append(binding)
+    edges = [EdgeSpec(str(s), str(d), width=1.2,
+                      text=names[0].split(" <")[0] + (f" +{len(names) - 1}" if len(names) > 1
+                                                      else ""),
+                      tooltip="\n".join(names))
+             for (s, d), names in labels.items()]
+    return specs, edges
+
+
+def simulation_to_log(net: CPNet, records, case_variable: str, unit: str = "minutes",
+                      start: datetime | None = None):
+    """Turn a simulator's firing history into an event log.
+
+    One event per firing that binds ``case_variable``: the activity is the
+    transition name, the case is the variable's value, and the timestamp is
+    ``start`` plus the model time in ``unit``\\ s.  Firings at the same model
+    time keep their firing order.
+    """
+    from ...mining.log import KEY_NAME, KEY_TIME, Event, EventLog, Trace
+    start = start or datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
+    seconds = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400}[unit]
+    traces: dict[str, Trace] = {}
+    for record in records:
+        values = dict(record.binding.assignments)
+        if case_variable not in values:
+            continue
+        case = format_value(values[case_variable])
+        transition = net.find_transition(record.binding.transition_id)
+        activity = transition.name if transition else record.binding.transition_id
+        trace = traces.get(case)
+        if trace is None:
+            trace = traces[case] = Trace({KEY_NAME: case})
+        event = Event({KEY_NAME: activity,
+                       KEY_TIME: start + timedelta(seconds=float(record.time) * seconds),
+                       "lifecycle:transition": "complete"})
+        for name, value in record.binding.assignments:
+            if name != case_variable:
+                event.attributes[f"cpn:{name}"] = format_value(value)
+        trace.events.append(event)
+    log = EventLog(attributes={KEY_NAME: f"Simulation · {net.name}"})
+    log.traces.extend(traces.values())
+    return log
