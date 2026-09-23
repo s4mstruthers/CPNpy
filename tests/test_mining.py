@@ -343,3 +343,54 @@ def test_weighted_invariant():
     found = invariants(net)
     assert [found.describe(y, with_value=True) for y in found.p_invariants] == ["p + 2·q = 4"]
     assert [sorted(x.values()) for x in found.t_invariants] == [[1, 1]]
+
+
+# ---------------------------------------------------------------------------
+# Filtering and CSV export
+# ---------------------------------------------------------------------------
+def test_filters():
+    from cpnpy.mining.filtering import FilterSettings, apply_filters, top_variants
+    log = EventLog.from_simple_log(parse_simple_log(
+        "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>, <a,b>]"), "L")
+
+    def run(**settings):
+        return apply_filters(log, FilterSettings(**settings)).simple_log()
+
+    # 80% of 7 cases needs 5.6: the variants with 3, 2 and 1 cases.
+    assert run(variant_coverage=80) == Counter({("a", "b", "c", "d"): 3,
+                                                 ("a", "c", "b", "d"): 2, ("a", "e", "d"): 1})
+    assert run(top_variants=1) == Counter({("a", "b", "c", "d"): 3})
+    assert run(end_activities={"d"})[("a", "b")] == 0
+    assert run(activities=({"a", "d"}, "keep events")) == Counter({("a", "d"): 6, ("a",): 1})
+    assert run(activities=({"e"}, "mandatory")) == Counter({("a", "e", "d"): 1})
+    assert ("a", "e", "d") not in run(activities=({"e"}, "forbidden"))
+    assert run(case_length=(3, 3)) == Counter({("a", "e", "d"): 1})
+    # Ties are broken by first occurrence, so unique variants can still be cut.
+    unique = EventLog.from_simple_log(parse_simple_log("[<a>, <b>, <c>, <d>]"), "U")
+    assert [v for v, _ in top_variants(unique, coverage=50)] == [("a",), ("b",)]
+    filtered = apply_filters(log, FilterSettings(end_activities={"d"}, top_variants=2))
+    assert filtered.name == "L (filtered)"
+    assert filtered.attributes["cpnpy:filter"] == "end with d; the 2 most frequent variants"
+    assert len(log) == 7                                   # the original is untouched
+
+
+def test_projection_keeps_skipped_events_and_time_frame():
+    from cpnpy.mining.filtering import FilterSettings, apply_filters
+    log = read_xes(DATA / "plane_wilma_10.xes")            # start + complete events
+    kept = apply_filters(log, FilterSettings(activities=({"Move in", "stow bag"},
+                                                         "keep events")))
+    assert kept.simple_log() == Counter({("Move in", "stow bag"): 10})
+    assert kept.event_count == 40                          # their start events stay too
+    first = min(e.timestamp for t in log for e in t)
+    early = apply_filters(log, FilterSettings(
+        time_frame=(first, first + timedelta(seconds=10), "contained")))
+    assert 0 < len(early) < len(log)
+
+
+def test_csv_export_round_trip(tmp_path):
+    from cpnpy.mining.csv_import import write_csv
+    log = read_xes(DATA / "plane_wilma_10.xes")
+    write_csv(log, tmp_path / "log.csv")
+    again = read_csv(tmp_path / "log.csv")
+    assert again.simple_log() == log.simple_log()
+    assert [e.timestamp for e in again[0]] == [e.timestamp for e in log[0]]

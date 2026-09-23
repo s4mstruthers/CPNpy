@@ -15,8 +15,8 @@ Commands
 ``gui``         launch the CPN editor
 ``studio``      launch CPNpy Studio (process mining workspace)
 ``mine``        process mining from the command line:
-                ``stats``, ``discover``, ``conform``, ``soundness``,
-                ``invariants``
+                ``stats``, ``filter``, ``discover``, ``conform``,
+                ``soundness``, ``invariants``
 """
 
 from __future__ import annotations
@@ -240,6 +240,41 @@ def command_mine_soundness(arguments: argparse.Namespace) -> int:
     return 0 if report.sound else 1
 
 
+def command_mine_filter(arguments: argparse.Namespace) -> int:
+    from .mining.filtering import FilterSettings, apply_filters
+    from .mining.stats import summarise
+
+    def names(text: str | None) -> set[str] | None:
+        return None if text is None else {n.strip() for n in text.split(",") if n.strip()}
+
+    log = _read_log(arguments.log)
+    settings = FilterSettings(
+        start_activities=names(arguments.start), end_activities=names(arguments.end),
+        variant_coverage=arguments.variants, top_variants=arguments.top_variants)
+    for option, mode in (("keep", "keep events"), ("mandatory", "mandatory"),
+                         ("forbidden", "forbidden")):
+        if getattr(arguments, option) is not None:
+            settings.activities = (names(getattr(arguments, option)), mode)
+    if arguments.min_length is not None or arguments.max_length is not None:
+        settings.case_length = (arguments.min_length or 0,
+                                arguments.max_length if arguments.max_length is not None
+                                else 10**9)
+    filtered = apply_filters(log, settings)
+    before, after = summarise(log), summarise(filtered)
+    print(f"Filters: {filtered.attributes['cpnpy:filter']}")
+    print(f"Kept {after.case_count:,} of {before.case_count:,} cases, "
+          f"{after.event_count:,} events, {after.variant_count:,} variants")
+    if arguments.output:
+        if arguments.output.lower().endswith(".csv"):
+            from .mining.csv_import import write_csv
+            write_csv(filtered, arguments.output)
+        else:
+            from .mining import write_xes
+            write_xes(filtered, arguments.output)
+        print(f"Wrote {arguments.output}")
+    return 0
+
+
 def command_mine_invariants(arguments: argparse.Namespace) -> int:
     from .mining import read_pnml
     from .mining.analysis import check_workflow_net, short_circuit
@@ -338,6 +373,25 @@ def build_parser() -> argparse.ArgumentParser:
     soundness = mining.add_parser("soundness", help="check WF-net soundness")
     soundness.add_argument("model", help="a .pnml file")
     soundness.set_defaults(handler=command_mine_soundness)
+    filtering = mining.add_parser("filter", help="keep part of a log (variants, "
+                                  "activities, start/end, length)")
+    filtering.add_argument("log")
+    filtering.add_argument("--variants", type=float, metavar="PERCENT",
+                           help="keep the most frequent variants covering PERCENT of cases")
+    filtering.add_argument("--top-variants", type=int, metavar="K",
+                           help="keep the K most frequent variants")
+    filtering.add_argument("--keep", metavar="A,B",
+                           help="keep only the events of these activities")
+    filtering.add_argument("--mandatory", metavar="A,B",
+                           help="keep cases that contain one of these activities")
+    filtering.add_argument("--forbidden", metavar="A,B",
+                           help="remove cases that contain one of these activities")
+    filtering.add_argument("--start", metavar="A,B", help="keep cases starting with these")
+    filtering.add_argument("--end", metavar="A,B", help="keep cases ending with these")
+    filtering.add_argument("--min-length", type=int, help="at least this many events")
+    filtering.add_argument("--max-length", type=int, help="at most this many events")
+    filtering.add_argument("-o", "--output", help="write the result (.xes, .xes.gz or .csv)")
+    filtering.set_defaults(handler=command_mine_filter)
     invariant = mining.add_parser("invariants",
                                   help="incidence matrix, P- and T-invariants of a net")
     invariant.add_argument("model", help="a .pnml file")

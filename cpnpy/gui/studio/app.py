@@ -584,6 +584,7 @@ class StudioWindow(QMainWindow):
         if isinstance(document, LogDocument):
             page = LogPage(document)
             page.open_model.connect(self.add_document)
+            page.open_log.connect(self.add_document)
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("log_tab", i))
             parent, kind = self.logs_section, "log"
         elif isinstance(document, ComparisonDocument):
@@ -850,6 +851,11 @@ class StudioWindow(QMainWindow):
         """A page exported its document: it is now backed by that file."""
         self._refresh_item(document)
         self.open_options.pop(document.id, None)      # it is XES/PNML now, not CSV
+        if document.path and document.path.lower().endswith(".csv"):
+            # Reopen the exported CSV with its own (standard) columns, unasked.
+            mapping = guess_mapping(sniff(document.path)[1])
+            if mapping is not None:
+                self.open_options[document.id] = {"csv_mapping": asdict(mapping)}
         self._remember_recent(document.path)
         self._save_session()
 
@@ -894,7 +900,8 @@ class StudioWindow(QMainWindow):
                     menu.addAction("Save", self.pages[document.id].save)
                     label_text = "Save As…"
                 elif isinstance(document, LogDocument):
-                    label_text = "Export Log as XES…"
+                    menu.addAction("Filter…", self.pages[document.id].filter_log)
+                    label_text = "Export Log (XES or CSV)…"
                 else:
                     label_text = "Export Model as PNML…"
                 menu.addAction(label_text, self.export_selected)

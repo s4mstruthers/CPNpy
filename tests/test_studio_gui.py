@@ -914,3 +914,30 @@ def test_removing_a_petri_net_and_a_log_without_times(app, monkeypatch):
     assert net not in window.documents and net.id not in window.pages
     assert errors == []
     window.close()
+
+
+def test_filter_dialog_opens_a_filtered_log(app):
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.gui.studio.filter_dialog import FilterDialog
+    from cpnpy.mining import EventLog, parse_simple_log
+
+    window = StudioWindow()
+    window.show()
+    log = LogDocument(EventLog.from_simple_log(
+        parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"), "L1"))
+    window.add_document(log)
+    page = window.current_page()
+    dialog = FilterDialog(log, page)
+    dialog.activities_box.setChecked(True)
+    dialog.activity_mode.setCurrentIndex(2)                # remove cases with e
+    for i in range(dialog.activity_list.count()):
+        item = dialog.activity_list.item(i)
+        item.setCheckState(Qt.Checked if item.data(Qt.UserRole) == "e" else Qt.Unchecked)
+    _pump(app, 0.3)
+    assert dialog.preview.text().startswith("Result: 5 of 6 cases")
+    filtered = LogDocument(dialog.result_log())
+    page.open_log.emit(filtered)
+    assert window.documents[-1] is filtered and filtered.name == "L1 (filtered)"
+    assert ("a", "e", "d") not in filtered.simple_log()
+    window.close()
