@@ -5,19 +5,23 @@ silent τ transitions -- as opposed to coloured nets.  It is the coloured-net
 page (:class:`~cpnpy.gui.studio.cpn_page.CpnPage`) with a simpler element
 form and, instead of the CPN state space tool, an **Analysis** tab:
 
-* **Soundness** (van der Aalst, *Workflow Verification*): is it a WF-net
-  (Definition 11)?  Option to complete, proper completion, no dead
-  transitions (Definition 12) -- and for every violation a counterexample,
-  which *Show* replays on the net in the token game.
-* **Theorem 1**: the short-circuited net N̄ (plus t* from o to i) is live
-  and bounded iff the net is sound; also safe and deadlock-free.
-* **Structure** (§6): free-choice, well-structured, S-coverable, Lemma 4.
+* **Soundness**: is it a WF-net?  Option to complete, proper completion, no
+  dead transitions -- and for every violation a counterexample, which
+  *Show* replays on the net in the token game.
+* **Short-circuited net N̄** (plus t* from o to i): the soundness theorem
+  says the net is sound iff (N̄, [i]) is live and bounded.
+* **Structure**: free-choice, well-structured, S-coverable, the start and
+  end rule.
 * **Behavioural properties** of the net as drawn: bounded / safe, dead
   transitions, deadlocks, liveness, reversibility.
 * **Footprint** of the net's behaviour (the → ← ‖ # matrix of the α
   chapter), to compare with a log's footprint.
 * The **reachability graph**, and **conformance checking** against an open
   event log (the net opens as a model next to your logs).
+
+Every property is defined in :mod:`cpnpy.mining.definitions` (and
+``docs/definitions.md``); hovering over one shows its definition filled in
+for this net (:mod:`.instances`), clicking opens it.
 
 The net is saved as PNML, the standard format ProM, WoPeD and PM4Py read.
 """
@@ -44,9 +48,11 @@ from .documents import ModelDocument
 from .widgets import (
     Card, Verdict, button, flow, footprint_table, hbox, label, status_for,
 )
+from . import instances
+from .definition_view import attach_definition, show_reference
 from .workers import run_in_background
 
-# The paper's notation, as Qt rich text (labels detect the tags by themselves).
+# The notation of docs/definitions.md, as Qt rich text (labels detect the tags by themselves).
 # N̄ with a combining macron renders badly in many fonts, so the bar is a real
 # overline over an italic N.
 NBAR = '<span style="text-decoration: overline"><i>N</i></span>'
@@ -54,9 +60,11 @@ TSTAR = "<i>t</i>*"
 I, O = "<i>i</i>", "<i>o</i>"
 
 
-def _math(name: str, status: str, detail: str) -> "Verdict":
+def _math(name: str, status: str, detail: str, definition: str | None = None,
+          instance: list[str] | None = None) -> "Verdict":
     """A Verdict whose detail is rich text (names in it must be escaped)."""
-    return Verdict(name, status, f"<span>{detail}</span>")
+    return Verdict(name, status, f"<span>{detail}</span>", definition=definition,
+                   instance=instance)
 
 
 class PetriNetPage(CpnPage):
@@ -275,22 +283,28 @@ class PetriNetPage(CpnPage):
         self.analysis_button = button("Check again", self.run_analysis, kind="primary",
                                       tooltip="The analysis also runs by itself whenever "
                                               "you open this tab after an edit")
-        layout.addLayout(hbox(label("Updated after every edit.", "muted"), None,
-                              self.analysis_button))
-        self.soundness_card = Card("Soundness", f"Definition 12 of the paper: from one token "
-                                   f"in {I}, (i) every run can still reach [{O}], (ii) [{O}] "
-                                   f"is the only marking with a token in {O}, (iii) every "
-                                   "transition can fire.")
-        self.theorem_card = Card(f"Short-circuited net {NBAR} (Theorem 1)",
+        definitions = button("Definitions…", lambda: show_reference(None, self),
+                             kind="ghost", tooltip="Every property, defined mathematically")
+        # The hint wraps, so the row never makes the inspector wider than it is.
+        layout.addLayout(hbox(label("Hover over a property (ⓘ) for its definition.", "muted",
+                                    wrap=True), definitions, self.analysis_button))
+        self.soundness_card = Card("Soundness", f"From one token in {I}: (i) every run can "
+                                   f"still reach [{O}], (ii) [{O}] is the only marking with a "
+                                   f"token in {O}, (iii) every transition can fire.")
+        self.theorem_card = Card(f"Short-circuited net {NBAR}",
                                  f"{NBAR} is the net plus a transition {TSTAR} from {O} back "
-                                 f"to {I}. Theorem 1: the WF-net is sound iff ({NBAR}, [{I}]) "
-                                 "is live and bounded.")
-        self.structure_card = Card("Structure (§6)", "Properties of the drawing alone. They "
+                                 f"to {I}. Soundness theorem: the WF-net is sound iff "
+                                 f"({NBAR}, [{I}]) is live and bounded.")
+        self.structure_card = Card("Structure", "Properties of the drawing alone. They "
                                    "point at the construct behind a problem.")
         self.properties_card = Card("Behavioural properties", "Of the net as drawn, from "
                                     "its initial marking.")
         self.footprint_card = Card("Footprint", "The ordering relations of the net's "
                                    "behaviour: which transition can directly follow which.")
+        # The card captions explain the idea; hovering shows the maths.
+        for card, key in ((self.soundness_card, "sound"), (self.theorem_card, "short_circuit"),
+                          (self.footprint_card, "footprint")):
+            attach_definition(card.caption_label, key)
         self.more_card = Card("More")
         self.more_card.add(label("Look at every reachable marking, or replay an event log "
                                  "on this net (token replay, alignments).", "muted",
@@ -368,22 +382,27 @@ class PetriNetPage(CpnPage):
             card.clear()
         workflow = soundness.workflow
         card = self.soundness_card
-        card.add(Verdict("WF-net (Definition 11)", status_for(workflow.is_workflow_net),
+        card.add(Verdict("WF-net", status_for(workflow.is_workflow_net),
                          f"source i = {self._name(workflow.source)}, sink o = "
                          f"{self._name(workflow.sink)}" if workflow.is_workflow_net else
                          "needs one source place i, one sink place o, and every node on a "
-                         "path from i to o"))
+                         "path from i to o",
+                         instance=instances.soundness(soundness, "wf_net")))
         if workflow.is_workflow_net:
             verdict = soundness.sound
             card.add(Verdict("Sound" if verdict else ("Not sound" if verdict is False
                                                       else "Undecided"),
                              status_for(verdict),
                              "every case can complete properly and every transition can fire"
-                             if verdict else ""))
-            for name, value in (("(i) Option to complete", soundness.option_to_complete),
-                                ("(ii) Proper completion", soundness.proper_completion),
-                                ("(iii) No dead transitions", soundness.no_dead_transitions)):
-                card.add(Verdict(name, status_for(value), ""))
+                             if verdict else "", instance=instances.soundness(soundness, "sound")))
+            for name, key, value in (
+                    ("(i) Option to complete", "option_to_complete",
+                     soundness.option_to_complete),
+                    ("(ii) Proper completion", "proper_completion", soundness.proper_completion),
+                    ("(iii) No dead transitions", "no_dead_transitions",
+                     soundness.no_dead_transitions)):
+                card.add(Verdict(name, status_for(value), "", definition=key,
+                                 instance=instances.soundness(soundness, key)))
         for finding, path in zip(soundness.findings, soundness.paths):
             self._finding(card, finding, path, workflow.source)
         self._show_theorem(soundness)
@@ -395,16 +414,20 @@ class PetriNetPage(CpnPage):
         final = Marking({workflow.sink: 1}) if workflow.is_workflow_net else None
         only_final = final is not None and properties.dead_markings and all(
             properties.graph.states[s] == final for s in properties.dead_markings)
+        from ...mining.definitions import FOR_TITLE
         for name, value, detail in properties.lines():
+            key = FOR_TITLE.get(name)
+            filled = instances.properties(properties, key) if key else None
             if name == "Deadlock-free" and only_final:
                 # A WF-net always stops in [o]: that is the case finishing.
                 self.properties_card.add(Verdict(
                     name, "info", "the only dead marking is "
                     f"[{escape(self._plain(workflow.sink))}]: the case has finished. Every "
                     f"WF-net stops there, so this is expected; {NBAR} above shows whether it "
-                    "can get stuck anywhere else."))
+                    "can get stuck anywhere else.", instance=filled))
                 continue
-            self.properties_card.add(Verdict(name, status_for(value), detail))
+            self.properties_card.add(Verdict(name, status_for(value), detail,
+                                             instance=filled))
         self.properties_card.add(label(
             f"{len(properties.graph.states):,} reachable markings "
             f"({properties.graph.kind} graph).", "muted", wrap=True))
@@ -436,7 +459,7 @@ class PetriNetPage(CpnPage):
         return node.name if node else (node_id or "?")
 
     def _show_theorem(self, soundness) -> None:
-        """Theorem 1: (N̄, [i]) live and bounded iff sound."""
+        """The soundness theorem: (N̄, [i]) live and bounded iff sound."""
         card = self.theorem_card
         closed = soundness.short_circuit
         if closed is None:
@@ -447,35 +470,40 @@ class PetriNetPage(CpnPage):
         live = closed.live
         not_live = [TSTAR if t == "t_star" else escape(net.node_name(t))
                     for t in closed.not_live]
+        filled = lambda key: instances.short_circuit(soundness, key)  # noqa: E731
         card.add(_math("Live", status_for(live),
                          f"from every reachable marking, every transition ({TSTAR} too) can "
                          "fire again" if live else
                          (f"not decided: {NBAR} is unbounded or too big" if live is None else
-                          "can never fire again at some point: " + ", ".join(not_live))))
+                          "can never fire again at some point: " + ", ".join(not_live)),
+                       instance=filled("live")))
         card.add(_math("Bounded", status_for(closed.bounded),
                          f"at most {int(closed.properties.bound)} token(s) per place"
                          if closed.bounded else
                          "tokens can pile up: a case can finish with tokens left behind, "
-                         f"and {TSTAR} then starts the next case on top of them"))
+                         f"and {TSTAR} then starts the next case on top of them",
+                       instance=filled("bounded")))
         theorem = closed.sound
         card.add(_math("Live and bounded ⇒ sound" if theorem else
                          ("Unbounded ⇒ not sound" if not closed.bounded else
                           "Not live ⇒ not sound" if theorem is False else "Undecided"),
                          status_for(theorem),
-                         "the same verdict as Definition 12 above" if theorem ==
-                         soundness.sound else "differs from Definition 12 (a state-space "
-                         "limit was hit)"))
+                         "the same verdict as the soundness check above" if theorem ==
+                         soundness.sound else "differs from the soundness check above (a "
+                         "state-space limit was hit)", definition="soundness_theorem",
+                       instance=filled("soundness_theorem")))
         card.add(_math("Safe", "good" if closed.safe else "info",
-                         "at most one token per place (Lemmas 1 and 3: a sound free-choice "
-                         "or well-structured net is always safe)" if closed.safe else
-                         "some place can hold two or more tokens"))
+                         "at most one token per place (a sound free-choice or "
+                         "well-structured net is always safe)" if closed.safe else
+                         "some place can hold two or more tokens", instance=filled("safe")))
         dead = closed.properties.dead_markings
         card.add(_math("Deadlock-free", "good" if not dead else "info",
                          "no marking where nothing can fire. Weaker than live: a net can "
-                         "keep going while some transition is dead, so Theorem 1 asks for "
-                         "live" if not dead else
+                         "keep going while some transition is dead, so the soundness "
+                         "theorem asks for live" if not dead else
                          f"stuck in {escape(graph.states[dead[0]].describe(net))}; a deadlock is "
-                         "never live, so this alone already means not sound"))
+                         "never live, so this alone already means not sound",
+                       instance=filled("deadlock_free")))
         for transition, state in list(closed.not_live.items())[:4]:
             path = graph.path_to(state)
             usable = "t_star" not in path
@@ -500,7 +528,7 @@ class PetriNetPage(CpnPage):
         self.open_model.emit(CpnDocument(from_petri_net(closed)))
 
     def _show_structure(self, soundness) -> None:
-        """§6: free-choice, well-structured, S-coverable (+ Lemma 4)."""
+        """Free-choice, well-structured, S-coverable, and the start and end rule."""
         card = self.structure_card
         report = soundness.structure
         if report is None:
@@ -513,21 +541,23 @@ class PetriNetPage(CpnPage):
 
         if report.is_free_choice:
             detail = ("transitions that share an input place have the same input places, "
-                      "so every choice is free (Corollary 1)")
+                      "so every choice is free")
         else:
             t1, t2, p = report.free_choice[0]
             detail = (f"{escape(name(t1))} and {escape(name(t2))} share {escape(name(p))} but "
                       "need different input "
                       "places, so the choice between them depends on what happened "
-                      "elsewhere (Definition 7)")
-        card.add(_math("Free-choice", "good" if report.is_free_choice else "info", detail))
+                      "elsewhere")
+        net = self.petri_net()
+        card.add(_math("Free-choice", "good" if report.is_free_choice else "info", detail,
+                       instance=instances.structure(soundness, net, "free_choice")))
 
         well = report.well_structured
         if well is None:
             detail = "not checked (the net is very large)"
         elif well:
             detail = (f"{NBAR} has no handles: every AND-split is closed by an AND-join and every "
-                      "OR-split by an OR-join (Definition 14)")
+                      "OR-split by an OR-join")
         else:
             handle = report.handles[0]
             kind = ("an OR-split (place) later synchronised by an AND-join (transition)"
@@ -538,30 +568,31 @@ class PetriNetPage(CpnPage):
                       + " and ".join("⟨" + ", ".join(node(n) for n in path) + "⟩"
                                      for path in handle.paths))
         card.add(_math("Well-structured", "unknown" if well is None else
-                         ("good" if well else "info"), detail))
+                         ("good" if well else "info"), detail,
+                       instance=instances.structure(soundness, net, "well_structured")))
 
         cover = report.s_coverable
         if cover is None:
             detail = "not decided (search limit reached)"
         elif cover:
             detail = (f"{len(report.coverage.components)} S-component(s) cover {NBAR}: each is "
-                      "a 'thread' that is always in exactly one place (Definition 16)")
+                      "a 'thread' that is always in exactly one place")
         else:
             missing = ", ".join(TSTAR if n == "t_star" else escape(name(n))
                                 for n in report.coverage.uncovered[:6])
-            detail = (f"no S-component contains {missing}. In the paper every WF-net that is "
-                      "not S-coverable is unsound — worth a close look (§6.3)")
+            detail = (f"no S-component contains {missing}. Unsound nets are often not "
+                      "S-coverable, so this is worth a close look")
         card.add(_math("S-coverable", "unknown" if cover is None else
-                         ("good" if cover else "warning"), detail))
+                         ("good" if cover else "warning"), detail,
+                       instance=instances.structure(soundness, net, "s_coverable")))
         for transition in report.lemma4:
-            self._finding(card, f"<span>Lemma 4: {escape(name(transition))} needs {I} or "
+            self._finding(card, f"<span>Start and end rule: {escape(name(transition))} needs {I} or "
                           f"{O} together with another place, which never happens in a sound "
                           "net — it is dead.</span>")
         if soundness.sound and (report.is_free_choice or well):
             self._finding(card, "Sound and " + ("free-choice" if report.is_free_choice
                                                 else "well-structured")
-                          + ", so the net is safe (Lemma " + ("1" if report.is_free_choice
-                                                             else "3") + ").")
+                          + ", so the net is safe.")
 
     # -- counterexamples in the token game --------------------------------------------------
     def replay(self, path: list[str], source: str | None = None) -> None:

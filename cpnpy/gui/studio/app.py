@@ -524,6 +524,7 @@ class StudioWindow(QMainWindow):
         self._action(view_menu, "Actual Size", "Ctrl+Alt+0", lambda: self._zoom("actual_size"))
 
         help_menu = self.menuBar().addMenu("&Help")
+        self._action(help_menu, "Definitions", None, self._definitions)
         self._action(help_menu, f"About {APPLICATION_NAME}", None, self._about)
 
     def _action(self, menu, text, shortcut, slot) -> QAction:
@@ -533,6 +534,11 @@ class StudioWindow(QMainWindow):
         action.triggered.connect(slot)
         menu.addAction(action)
         return action
+
+    def _definitions(self) -> None:
+        """Every analysis property, defined mathematically (docs/definitions.md)."""
+        from .definition_view import show_reference
+        show_reference(None, self)
 
     def _about(self) -> None:
         QMessageBox.about(self, APPLICATION_NAME,

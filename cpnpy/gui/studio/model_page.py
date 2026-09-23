@@ -36,7 +36,7 @@ from ...mining.conformance.token_replay import token_replay
 from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
 from .. import theme
-from . import style
+from . import instances, style
 from .documents import ModelDocument
 from .graph_builders import petri_net_specs, state_graph_specs
 from .graph_view import GraphView
@@ -425,9 +425,9 @@ class ModelPage(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
-        self.soundness_card = Card("Soundness", "Classical soundness of the WF-net "
-                                   "(van der Aalst): option to complete, proper completion, "
-                                   "no dead transitions.")
+        self.soundness_card = Card("Soundness", "Classical soundness of the WF-net: option "
+                                   "to complete, proper completion, no dead transitions. "
+                                   "Hover over a property (ⓘ) for its definition.")
         self.properties_card = Card("Behavioural properties")
         check = button("Run analysis", self._run_analysis, kind="primary")
         layout.addWidget(check)
@@ -451,7 +451,7 @@ class ModelPage(QWidget):
             soundness = check_soundness(net)
             workflow = soundness.workflow
             if workflow.is_workflow_net:
-                # Theorem 1: analyse the short-circuited net N̄ instead, where
+                # Soundness theorem: analyse the short-circuited net N̄ instead, where
                 # liveness and boundedness together are equivalent to soundness.
                 closed = short_circuit(net, workflow.source, workflow.sink)
                 return soundness, analyse(closed, max_states=50_000), True
@@ -464,28 +464,43 @@ class ModelPage(QWidget):
             if closed:
                 self.properties_card.add(label(
                     "Computed on the short-circuited net N̄ (this net plus a silent t* from "
-                    "the sink back to the source, starting from [source]). Theorem: the "
-                    "WF-net is sound ⇔ N̄ is live and bounded.", "muted", wrap=True))
+                    "the sink back to the source, starting from [source]). Soundness "
+                    "theorem: the WF-net is sound ⇔ N̄ is live and bounded.", "muted",
+                    wrap=True))
             workflow = soundness.workflow
             self.soundness_card.add(Verdict(
                 "WF-net structure", status_for(workflow.is_workflow_net),
                 "one source, one sink, every node on a path between them"
-                if workflow.is_workflow_net else "; ".join(workflow.problems)))
+                if workflow.is_workflow_net else "; ".join(workflow.problems),
+                instance=instances.soundness(soundness, "wf_net")))
             if workflow.is_workflow_net:
                 verdict = soundness.sound
                 self.soundness_card.add(Verdict(
                     "Sound" if verdict else ("Not sound" if verdict is False else "Undecided"),
                     status_for(verdict),
                     "every case can complete properly and every transition can fire"
-                    if verdict else ""))
-                for name, value in (("Option to complete", soundness.option_to_complete),
-                                    ("Proper completion", soundness.proper_completion),
-                                    ("No dead transitions", soundness.no_dead_transitions)):
-                    self.soundness_card.add(Verdict(name, status_for(value), ""))
+                    if verdict else "", instance=instances.soundness(soundness, "sound")))
+                for name, key, value in (
+                        ("(i) Option to complete", "option_to_complete",
+                         soundness.option_to_complete),
+                        ("(ii) Proper completion", "proper_completion",
+                         soundness.proper_completion),
+                        ("(iii) No dead transitions", "no_dead_transitions",
+                         soundness.no_dead_transitions)):
+                    self.soundness_card.add(Verdict(
+                        name, status_for(value), "", definition=key,
+                        instance=instances.soundness(soundness, key)))
                 for finding in soundness.findings:
                     self.soundness_card.add(label("• " + finding, "muted", wrap=True, selectable=True))
+            from ...mining.definitions import FOR_TITLE
             for name, value, detail in properties.lines():
-                self.properties_card.add(Verdict(name, status_for(value), detail))
+                key = FOR_TITLE.get(name)
+                if closed and key in ("bounded", "safe", "live", "deadlock_free"):
+                    filled = instances.short_circuit(soundness, key)
+                else:
+                    filled = instances.properties(properties, key) if key else None
+                self.properties_card.add(Verdict(name, status_for(value), detail,
+                                                 instance=filled))
             self.properties_card.add(label(
                 f"{len(properties.graph.states):,} reachable markings explored "
                 f"({properties.graph.kind} graph).", "muted", wrap=True))

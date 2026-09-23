@@ -499,6 +499,12 @@ class SoundnessReport:
     short_circuit: "ShortCircuitReport | None" = None
     #: §6: free-choice, well-structured, S-coverable (see :mod:`.structure`)
     structure: object | None = None
+    #: A state index in :attr:`graph` witnessing each violated condition:
+    #: ``"option_to_complete"`` (cannot reach [o]), ``"proper_completion"``
+    #: (a token in o with others left behind), ``"bounded"`` (an ω marking).
+    witness: dict[str, int] = field(default_factory=dict)
+    #: Transitions that can never fire from [i].
+    dead_transitions: list[str] = field(default_factory=list)
 
     def add(self, finding: str, path: list[str] | None = None) -> None:
         self.findings.append(finding)
@@ -541,6 +547,7 @@ def check_soundness(net: PetriNet, max_states: int = 200_000) -> SoundnessReport
     if graph.has_omega:
         report.bounded = False
         witness = len(graph.states) - 1
+        report.witness["bounded"] = witness
         report.add(
             "Unbounded: tokens can accumulate without limit, e.g. after "
             f"{graph.describe_path(witness)} the marking {graph.states[witness].describe(net)} "
@@ -562,6 +569,7 @@ def check_soundness(net: PetriNet, max_states: int = 200_000) -> SoundnessReport
         # Prefer a dead marking as the example: it is the most intuitive one.
         dead = [s for s in stuck if not graph.successors(s)]
         example = dead[0] if dead else stuck[0]
+        report.witness["option_to_complete"] = example
         kind = "deadlocks in" if dead else "can never complete from"
         report.add(
             f"No option to complete: the net {kind} {graph.states[example].describe(net)} "
@@ -574,6 +582,7 @@ def check_soundness(net: PetriNet, max_states: int = 200_000) -> SoundnessReport
     report.proper_completion = not improper
     if improper:
         example = improper[0]
+        report.witness["proper_completion"] = example
         report.add(
             f"No proper completion: {graph.states[example].describe(net)} is reachable "
             f"via {graph.describe_path(example)}. A token reached {names(workflow.sink)!r} "
@@ -583,6 +592,7 @@ def check_soundness(net: PetriNet, max_states: int = 200_000) -> SoundnessReport
     fired = graph.fired_transitions()
     dead = [t for t in net.transitions if t not in fired]
     report.no_dead_transitions = not dead
+    report.dead_transitions = dead
     if dead:
         report.add("Dead transitions (can never fire): "
                    + ", ".join(names(t) for t in dead) + ".")

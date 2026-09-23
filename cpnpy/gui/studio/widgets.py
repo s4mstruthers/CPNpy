@@ -217,8 +217,16 @@ class Verdict(QWidget):
     The icon glyph and the word carry the meaning; colour only reinforces it.
     """
 
-    def __init__(self, name: str, status: str, detail: str, parent=None) -> None:
+    def __init__(self, name: str, status: str, detail: str, parent=None,
+                 definition: str | None = None, instance: list[str] | None = None) -> None:
+        """``definition`` is a key of :mod:`cpnpy.mining.definitions` (by default
+        looked up from ``name``); ``instance`` are LaTeX lines that fill the
+        definition in for the net at hand.  With a definition, hovering over the
+        property shows it and clicking opens it (see :mod:`.definition_view`)."""
         super().__init__(parent)
+        from html import escape
+        from ...mining.definitions import lookup
+        known = lookup(definition or name)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(10)
@@ -226,12 +234,22 @@ class Verdict(QWidget):
         layout.addWidget(badge, 0, Qt.AlignTop)
         text = QVBoxLayout()
         text.setSpacing(1)
-        title = label(name)
+        if known is not None:
+            muted = style.tokens().text_muted
+            title = label(f"<span>{escape(name)} <span style='color: {muted}; "
+                          "font-weight: 400'>ⓘ</span></span>")
+        else:
+            title = label(name)
         title.setStyleSheet("font-weight: 600;")
         text.addWidget(title)
+        #: The title label (tests click it to open the definition).
+        self.title = title
         if detail:
             text.addWidget(label(detail, "muted", wrap=True, selectable=True))
         layout.addLayout(text, 1)
+        if known is not None:
+            from .definition_view import attach_definition
+            attach_definition(self, known.key, instance, targets=[badge, title])
 
 
 class _StatusBadge(QWidget):

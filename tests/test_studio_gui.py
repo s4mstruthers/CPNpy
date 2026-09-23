@@ -832,3 +832,52 @@ def test_petri_analysis_follows_the_paper_and_trace_highlights(app):
     assert items["register"].trace_steps == []
     page.document.dirty = False
     window.close()
+
+
+def test_properties_show_their_definitions(app):
+    """Hovering over a property shows its definition filled in for the net;
+    clicking opens a pop-up whose links lead to related definitions; Help ▸
+    Definitions lists them all."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from cpnpy.gui.studio import petri_page
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.definition_view import show_reference
+    from cpnpy.gui.studio.widgets import Verdict
+    from cpnpy.model.examples import order_handling_unsound
+
+    window = StudioWindow()
+    window.resize(1500, 950)
+    window.show()
+    window.open_example_net(order_handling_unsound())
+    page = window.current_page()
+    original = petri_page.run_in_background
+    petri_page.run_in_background = lambda work, done, failed=None: done(work())
+    try:
+        page.run_analysis()
+    finally:
+        petri_page.run_in_background = original
+
+    verdicts = {v.definition.key: v for v in page.findChildren(Verdict)
+                if getattr(v, "definition", None) is not None}
+    for key in ("wf_net", "option_to_complete", "live", "bounded", "free_choice",
+                "well_structured", "s_coverable", "soundness_theorem"):
+        assert key in verdicts, key
+    tip = verdicts["option_to_complete"].title.toolTip()
+    assert "For this net" in tip and "start" in tip and "c4" in tip
+
+    QTest.mouseClick(verdicts["free_choice"].title, Qt.LeftButton)
+    popup = verdicts["free_choice"].last_popup
+    assert "reject" in popup.browser.toPlainText()
+    popup._link("def:preset")                         # follow "Builds on"
+    assert popup.current.key == "preset" and popup.back_button.isVisibleTo(popup)
+    popup._back()
+    assert popup.current.key == "free_choice"
+    popup.close()
+
+    dialog = show_reference("sound", window)
+    assert "Soundness theorem" in dialog.browser.toPlainText()
+    dialog.close()
+    page.document.dirty = False
+    window.close()

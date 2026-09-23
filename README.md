@@ -165,26 +165,32 @@ tokens, whether a transition is silent, an arc's weight and direction.
 
 **Analysis tab**
 
-The checks follow van der Aalst's *Workflow Verification* paper, with its
-definition numbers:
+Every property is defined mathematically in
+[**docs/definitions.md**](docs/definitions.md). In the app, **hover over a
+property** (the ones marked ⓘ) to see its definition *filled in for your
+net* — with your place names, and when it fails, the marking and firing
+sequence that break it. **Click** it to keep the definition open and follow
+links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 
-- **WF-net** (Definition 11): exactly one source place *i*, one sink place
-  *o*, and every node on a path between them.
-- **Soundness** (Definition 12):
+<p align="center"><img src="docs/screenshots/petri-definition.png" alt="The definition of option to complete, filled in for the order-handling net" width="480"></p>
+
+- **WF-net:** exactly one source place *i*, one sink place *o*, and every
+  node on a path between them.
+- **Soundness:**
   - (i) option to complete;
   - (ii) proper completion;
   - (iii) no dead transitions.
 
   Every violation comes with a firing sequence as its counterexample, and
   **Show ▶** plays it on the net.
-- **Short-circuited net N̄** (Theorem 1): the net plus a transition *t\**
-  from *o* back to *i*. The net is sound iff (N̄, [i]) is **live and
-  bounded**; both are shown, with the transition that can't fire again and
-  the marking where that happens. Safe and deadlock-free are shown too.
-  **Open N̄ as a new net** draws it.
-- **Structure** (§6): **free-choice**, **well-structured** (no PT- or
-  TP-handles in N̄, with the two paths of a handle spelled out) and
-  **S-coverable**, plus Lemma 4's quick check for transitions that need *i*
+- **Short-circuited net N̄:** the net plus a transition *t\** from *o* back
+  to *i*. By the soundness theorem, the net is sound iff (N̄, [i]) is **live
+  and bounded**; both are shown, with the transition that can't fire again
+  and the marking where that happens. Safe and deadlock-free are shown too.
+  **Open the short-circuited net** draws it.
+- **Structure:** **free-choice**, **well-structured** (no PT- or TP-handles
+  in N̄, with the two paths of a handle spelled out) and **S-coverable**,
+  plus the start and end rule: a quick check for transitions that need *i*
   or *o* together with another place.
 - **Behavioural properties** of the net as drawn: bounded, safe,
   deadlock-free, dead transitions, live, reversible. A WF-net always stops
@@ -361,11 +367,13 @@ course).
 ## For developers
 
 ```bash
-pytest -q                 # 133 tests, including GUI tests that run offscreen
+pytest -q                 # 138 tests, including GUI tests that run offscreen
 cpnpy --help              # command line: check, simulate, state space, mining
 ```
 
-The same commands work on macOS, Windows and Linux.
+The same commands work on macOS, Windows and Linux. `docs/definitions.md` is
+generated from `cpnpy/mining/definitions.py`; after editing a definition, run
+`python -m cpnpy.mining.definitions > docs/definitions.md` (a test checks it).
 
 The engines (`cpnpy.mining`, `cpnpy.ml`, `cpnpy.sim`, `cpnpy.analysis`)
 have **no dependencies**, so they work in a notebook or a script:
