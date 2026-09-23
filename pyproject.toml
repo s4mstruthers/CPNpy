@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cpnpy"
 version = "0.1.0"
-description = "Coloured Petri Nets and process mining, natively on macOS (a CPN Tools / CPN IDE / ProM work-alike)"
+description = "A modern ProM and CPN IDE in one app: process mining, Petri nets and coloured Petri nets"
 readme = "README.md"
 # 3.10 is the floor: we use PEP 604 unions and structural pattern matching.
 requires-python = ">=3.10"

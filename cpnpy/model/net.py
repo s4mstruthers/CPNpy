@@ -151,6 +151,9 @@ class Transition:
     #: Port/socket assignments for a substitution transition, ``socket -> port``.
     port_assignments: dict[str, str] = field(default_factory=dict)
     source_element: Any = None
+    #: Plain nets only: a silent (τ) transition, drawn as a black bar and
+    #: invisible in the traces it produces.
+    silent: bool = False
 
     guard_ast: Expr | None = None
     time_ast: Expr | None = None
@@ -268,6 +271,9 @@ class CPNet:
         #: Drawn and edited as a plain Petri net (black tokens, arc weights;
         #: see :mod:`cpnpy.model.plain`) rather than as a coloured net.
         self.plain = False
+        #: Names written under places and transitions (and draggable) rather
+        #: than inside them.
+        self.names_outside = False
         #: Fusion sets: name -> list of place ids that share one marking.
         self.fusion_sets: dict[str, list[str]] = {}
         #: The evaluator holding the standard basis and the model's own

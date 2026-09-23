@@ -355,7 +355,13 @@ class CpnPage(QWidget):
         card.add(top)
         self.tool_row = QWidget()
         self.tool_hint = ElidedLabel("", "muted")
-        tools = hbox(self.tool_switch, 12, self.tool_hint)
+        self.names_box = QCheckBox("Names outside")
+        self.names_box.setToolTip("Write the names of places and transitions next to them "
+                                  "instead of inside; you can then drag each name where you "
+                                  "want it")
+        self.names_box.setChecked(getattr(self.net, "names_outside", False))
+        self.names_box.toggled.connect(self._names_outside_toggled)
+        tools = hbox(self.tool_switch, 12, self.tool_hint, 8, self.names_box)
         tools.setStretch(2, 1)
         self.tool_row.setLayout(tools)
         card.add(self.tool_row)
@@ -884,6 +890,15 @@ class CpnPage(QWidget):
         self.view.viewport().setCursor(tool_cursor(tool))
 
     # -- naming things on the canvas ---------------------------------------------------
+    def _names_outside_toggled(self, outside: bool) -> None:
+        if getattr(self.net, "names_outside", False) == outside:
+            return
+        self._push_undo(self._snapshot())
+        self.net.names_outside = outside
+        self.scene.rebuild()
+        self.refresh_simulation()
+        self.set_dirty(True)
+
     def _element_created(self, element) -> None:
         """A new place or transition: back to Select and type its name."""
         self.tool_switch.set_index(0)
@@ -909,7 +924,8 @@ class CpnPage(QWidget):
             self._edited()
             self.reveal_element(element_id)
 
-        self.view.edit_text(item.scenePos(), element.name, done)
+        centre, min_width = item.name_anchor()
+        self.view.edit_text(centre, element.name, done, min_width)
 
     # =====================================================================
     # Simulation
@@ -1179,6 +1195,7 @@ class CpnPage(QWidget):
             "declarations": (list(block.colour_set_sources), list(block.variable_sources),
                              list(block.ml_sources), list(block.globref_sources)),
             "name": self.net.name,
+            "names_outside": getattr(self.net, "names_outside", False),
             "fusion": {k: list(v) for k, v in self.net.fusion_sets.items()},
             "page": self.net.pages.index(page) if page in self.net.pages else 0,
         }
@@ -1221,6 +1238,10 @@ class CpnPage(QWidget):
         (block.colour_set_sources, block.variable_sources, block.ml_sources,
          block.globref_sources) = (list(x) for x in snapshot["declarations"])
         self.net.name = snapshot["name"]
+        self.net.names_outside = snapshot.get("names_outside", False)
+        self.names_box.blockSignals(True)
+        self.names_box.setChecked(self.net.names_outside)
+        self.names_box.blockSignals(False)
         self.net.fusion_sets = {k: list(v) for k, v in snapshot["fusion"].items()}
         index = min(snapshot["page"], len(self.net.pages) - 1)
         self.scene.page = self.net.pages[index] if self.net.pages else None

@@ -153,6 +153,8 @@ class Place:
     id: str
     name: str
     position: tuple[float, float] | None = None
+    #: Where the name label sits, relative to the node (drawing only).
+    name_offset: tuple[float, float] | None = None
 
 
 @dataclass(eq=False)
@@ -161,6 +163,8 @@ class Transition:
     name: str
     label: str | None = None     # None means silent (τ)
     position: tuple[float, float] | None = None
+    #: Where the name label sits, relative to the node (drawing only).
+    name_offset: tuple[float, float] | None = None
 
     @property
     def silent(self) -> bool:

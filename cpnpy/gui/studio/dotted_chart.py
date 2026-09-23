@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
@@ -57,7 +57,9 @@ from PySide6.QtWidgets import (
 from ...mining.stats import format_duration
 from . import style
 from .documents import LogDocument
-from .widgets import Card, ElidedLabel, button, hbox, label, modifier_text, scroll, vbox
+from .widgets import (
+    Card, ElidedLabel, button, flow, hbox, label, modifier_text, scroll, vbox,
+)
 
 X_MODES = ["Actual time", "Time since case start", "Relative to case duration (%)",
            "Logical: order in log", "Logical: position in case"]
@@ -93,6 +95,9 @@ class DotSettings:
     grid_step: float = 0.0          # distance between gridlines in axis units; 0 = automatic
     grid_lines: bool = True         # vertical gridlines
     row_lines: bool = True          # a hairline per row when rows are tall enough
+    #: Colours picked in the legend: "<attribute>\x1f<value>" -> "#rrggbb".
+    #: Values without an entry keep the default palette.
+    colours: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +225,15 @@ class DotData:
     def colour_slot(self, colour_index: int) -> int:
         """Palette slot for a colour value (slots 0-7, then 'Other')."""
         return colour_index if colour_index < 8 else 99
+
+    def colour_key(self, colour_index: int) -> str:
+        return f"{self.settings.colour_by}\x1f{self.colour_values[colour_index]}"
+
+    def colour_hex(self, colour_index: int) -> str:
+        """The dot colour of a value: the one picked in the legend, if any,
+        else the palette's."""
+        custom = self.settings.colours.get(self.colour_key(colour_index))
+        return custom or style.categorical(self.colour_slot(colour_index))
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +460,7 @@ class DottedChart(QWidget):
         if s.connect:
             self._paint_connections(painter, rect, visible, t)
 
-        colours = [QColor(style.categorical(d.colour_slot(c))) for c in range(len(d.colour_values))]
+        colours = [QColor(d.colour_hex(c)) for c in range(len(d.colour_values))]
         faded = QColor(t.border)
         ring_pen = QPen(QColor(t.surface), ring) if ring else Qt.NoPen
         cell = 8
@@ -976,16 +990,82 @@ class DottedChartPanel(QWidget):
         self.grid_step.blockSignals(False)
 
     def _build_legend(self) -> QWidget:
-        card = Card("Legend", "Untick to hide. Double-click to show only that value.")
+        card = Card("Legend", "Untick to hide. Double-click to show only that value. "
+                    "Right-click a value (or select it and press Colour…) to pick its colour.")
         self.legend = QListWidget()
         self.legend.setMinimumHeight(140)
         self.legend.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.legend.setTextElideMode(Qt.ElideRight)
         self.legend.itemChanged.connect(self._legend_toggled)
         self.legend.itemDoubleClicked.connect(self._legend_isolate)
+        self.legend.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.legend.customContextMenuRequested.connect(self._legend_menu)
         card.add(self.legend)
-        card.add(hbox(button("Show all", self._legend_show_all, kind="ghost"), None))
+        self.colour_button = button("Colour…", self._choose_colour, kind="ghost",
+                                    tooltip="Pick the colour of the selected value")
+        self.reset_colours_button = button("Reset colours", self._reset_colours, kind="ghost",
+                                           tooltip="Back to the default palette")
+        card.add(flow(button("Show all", self._legend_show_all, kind="ghost"),
+                      self.colour_button, self.reset_colours_button))
         return card
+
+    # -- choosing colours --------------------------------------------------------------------
+    def _legend_menu(self, point) -> None:
+        from PySide6.QtWidgets import QMenu
+        item = self.legend.itemAt(point)
+        index = item.data(Qt.UserRole) if item is not None else None
+        menu = QMenu(self)
+        if index is not None:
+            self.legend.setCurrentItem(item)
+            menu.addAction("Choose colour…", lambda: self.choose_colour(index))
+            key = self.chart.data.colour_key(index)
+            reset = menu.addAction("Default colour", lambda: self.set_colour(index, None))
+            reset.setEnabled(key in self.settings.colours)
+            menu.addSeparator()
+        menu.addAction("Reset all colours", self._reset_colours)
+        menu.exec(self.legend.viewport().mapToGlobal(point))
+
+    def _choose_colour(self) -> None:
+        item = self.legend.currentItem()
+        index = item.data(Qt.UserRole) if item is not None else None
+        if index is None:
+            self._toast("Select a value in the legend first")
+            return
+        self.choose_colour(index)
+
+    def choose_colour(self, index: int) -> None:
+        from PySide6.QtWidgets import QColorDialog
+        d = self.chart.data
+        value = d.colour_values[index] or "–"
+        colour = QColorDialog.getColor(QColor(d.colour_hex(index)), self,
+                                       f"Colour of “{value}”")
+        if colour.isValid():
+            self.set_colour(index, colour.name())
+
+    def set_colour(self, index: int, colour: str | None) -> None:
+        """Give a legend value its own dot colour (``None``: the default)."""
+        key = self.chart.data.colour_key(index)
+        if colour is None:
+            self.settings.colours.pop(key, None)
+        else:
+            self.settings.colours[key] = colour
+        self._colours_changed()
+
+    def _reset_colours(self) -> None:
+        prefix = f"{self.settings.colour_by}\x1f"
+        for key in [k for k in self.settings.colours if k.startswith(prefix)]:
+            del self.settings.colours[key]
+        self._colours_changed()
+
+    def _colours_changed(self) -> None:
+        current = self.legend.currentRow()
+        self._fill_legend()
+        self.legend.setCurrentRow(current)
+        self.chart._invalidate()
+
+    def _toast(self, text: str) -> None:
+        QToolTip.showText(self.colour_button.mapToGlobal(self.colour_button.rect().center()),
+                          text, self.colour_button)
 
     def _build_statistics(self) -> QWidget:
         card = Card("Statistics")
@@ -1080,9 +1160,9 @@ class DottedChartPanel(QWidget):
                 slot = d.colour_slot(index)
                 name = value if value else "–"
                 text = f"{name}   ({d.colour_counts[value]:,})"
-                if slot == 99:
+                if slot == 99 and d.colour_key(index) not in self.settings.colours:
                     text += "  · Other"
-                item = QListWidgetItem(_swatch(style.categorical(slot)), text)
+                item = QListWidgetItem(_swatch(d.colour_hex(index)), text)
                 item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
                 item.setCheckState(Qt.Unchecked if index in self.chart.hidden_colours else Qt.Checked)
                 item.setData(Qt.UserRole, index)

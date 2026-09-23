@@ -84,6 +84,7 @@ def parse_pnml(text: str | bytes) -> PetriNet:
             place = net.add_place(_text_of(_child(element, "name")) or element.get("id"),
                                   id=element.get("id"))
             place.position = _position(element)
+            place.name_offset = _name_offset(element)
             tokens = _text_of(_child(element, "initialMarking"))
             if tokens and tokens.isdigit() and int(tokens) > 0:
                 initial[place.id] = int(tokens)
@@ -95,6 +96,7 @@ def parse_pnml(text: str | bytes) -> PetriNet:
             transition = net.add_transition(None if invisible else name, name=name,
                                             id=element.get("id"))
             transition.position = _position(element)
+            transition.name_offset = _name_offset(element)
         elif tag == "arc":
             weight_text = _text_of(_child(element, "inscription"))
             weight = int(weight_text) if weight_text and weight_text.isdigit() else 1
@@ -108,6 +110,10 @@ def parse_pnml(text: str | bytes) -> PetriNet:
 
     for source, target, weight, points in arcs:
         net.add_arc(source, target, weight).points = points
+    for element in net_element:
+        if _local(element.tag) == "toolspecific" and element.get("tool") == "CPNpy" \
+                and element.get("namesOutside") == "true":
+            net.info["names_outside"] = "true"
     net.initial_marking = Marking(initial)
 
     final: dict[str, int] = {}
@@ -141,6 +147,19 @@ def _position(element: ET.Element) -> tuple[float, float] | None:
         return None
 
 
+def _name_offset(element: ET.Element) -> tuple[float, float] | None:
+    """``<name><graphics><offset x y/></graphics></name>``: where the label is."""
+    name = _child(element, "name")
+    graphics = _child(name, "graphics") if name is not None else None
+    offset = _child(graphics, "offset") if graphics is not None else None
+    if offset is None:
+        return None
+    try:
+        return float(offset.get("x", 0)), float(offset.get("y", 0))
+    except ValueError:
+        return None
+
+
 def read_pnml(path: str | Path) -> PetriNet:
     net = parse_pnml(Path(path).read_bytes())
     net.info.setdefault("source", str(path))
@@ -158,20 +177,29 @@ def pnml_string(net: PetriNet, positions: dict[str, tuple[float, float]] | None 
         return (f'<graphics><position x="{point[0]:.1f}" y="{point[1]:.1f}"/>'
                 f'<dimension x="40" y="40"/></graphics>')
 
+    def name(node) -> str:
+        """The node's name, with the label position when one was set."""
+        offset = getattr(node, "name_offset", None)
+        where = (f'<graphics><offset x="{offset[0]:.1f}" y="{offset[1]:.1f}"/></graphics>'
+                 if offset is not None else "")
+        return f"<name><text>{escape(node.name)}</text>{where}</name>"
+
     lines = ['<?xml version="1.0" encoding="UTF-8"?>', "<pnml>",
              f'  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">',
-             f"    <name><text>{escape(net.name)}</text></name>",
-             '    <page id="page1">']
+             f"    <name><text>{escape(net.name)}</text></name>"]
+    if net.info.get("names_outside") == "true":
+        # CPNpy's drawing option: names next to the nodes, not inside.
+        lines.append('    <toolspecific tool="CPNpy" version="1" namesOutside="true"/>')
+    lines.append('    <page id="page1">')
     for place in net.places.values():
         tokens = net.initial_marking[place.id]
         marking = (f"<initialMarking><text>{tokens}</text></initialMarking>" if tokens else "")
-        lines.append(f"      <place id={quoteattr(place.id)}><name><text>{escape(place.name)}"
-                     f"</text></name>{marking}{graphics(place.id, place.position)}</place>")
+        lines.append(f"      <place id={quoteattr(place.id)}>{name(place)}"
+                     f"{marking}{graphics(place.id, place.position)}</place>")
     for transition in net.transitions.values():
         tool = ('<toolspecific tool="ProM" version="6.4" activity="$invisible$" '
                 'localNodeID="" />' if transition.silent else "")
-        lines.append(f"      <transition id={quoteattr(transition.id)}><name><text>"
-                     f"{escape(transition.name)}</text></name>{tool}"
+        lines.append(f"      <transition id={quoteattr(transition.id)}>{name(transition)}{tool}"
                      f"{graphics(transition.id, transition.position)}</transition>")
     for index, arc in enumerate(net.arcs, 1):
         inscription = (f"<inscription><text>{arc.weight}</text></inscription>"

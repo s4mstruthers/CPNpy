@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="docs/logo/cpnpy-logo.svg" alt="CPNpy" width="520">
+  <img src="docs/logo/cpnpy-logo.svg" alt="CPNpy" width="560">
 </p>
 
 <p align="center">
-  <b>Petri nets, process mining and coloured Petri nets — one native app instead of ProM, WoPeD and CPN Tools.</b><br>
-  Pure Python + Qt. No Java, no Wine, no Windows VM.
+  <b>A modern take on ProM and CPN IDE, in one app: process mining, Petri nets and coloured Petri nets.</b><br>
+  Pure Python + Qt. No Java, no Wine, no separate simulator to install.
 </p>
 
 ![Drawing a WF-net and checking its soundness](docs/screenshots/petri-analysis.png)
 
-**CPNpy Studio** does what the process mining course uses three tools for:
+**CPNpy Studio** brings together what usually takes several tools:
 
 | | What you can do | Instead of |
 |---|---|---|
@@ -64,8 +64,9 @@ cpnpy-studio
 After pulling changes that touch `environment.yml` or `pyproject.toml`, run
 `conda env update -f environment.yml --prune`.
 
-> CPNpy is made for macOS. It should also run on Windows and Linux, but
-> that hasn't been tested. Shortcuts are shown with Ctrl there instead of ⌘.
+> CPNpy is developed and tested on macOS. As a Python + Qt app it should also
+> run on Windows and Linux (shortcuts are then shown with Ctrl instead of ⌘),
+> but that hasn't been tested yet.
 
 ---
 
@@ -116,6 +117,9 @@ Nets drawn as in the lectures and the book:
 - **Transitions** are boxes with their name inside. A **silent (τ)**
   transition is a black bar.
 - **Arc weights** above 1 are written on the arc.
+- **Names** go inside the places and transitions, which grow to fit them.
+  Tick **Names outside** in the toolbar to put them underneath instead; you
+  can then drag each name where you want it. Both are saved in the PNML file.
 
 Select anything to edit it in the **Element** tab: a place's name and
 tokens, whether a transition is silent, an arc's weight and direction.
@@ -174,7 +178,8 @@ tokens, whether a transition is silent, an arc's weight and direction.
   - Dotted chart axes: actual time, time since case start, % of case
     duration, or logical order.
   - Time unit (Auto, or seconds up to years) and a grid step you can type in.
-  - Colour and shape by any attribute.
+  - Colour and shape by any attribute. The default palette can be changed
+    per value: right-click a value in the legend and pick its colour.
 - **Discover:**
   - α-algorithm, which shows its eight steps;
   - Inductive Miner and IMf;
@@ -250,7 +255,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 | Remove a bend | Drag it back into line with its neighbours |
 | Slide a straight segment | Drag the bar in the middle of a horizontal or vertical segment |
 | Reconnect an arc | Drag one of its ends onto another node |
-| Move a label | Drag it |
+| Move a label | Drag it (names can be dragged once **Names outside** is ticked) |
 | Delete | Select, then ⌫ or Delete |
 | Undo / redo | ⌘Z / ⇧⌘Z, or ↶ ↷ |
 
@@ -338,11 +343,10 @@ Plainly stated:
    optional PM4Py extra is installed.
 5. **Alignments are exact but unoptimised**: they can take seconds on
    heavily concurrent models. They run in the background.
-6. **Plain Petri nets live on one page**, and PNML does not store where you
-   moved the name labels.
+6. **Plain Petri nets live on one page.**
 
-Next up: unfolding substitution transitions, CPN monitors, and a `py2app`
-bundle so CPNpy starts from Finder like any other Mac app.
+Next up: unfolding substitution transitions, CPN monitors, and app bundles
+so CPNpy starts like any other desktop app.
 
 ## Licence
 

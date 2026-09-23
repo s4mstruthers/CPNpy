@@ -142,13 +142,14 @@ class NetScene(QGraphicsScene):
             return
 
         plain = getattr(self.net, "plain", False)
+        outside = getattr(self.net, "names_outside", False)
         for place in self.page.places:
-            item = PlaceItem(place, plain)
+            item = PlaceItem(place, plain, outside)
             self.addItem(item)
             self.place_items[place.id] = item
 
         for transition in self.page.transitions:
-            item = TransitionItem(transition, plain)
+            item = TransitionItem(transition, plain, outside)
             self.addItem(item)
             self.transition_items[transition.id] = item
 
@@ -814,17 +815,26 @@ class NetView(QGraphicsView):
         self.name_editor = None
 
     # -- editing a name in place ------------------------------------------------
-    def edit_text(self, centre: QPointF, text: str, done) -> None:
-        """Open a text field over the canvas at ``centre`` (scene coordinates)
-        with ``text`` selected.  Return (or clicking elsewhere) calls
-        ``done(new_text)``; Esc closes it without a change."""
+    def edit_text(self, centre: QPointF, text: str, done, min_width: float = 60.0) -> None:
+        """Open a small text field over the canvas at ``centre`` (scene
+        coordinates) with ``text`` selected: at least ``min_width`` scene
+        units wide (the node's width), growing with the text.  Return (or
+        clicking elsewhere) calls ``done(new_text)``; Esc closes it without a
+        change."""
         from PySide6.QtWidgets import QLineEdit
         self.close_editor()
         editor = QLineEdit(text, self.viewport())
         editor.setObjectName("canvasNameEditor")
         editor.setAlignment(Qt.AlignCenter)
-        editor.setFont(theme.ui_font(12, theme.QFont.DemiBold))
-        width = max(120, editor.fontMetrics().horizontalAdvance(text) + 40)
+        # The same size as the name on the canvas at the current zoom.
+        editor.setFont(theme.ui_font(max(9, min(28, round(12 * self._scale))),
+                                     theme.QFont.DemiBold))
+        accent = theme.palette().accent.name()
+        editor.setStyleSheet(f"QLineEdit#canvasNameEditor {{ padding: 1px 3px; border-radius: 4px;"
+                             f" border: 1.5px solid {accent}; }}")
+        scale = self._scale
+        smallest = int(min_width * scale)
+        width = max(smallest, editor.fontMetrics().horizontalAdvance(text) + 18)
         editor.resize(width, editor.sizeHint().height())
         point = self.mapFromScene(centre)
         editor.move(point.x() - width // 2, point.y() - editor.height() // 2)
@@ -844,7 +854,7 @@ class NetView(QGraphicsView):
 
         def fit(text: str) -> None:
             """Grow with the text, staying centred on the node."""
-            width = max(120, editor.fontMetrics().horizontalAdvance(text) + 40)
+            width = max(smallest, editor.fontMetrics().horizontalAdvance(text) + 18)
             if width != editor.width():
                 centre_x = editor.x() + editor.width() // 2
                 editor.resize(width, editor.height())

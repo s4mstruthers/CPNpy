@@ -248,6 +248,26 @@ def _paint_tokens(painter: QPainter, count: int, rect: QRectF) -> None:
     painter.restore()
 
 
+def _paint_token_row(painter: QPainter, count: int, centre: QPointF) -> None:
+    """Tokens as a small row of dots under a name (a number beyond five)."""
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    colour = theme.palette().text
+    if count > 5:
+        painter.setPen(colour)
+        painter.setFont(theme.ui_font(9, QFont.Bold))
+        painter.drawText(QRectF(centre.x() - 20, centre.y() - 7, 40, 14), Qt.AlignCenter,
+                         f"{count} ●")
+    else:
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(colour)
+        gap = 6.5
+        start = centre.x() - gap * (count - 1) / 2
+        for index in range(count):
+            painter.drawEllipse(QPointF(start + gap * index, centre.y()), 2.6, 2.6)
+    painter.restore()
+
+
 def _rect_of(item: "_NodeItem") -> tuple[float, float, float, float]:
     """A node's outline rectangle in scene coordinates (left, top, width, height)."""
     rect = item.rect().translated(item.pos())
@@ -364,6 +384,15 @@ class _NodeItem(QGraphicsPathItem):
         """The model's graphics record for this node."""
         raise NotImplementedError
 
+    def name_anchor(self) -> tuple[QPointF, float]:
+        """Where the name is shown (scene point) and how wide an editor for
+        it should be at least: over the node when the name is inside it,
+        over the label when it is outside."""
+        label = getattr(self, "name_label", None)
+        if getattr(self, "names_outside", False) and label is not None and label.isVisible():
+            return label.sceneBoundingRect().center(), 60.0
+        return self.scenePos(), max(60.0, self._rect.width())
+
     def refresh(self) -> None:
         raise NotImplementedError
 
@@ -384,10 +413,13 @@ class _NodeItem(QGraphicsPathItem):
 class PlaceItem(_NodeItem):
     """An ellipse with its name inside and four annotations around it."""
 
-    def __init__(self, place: "Place", plain: bool = False) -> None:
+    def __init__(self, place: "Place", plain: bool = False,
+                 names_outside: bool = False) -> None:
         #: Drawn as in the course's plain Petri nets: a circle with black
-        #: tokens inside and the name underneath.
+        #: tokens inside.
         self.plain = plain
+        #: The name under the node (draggable) rather than inside it.
+        self.names_outside = names_outside
         if plain:
             width = height = PLAIN_PLACE
         else:
@@ -411,7 +443,7 @@ class PlaceItem(_NodeItem):
         self.initial_label = _label(self, palette.inscription, theme.mono_font(10))
         _draggable_label(self.type_label, self, "type")
         _draggable_label(self.initial_label, self, "initmark")
-        if plain:
+        if names_outside:
             self.name_label.backdrop = True
             _draggable_label(self.name_label, self, "name")
 
@@ -446,21 +478,30 @@ class PlaceItem(_NodeItem):
         """Re-read the model object and lay the annotations out."""
         self.name_label.setText(self.place.name)
         bounds = self.name_label.boundingRect()
-        if self.plain:
-            # The name under the circle (or where the user dragged it).
-            self.type_label.hide()
-            self.initial_label.hide()
+        if self.names_outside:
+            # The name under the node (or where the user dragged it).
             if not _place_at_offset(self.name_label, self.place.graphics.label_offsets, "name"):
                 self.name_label.setPos(-bounds.width() / 2, self._rect.bottom() + 1)
+        elif self.plain:
+            # A circle just big enough for the name.
+            diameter = max(PLAIN_PLACE, bounds.width() + 16)
+            if abs(diameter - self._rect.width()) > 0.5:
+                self.prepareGeometryChange()
+                self._rect = QRectF(-diameter / 2, -diameter / 2, diameter, diameter)
+                self.setPath(self._build_path())
+            self._layout_inside_name()
+        else:
+            # An ellipse only offers about 70 % of its width at the text's
+            # height, so the name needs proportionally more room here than in
+            # a rectangle.
+            if self._grow_to_fit(bounds.width() / 0.70, 12.0):
+                self.place.graphics.width = self._rect.width()
+            self.name_label.setPos(-bounds.width() / 2, -bounds.height() / 2)
+        if self.plain:
+            self.type_label.hide()
+            self.initial_label.hide()
             return
-
-        # An ellipse only offers about 70 % of its width at the text's height,
-        # so the name needs proportionally more room here than in a rectangle.
-        if self._grow_to_fit(bounds.width() / 0.70, 12.0):
-            self.place.graphics.width = self._rect.width()
         rect = self._rect
-
-        self.name_label.setPos(-bounds.width() / 2, -bounds.height() / 2)
 
         # Inscriptions go where the model file put them; otherwise at CPN
         # Tools' default spots: colour set below right, initial marking above
@@ -492,6 +533,8 @@ class PlaceItem(_NodeItem):
             self.count_pill.hide()
             self.marking_label.hide()
             self.setToolTip(f"{self.place.name}: {count} token(s)")
+            if not self.names_outside:
+                self._layout_inside_name()
             self.update()
             return
         visible = count > 0
@@ -538,9 +581,24 @@ class PlaceItem(_NodeItem):
                                   top - my + (pill_height - text_bounds.height()) / 2
                                   + _MarkingBox.PAD_Y)
 
+    def _name_inside_with_tokens(self) -> bool:
+        return self.plain and not self.names_outside and bool(self.place.name) and \
+            self.tokens > 0
+
+    def _layout_inside_name(self) -> None:
+        """Centre the name in the circle; with tokens, the name moves up and
+        the tokens go in a row underneath it."""
+        bounds = self.name_label.boundingRect()
+        lift = 6.0 if self._name_inside_with_tokens() else 0.0
+        self.name_label.setPos(-bounds.width() / 2, -bounds.height() / 2 - lift)
+
     def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
         super().paint(painter, option, widget)
-        if self.plain and self.tokens:
+        if not (self.plain and self.tokens):
+            return
+        if self._name_inside_with_tokens():
+            _paint_token_row(painter, self.tokens, QPointF(0, 9.0))
+        else:
             _paint_tokens(painter, self.tokens, self._rect)
 
     def toggle_marking(self) -> None:
@@ -566,10 +624,13 @@ class PlaceItem(_NodeItem):
 class TransitionItem(_NodeItem):
     """A rounded rectangle with name, guard and time labels, plus the enabling cue."""
 
-    def __init__(self, transition: "Transition", plain: bool = False) -> None:
+    def __init__(self, transition: "Transition", plain: bool = False,
+                 names_outside: bool = False) -> None:
         #: Plain nets: a square with the name inside; a silent (τ) transition
         #: is a black bar, as in the course's figures.
         self.plain = plain
+        #: The name under the box (draggable) rather than inside it.
+        self.names_outside = names_outside
         self.silent = plain and getattr(transition, "silent", False)
         if self.silent:
             width, height = PLAIN_SILENT
@@ -592,6 +653,9 @@ class TransitionItem(_NodeItem):
         self.time_label = _label(self, palette.inscription, theme.mono_font(10))
         _draggable_label(self.guard_label, self, "cond")
         _draggable_label(self.time_label, self, "time")
+        if names_outside:
+            self.name_label.backdrop = True
+            _draggable_label(self.name_label, self, "name")
 
         # The binding count sits in its own pill, mirroring the place's marking
         # pill so the two read as the same kind of information.
@@ -620,21 +684,25 @@ class TransitionItem(_NodeItem):
 
         self.name_label.setText(self.transition.name)
         bounds = self.name_label.boundingRect()
+        if self.names_outside:
+            if not _place_at_offset(self.name_label, self.transition.graphics.label_offsets,
+                                    "name"):
+                self.name_label.setPos(-bounds.width() / 2, self._rect.bottom() + 1)
         if self.plain:
             self.guard_label.hide()
             self.time_label.hide()
             self.name_label.setVisible(not self.silent)
             self.setToolTip(f"τ (silent){': ' + self.transition.name if self.transition.name else ''}"
                             if self.silent else "")
-            if not self.silent:
+            if not self.silent and not self.names_outside:
                 self._grow_to_fit(bounds.width(), 14.0)
                 self.name_label.setPos(-bounds.width() / 2, -bounds.height() / 2)
             return
-        if self._grow_to_fit(bounds.width(), 26.0):
-            self.transition.graphics.width = self._rect.width()
+        if not self.names_outside:
+            if self._grow_to_fit(bounds.width(), 26.0):
+                self.transition.graphics.width = self._rect.width()
+            self.name_label.setPos(-bounds.width() / 2, -bounds.height() / 2)
         rect = self._rect
-
-        self.name_label.setPos(-bounds.width() / 2, -bounds.height() / 2)
 
         # Guards are conventionally shown in square brackets, to the left.
         offsets = self.transition.graphics.label_offsets

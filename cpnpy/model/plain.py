@@ -97,6 +97,7 @@ def to_petri_net(net: CPNet) -> PetriNet:
     for place in net.all_places():
         node = petri.add_place(place.name or place.id, id=place.id)
         node.position = (place.graphics.x, -place.graphics.y)
+        node.name_offset = _pnml_offset(place.graphics.label_offsets.get("name"))
         count = token_count(place.initial_marking_text)
         if count:
             initial[place.id] = count
@@ -106,6 +107,9 @@ def to_petri_net(net: CPNet) -> PetriNet:
                                     name=transition.name or ("τ" if silent else transition.id),
                                     id=transition.id)
         node.position = (transition.graphics.x, -transition.graphics.y)
+        node.name_offset = _pnml_offset(transition.graphics.label_offsets.get("name"))
+    if getattr(net, "names_outside", False):
+        petri.info["names_outside"] = "true"
     for arc in net.all_arcs():
         weight = weight_of(arc)
         bends = [(x, -y) for x, y in arc.bendpoints]           # transition -> place
@@ -127,12 +131,18 @@ def from_petri_net(petri: PetriNet) -> CPNet:
     net = new_plain_net(petri.name)
     page = net.pages[0]
     positions = _positions(petri)
+    # Names outside when the file says so -- or when places have long names
+    # (a mined net's "p({a},{b,e})" would make enormous circles).
+    net.names_outside = petri.info.get("names_outside") == "true" or any(
+        len(place.name) > 5 for place in petri.places.values())
     for place in petri.places.values():
         x, y = positions[place.id]
         node = Place(id=place.id, name=place.name, colour_set_name="UNIT",
                      initial_marking_text=tokens_text(petri.initial_marking[place.id]))
         node.graphics.x, node.graphics.y = x, -y
         node.graphics.width = node.graphics.height = PLACE_SIZE
+        if place.name_offset is not None:
+            node.graphics.label_offsets["name"] = _model_offset(place.name_offset)
         page.places.append(node)
     for transition in petri.transitions.values():
         x, y = positions[transition.id]
@@ -143,6 +153,8 @@ def from_petri_net(petri: PetriNet) -> CPNet:
         node.graphics.x, node.graphics.y = x, -y
         node.graphics.width, node.graphics.height = SILENT_SIZE if node.silent else \
             TRANSITION_SIZE
+        if transition.name_offset is not None:
+            node.graphics.label_offsets["name"] = _model_offset(transition.name_offset)
         page.transitions.append(node)
     for arc in petri.arcs:
         if arc.source in petri.places:
@@ -155,6 +167,15 @@ def from_petri_net(petri: PetriNet) -> CPNet:
                              expression_text="" if arc.weight == 1 else tokens_text(arc.weight),
                              bendpoints=points if orientation == "TtoP" else points[::-1]))
     return net
+
+
+def _pnml_offset(offset) -> tuple[float, float] | None:
+    """Editor label offset (model units, y up) -> PNML offset (y down)."""
+    return None if offset is None else (offset[0], -offset[1])
+
+
+def _model_offset(offset: tuple[float, float]) -> tuple[float, float]:
+    return offset[0], -offset[1]
 
 
 def _positions(petri: PetriNet) -> dict[str, tuple[float, float]]:

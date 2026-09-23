@@ -590,3 +590,115 @@ def test_petri_net_editor_draw_and_analyse(app, tmp_path):
             p.document.dirty = False
     bad.document.dirty = False
     window.close()
+
+
+def test_petri_net_names_inside_or_outside(app, tmp_path):
+    """Names sit inside the nodes by default; "Names outside" puts them
+    underneath, where they can be dragged; both survive saving as PNML.
+    Renaming opens a small editor over the name, and a hand-drawn
+    transition shows in the Element tab."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.petri_page import PetriNetPage
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_petri()
+    page = window.current_page()
+    assert isinstance(page, PetriNetPage)
+    _pump(app, 0.2)
+    view, port = page.view, page.view.viewport()
+    view.resetTransform()
+    view.auto_fit = False
+
+    for tool, x in ((1, -100.0), (2, 100.0)):
+        page.tool_switch.set_index(tool)
+        QTest.mouseClick(port, Qt.LeftButton, Qt.NoModifier, view.mapFromScene(QPointF(x, 0)))
+        _pump(app, 0.05)
+        editor = view.name_editor
+        assert editor is not None and editor.width() < 140     # snug, not a wide bar
+        QTest.keyClick(editor, Qt.Key_Return)
+        _pump(app, 0.05)
+    place_item = next(iter(page.scene.place_items.values()))
+    transition_item = next(iter(page.scene.transition_items.values()))
+
+    # Inside (the default): the names are within the shapes.
+    assert not page.names_box.isChecked()
+    assert place_item.shape().contains(place_item.name_label.mapToParent(
+        place_item.name_label.boundingRect().center()))
+
+    # The Element tab shows a hand-drawn transition.
+    page.scene.clearSelection()
+    transition_item.setSelected(True)
+    _pump(app, 0.05)
+    assert page.element_card.title_label.text().startswith("Transition")
+
+    # Outside: names under the nodes; dragging one keeps the spot.
+    page.names_box.setChecked(True)
+    _pump(app, 0.1)
+    place_item = next(iter(page.scene.place_items.values()))
+    label = place_item.name_label
+    assert label.sceneBoundingRect().top() >= place_item.sceneBoundingRect().bottom() - 8
+    start = view.mapFromScene(label.sceneBoundingRect().center())
+    QTest.mousePress(port, Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mouseMove(port, start + QPointF(40, 20).toPoint())
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, start + QPointF(40, 20).toPoint())
+    offset = place_item.place.graphics.label_offsets.get("name")
+    assert offset is not None
+
+    # Renaming now edits over the label, not over the circle.
+    page.start_rename(place_item.place.id)
+    _pump(app, 0.05)
+    editor = view.name_editor
+    label_centre = view.mapFromScene(page.scene.place_items[place_item.place.id]
+                                     .name_label.sceneBoundingRect().center())
+    assert abs(editor.geometry().center().y() - label_centre.y()) < 6
+    view.close_editor()
+
+    # Both survive a save and a reopen.
+    target = tmp_path / "names.pnml"
+    assert page._write(target)
+    page.undo()                                             # the drag is undoable ...
+    page.undo()                                             # ... and so is the setting
+    assert not page.net.names_outside and not page.names_box.isChecked()
+    page.document.dirty = False
+    window.remove_documents([page.document.id])
+    window.open_path(str(target))
+    reopened = window.current_page()
+    assert reopened.net.names_outside and reopened.names_box.isChecked()
+    again = next(iter(reopened.net.all_places()))
+    assert again.graphics.label_offsets.get("name") == pytest.approx(offset, abs=0.2)
+    for p in list(window.pages.values()):
+        if hasattr(p, "document") and hasattr(p.document, "dirty"):
+            p.document.dirty = False
+    window.close()
+
+
+def test_dotted_chart_custom_colours(app):
+    """Legend values can be given their own dot colour, and reset."""
+    from PySide6.QtGui import QColor
+
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.gui.studio.dotted_chart import DottedChartPanel
+    from cpnpy.mining import read_xes
+
+    panel = DottedChartPanel(LogDocument(read_xes(DATA / "plane_wilma_10.xes")))
+    panel.resize(1200, 700)
+    panel.show()
+    _pump(app, 0.2)
+    data = panel.chart.data
+    default = data.colour_hex(0)
+    panel.set_colour(0, "#123456")
+    assert panel.chart.data.colour_hex(0) == "#123456"
+    swatch = panel.legend.item(0).icon().pixmap(14, 14).toImage().pixelColor(7, 7)
+    assert swatch == QColor("#123456")
+    image = panel.chart.grab()                    # paints with the new colour
+    assert not image.isNull()
+    panel.legend.setCurrentRow(1)
+    assert panel.legend.currentItem().data(Qt.UserRole) == 1
+    panel._reset_colours()
+    assert panel.chart.data.colour_hex(0) == default
+    panel.close()

@@ -435,7 +435,7 @@ class StudioWindow(QMainWindow):
         title.setStyleSheet("font-size: 34px; font-weight: 700;")
         outer.addWidget(title, 0, Qt.AlignHCenter)
         subtitle = label("Event logs, process discovery, conformance checking and "
-                         "Petri nets — natively on your Mac.", "pageSubtitle")
+                         "Petri nets — a modern ProM and CPN IDE in one app.", "pageSubtitle")
         subtitle.setStyleSheet("font-size: 15px;")
         outer.addWidget(subtitle, 0, Qt.AlignHCenter)
         outer.addSpacing(30)
