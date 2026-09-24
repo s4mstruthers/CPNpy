@@ -34,11 +34,11 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
-    QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsScene, QGraphicsSceneMouseEvent,
-    QGraphicsView,
+    QApplication, QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem, QGraphicsScene,
+    QGraphicsSceneMouseEvent, QGraphicsView, QWidget,
 )
 
 from ..model.net import Arc, CPNet, Page, Place, Transition
@@ -929,6 +929,42 @@ class NetScene(QGraphicsScene):
         painter.drawPoints(points)
 
 
+class _ClickAway(QObject):
+    """While a name box is open: a mouse press anywhere outside it, or the box
+    losing the focus, finishes the edit -- as if Return had been pressed.
+
+    The click itself is not swallowed, so it still selects, drags or presses
+    whatever it landed on.  Switching to another application or opening the
+    box's own context menu does not count.
+    """
+
+    def __init__(self, editor, commit: Callable[[], None]) -> None:
+        super().__init__(editor)
+        self.editor = editor
+        self.commit = commit
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt naming
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress:
+            # A press reaches the window first, then the widget under the
+            # mouse: only a widget outside the box counts.
+            if isinstance(watched, QWidget) and not self._inside(watched):
+                self.commit()
+        elif kind == QEvent.FocusOut and watched is self.editor:
+            if event.reason() not in (Qt.PopupFocusReason, Qt.ActiveWindowFocusReason):
+                self.commit()
+        return False
+
+    def _inside(self, widget: QWidget) -> bool:
+        """The box itself, or something it owns -- such as its right-click
+        menu, which is a window of its own (so ``isAncestorOf`` says no)."""
+        while widget is not None:
+            if widget is self.editor:
+                return True
+            widget = widget.parentWidget()
+        return False
+
+
 class NetView(QGraphicsView):
     """A viewport with zooming (floating − % + Fit bar, ⌘-scroll, pinch)
     and panning (scroll, or drag with the middle button)."""
@@ -970,9 +1006,9 @@ class NetView(QGraphicsView):
     def edit_text(self, centre: QPointF, text: str, done, min_width: float = 60.0) -> None:
         """Open a small text field over the canvas at ``centre`` (scene
         coordinates) with ``text`` selected: at least ``min_width`` scene
-        units wide (the node's width), growing with the text.  Return (or
-        clicking elsewhere) calls ``done(new_text)``; Esc closes it without a
-        change."""
+        units wide (the node's width), growing with the text.  Return, a
+        click anywhere else, or moving the focus away calls
+        ``done(new_text)``; Esc closes it without a change."""
         from PySide6.QtWidgets import QLineEdit
         self.close_editor()
         editor = QLineEdit(text, self.viewport())
@@ -1021,9 +1057,18 @@ class NetView(QGraphicsView):
         editor.selectAll()
         editor.setFocus(Qt.MouseFocusReason)
         self.name_editor = editor
+        # Qt 6 reports editingFinished on focus loss only after a change, and
+        # a click on the canvas or a toolbar button may not move the focus at
+        # all -- so an untouched box (a new node's suggested name) stayed
+        # open.  Watch for clicks elsewhere and focus loss ourselves.
+        self._click_away = _ClickAway(editor, commit)
+        QApplication.instance().installEventFilter(self._click_away)
 
     def close_editor(self) -> None:
         editor, self.name_editor = self.name_editor, None
+        watcher, self._click_away = getattr(self, "_click_away", None), None
+        if watcher is not None:
+            QApplication.instance().removeEventFilter(watcher)
         if editor is not None:
             editor.blockSignals(True)          # hiding must not count as "finished"
             editor.hide()

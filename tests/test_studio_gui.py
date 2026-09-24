@@ -968,3 +968,52 @@ def test_substitution_transition_opens_its_subpage(app, tmp_path):
         page._step(None)
     assert [r.binding.describe(page.net).split()[0] for r in page.simulator.log].count("pack") == 2
     window.close()
+
+
+def test_clicking_away_from_the_name_box_keeps_the_name(app):
+    """The box that opens to name a new node closes when you click anywhere
+    else, as if Return were pressed -- also when the name was left as it is
+    (Qt 6 only reports "editing finished" on focus loss after a change, so
+    an untouched box used to stay open over the node)."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    from cpnpy.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.show()
+    window.action_new_petri()
+    page = window.current_page()
+    net = page.net
+    view = page.view
+    _pump(app, 0.2)
+    for tool, spot in ((1, QPoint(120, 150)), (2, QPoint(320, 150))):
+        page.tool_switch.set_index(tool)                  # Place, then Transition
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, Qt.NoModifier, spot)
+        _pump(app, 0.1)
+        assert view.name_editor is not None and view.name_editor.isVisible()
+        # Click on empty canvas without typing: the box closes, the name stays.
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(40, 380))
+        _pump(app, 0.1)
+        assert view.name_editor is None
+    assert sorted(p.name for p in net.all_places()) == ["p1"]
+    assert sorted(t.name for t in net.all_transitions()) == ["t1"]
+
+    # Typed, then a click on a toolbar button: the typed name is kept.
+    place = next(net.all_places())
+    page.start_rename(place.id)
+    _pump(app, 0.1)
+    QTest.keyClicks(view.name_editor, "start")
+    QTest.mouseClick(page.tool_switch.buttons[0], Qt.LeftButton)       # Select
+    _pump(app, 0.1)
+    assert view.name_editor is None
+    assert place.name == "start"
+
+    # Esc still cancels.
+    page.start_rename(place.id)
+    _pump(app, 0.1)
+    QTest.keyClicks(view.name_editor, "other")
+    QTest.keyClick(view.name_editor, Qt.Key_Escape)
+    _pump(app, 0.1)
+    assert view.name_editor is None and place.name == "start"
+    page.document.dirty = False           # closing would otherwise ask to save
+    window.close()
