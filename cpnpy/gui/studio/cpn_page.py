@@ -35,7 +35,8 @@ from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QHeaderView, QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QPlainTextEdit, QSpinBox, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
+    QPlainTextEdit, QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QStyle,
+    QStyledItemDelegate,
     QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 from html import escape
@@ -284,7 +285,28 @@ class CpnPage(QWidget):
             QTimer.singleShot(0, self.view.zoom_to_fit)
 
     def _toggle_structure(self, show: bool) -> None:
+        splitter = getattr(self, "splitter", None)
+        inspector = splitter.sizes()[2] if splitter is not None else 0
         self.structure_panel.setVisible(show)
+        if splitter is not None and self.isVisible():
+            self._canvas_takes_the_rest(inspector)
+
+    def _canvas_takes_the_rest(self, inspector: int | None = None) -> None:
+        """Side panels keep their width; the canvas gets whatever is left.
+
+        (QSplitter would share freed space out in proportion, widening the
+        inspector and squeezing the canvas's toolbar onto two lines.)
+        """
+        splitter = self.splitter
+        structure = 250 if self.structure_panel.isVisible() else 0
+        shown = 1 + self.structure_panel.isVisible() + self.inspector_panel.isVisible()
+        total = splitter.width() - splitter.handleWidth() * (shown - 1)
+        if inspector is None or inspector <= 0:
+            # A little more than the minimum, unless the canvas needs it.
+            minimum = self.inspector_panel.minimumWidth()
+            inspector = minimum + 40 if total - structure - minimum - 40 >= 800 else minimum
+        inspector = inspector if self.inspector_panel.isVisible() else 0
+        splitter.setSizes([structure, max(300, total - structure - inspector), inspector])
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
@@ -303,7 +325,8 @@ class CpnPage(QWidget):
                 available = holder.viewport().width()
             if len(self.net.pages) == 1 and (available < 1500 or
                                              self.minimumSizeHint().width() > available):
-                self._toggle_structure(False)
+                self.structure_panel.setVisible(False)
+            QTimer.singleShot(0, self._canvas_takes_the_rest)
 
     def _structure_tab(self, index: int) -> None:
         """Declarations are long lines of code: give them room while shown."""
@@ -352,11 +375,15 @@ class CpnPage(QWidget):
         self.undo_button = _tool("↶", f"Undo the last change to the model "
                                   f"({shortcut_text('Ctrl+Z')})")
         self.redo_button = _tool("↷", f"Redo ({shortcut_text('Ctrl+Shift+Z')})")
-        top = hbox(self.structure_toggle, self.undo_button, self.redo_button, 8,
-                   self.mode_switch, 12, self.sim_status, self.values_button,
-                   self.inspector_toggle)
-        top.setStretch(6, 1)
-        card.add(top)
+        # A flow layout, like the simulation bar: when the model panel and the
+        # inspector leave little room, the row wraps instead of widening the page.
+        # The status goes last and takes its natural width (up to a limit), so
+        # a long one moves to a line of its own rather than pushing buttons.
+        self.sim_status.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.sim_status.setMaximumWidth(460)
+        card.add(flow(self.structure_toggle, self.undo_button, self.redo_button, 10,
+                      self.mode_switch, 10, self.values_button, self.inspector_toggle, 10,
+                      self.sim_status))
         self.tool_row = QWidget()
         self.tool_hint = ElidedLabel("", "muted")
         self.names_box = QCheckBox("Names outside")
@@ -470,8 +497,9 @@ class CpnPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         self.inspector_tabs = SegmentedControl(self.INSPECTOR, compact=True)
-        # Room for "Problems (12)" too.
-        host.setMinimumWidth(max(360, self.inspector_tabs.sizeHint().width() + 24))
+        # Room for the tabs (the segmented control grows for "Problems (12)"),
+        # but no more: the page must fit a 13" laptop's window.
+        host.setMinimumWidth(max(320, self.inspector_tabs.sizeHint().width() + 12))
         layout.addLayout(hbox(self.inspector_tabs, None))
         self.inspector_stack = QStackedWidget()
         for build in (self._build_simulation_tab, self._build_element_tab,
@@ -604,6 +632,12 @@ class CpnPage(QWidget):
         self.element_card.add(self.form)
         self.element_info = label("", "muted", wrap=True, selectable=True)
         self.element_card.add(self.element_info)
+        # A substitution transition: go to the page it stands for.
+        self.subpage_button = button("Open subpage", self._open_subpage, kind="ghost",
+                                     tooltip="Show the page this substitution transition "
+                                             "stands for")
+        self.element_card.add(hbox(self.subpage_button, None))
+        self.subpage_button.hide()
         self.element_problems = QVBoxLayout()
         self.element_card.add(self.element_problems)
         layout.addWidget(self.element_card)
@@ -645,7 +679,9 @@ class CpnPage(QWidget):
         self.max_nodes.setToolTip("Stop exploring after this many nodes (the report then "
                                   "says PARTIAL)")
         self.space_button = button("Calculate", self._calculate_state_space, kind="primary")
-        card.add(hbox(label("Node limit", "muted"), self.max_nodes, None, self.space_button))
+        # A flow layout: in a narrow inspector the button wraps below instead
+        # of being cut off.
+        card.add(flow(label("Node limit", "muted"), self.max_nodes, 12, self.space_button))
         self.space_status = label("", "muted", wrap=True)
         card.add(self.space_status)
         layout.addWidget(card)
@@ -686,10 +722,14 @@ class CpnPage(QWidget):
     def _fill_pages(self) -> None:
         self.page_list.blockSignals(True)
         self.page_list.clear()
+        parents = {t.substitution_subpage: t for t in self.net.all_transitions()
+                   if t.is_substitution}
         for page in self.net.pages:
             item = QListWidgetItem(page.name)
+            owner = parents.get(page.id)
             item.setData(Qt.UserRole + 1, f"{len(page.places)} places · "
-                                          f"{len(page.transitions)} transitions")
+                                          f"{len(page.transitions)} transitions"
+                         + (f" · subpage of “{owner.name}”" if owner else ""))
             self.page_list.addItem(item)
         if self.scene.page in self.net.pages:
             self.page_list.setCurrentRow(self.net.pages.index(self.scene.page))
@@ -1139,6 +1179,7 @@ class CpnPage(QWidget):
                 item.widget().hide()
                 item.widget().deleteLater()
         self.element_info.setText("")
+        self.subpage_button.hide()
         self.element_hint.setVisible(element is None)
         if element is None:
             card.title_label.setText("Nothing selected")
@@ -1164,8 +1205,17 @@ class CpnPage(QWidget):
             self.guard_edit.setText(element.guard_text)
             self.time_edit.setText(element.time_text)
             self._set_rows({"name", "guard", "time"})
-            enabled = len(self.simulator.enabled_bindings(element))
-            self.element_info.setText(f"{enabled:,} enabled binding(s) in the current marking.")
+            subpage = self._subpage_of(element)
+            if element.is_substitution:
+                self.element_info.setText(
+                    f"Stands for the page “{subpage.name if subpage else '?'}”: its port "
+                    "places are the socket places around this transition, and its own "
+                    "transitions do the work.")
+                self.subpage_button.setVisible(subpage is not None)
+            else:
+                enabled = len(self.simulator.enabled_bindings(element))
+                self.element_info.setText(
+                    f"{enabled:,} enabled binding(s) in the current marking.")
         elif isinstance(element, Arc):
             place = self.net.find_place(element.place_id)
             transition = self.net.find_transition(element.transition_id)
@@ -1307,6 +1357,19 @@ class CpnPage(QWidget):
         self.refresh_title()
 
     # -- pages --------------------------------------------------------------------------
+    def _subpage_of(self, transition):
+        return next((page for page in self.net.pages
+                     if page.id == transition.substitution_subpage), None)
+
+    def _open_subpage(self) -> None:
+        """Show the subpage of the selected substitution transition."""
+        element = getattr(self, "element", None)
+        subpage = self._subpage_of(element) if isinstance(element, Transition) else None
+        if subpage is None:
+            return
+        self._toggle_structure(True)
+        self.page_list.setCurrentRow(self.net.pages.index(subpage))
+
     def _page_selected(self, row: int) -> None:
         if 0 <= row < len(self.net.pages):
             self.scene.show_page(self.net.pages[row])

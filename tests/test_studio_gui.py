@@ -881,3 +881,90 @@ def test_properties_show_their_definitions(app):
     dialog.close()
     page.document.dirty = False
     window.close()
+
+
+def test_removing_a_petri_net_and_a_log_without_times(app, monkeypatch):
+    """Regressions: removing a Petri net raised ValueError (its sidebar
+    section was missing from the ordering), and the dotted chart of a log
+    without timestamps raised AttributeError while it was being built."""
+    import sys
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.gui.studio.dotted_chart import DottedChartPanel
+    from cpnpy.mining import EventLog, parse_simple_log
+
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda *info: errors.append(info))
+    window = StudioWindow()
+    window.show()
+    shared_axis = DottedChartPanel.shared.x_mode
+    notation = LogDocument(EventLog.from_simple_log(parse_simple_log("[<a,b>^2, <a,c>]"), "L"))
+    window.add_document(notation)
+    page = window.current_page()
+    page.tabs.set_index(3)                         # the dotted chart
+    _pump(app, 0.3)
+    assert errors == []
+    assert page.findChild(DottedChartPanel).settings.x_mode == 4       # logical order
+    assert DottedChartPanel.shared.x_mode == shared_axis               # the default is untouched
+
+    root = Path(__file__).resolve().parents[1]
+    window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+    net = window.documents[-1]
+    window.remove_documents([net.id])
+    assert net not in window.documents and net.id not in window.pages
+    assert errors == []
+    window.close()
+
+
+def test_filter_dialog_opens_a_filtered_log(app):
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.gui.studio.filter_dialog import FilterDialog
+    from cpnpy.mining import EventLog, parse_simple_log
+
+    window = StudioWindow()
+    window.show()
+    log = LogDocument(EventLog.from_simple_log(
+        parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"), "L1"))
+    window.add_document(log)
+    page = window.current_page()
+    dialog = FilterDialog(log, page)
+    dialog.activities_box.setChecked(True)
+    dialog.activity_mode.setCurrentIndex(2)                # remove cases with e
+    for i in range(dialog.activity_list.count()):
+        item = dialog.activity_list.item(i)
+        item.setCheckState(Qt.Checked if item.data(Qt.UserRole) == "e" else Qt.Unchecked)
+    _pump(app, 0.3)
+    assert dialog.preview.text().startswith("Result: 5 of 6 cases")
+    filtered = LogDocument(dialog.result_log())
+    page.open_log.emit(filtered)
+    assert window.documents[-1] is filtered and filtered.name == "L1 (filtered)"
+    assert ("a", "e", "d") not in filtered.simple_log()
+    window.close()
+
+
+def test_substitution_transition_opens_its_subpage(app, tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_hierarchy import hierarchical
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.io.cpn_writer import write_cpn
+
+    net = hierarchical()
+    net.compile()
+    write_cpn(net, tmp_path / "hierarchy.cpn")
+    window = StudioWindow()
+    window.show()
+    window.open_path(str(tmp_path / "hierarchy.cpn"))
+    page = window.current_page()
+    handle = page.net.pages[0].transitions[0]
+    page._show_element(handle)
+    assert not page.subpage_button.isHidden()
+    page._open_subpage()
+    _pump(app, 0.2)
+    assert page.scene.page.name == "Handle"
+    page.mode_switch.set_index(1)
+    for _ in range(4):
+        page._step(None)
+    assert [r.binding.describe(page.net).split()[0] for r in page.simulator.log].count("pack") == 2
+    window.close()

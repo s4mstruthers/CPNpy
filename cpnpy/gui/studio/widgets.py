@@ -570,6 +570,9 @@ class FlowLayout(QLayout):
             if widget is not None and widget.isHidden():
                 continue
             hint = item.sizeHint()
+            # Never wider than the layout: a long label gets the whole line
+            # (and elides or wraps) instead of running off the edge.
+            hint.setWidth(min(hint.width(), max(area.width(), 1)))
             if x + hint.width() > area.right() + 1 and line_height > 0:
                 x = area.x()
                 y += line_height + self._line_spacing
@@ -681,4 +684,12 @@ def footprint_table(fp, compact: bool = False) -> "QTableWidget":
             else:
                 cell.setForeground(QColor(t.text_muted))
             table.setItem(i, j, cell)
+    # No bigger than its cells: a small matrix should not sit in a large grey
+    # area.  A large one still scrolls.
+    frame = 2 * table.frameWidth()
+    table.setMaximumWidth(table.verticalHeader().sizeHint().width() + len(activities)
+                          * table.horizontalHeader().defaultSectionSize() + frame + 2)
+    if not compact:         # (the Analysis tab sets the height of the compact one)
+        table.setMaximumHeight(table.horizontalHeader().sizeHint().height() + len(activities)
+                               * table.verticalHeader().defaultSectionSize() + frame + 2)
     return table

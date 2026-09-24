@@ -11,6 +11,7 @@ Throughout, $N = (P, T, F)$ is a Petri net and, for WF-nets, $i$ and $o$ are its
 - [Behavioural properties](#behavioural-properties)
 - [Workflow nets and soundness](#workflow-nets-and-soundness)
 - [Structural properties](#structural-properties)
+- [Invariants](#invariants)
 - [Footprints](#footprints)
 
 ## Notation
@@ -436,6 +437,66 @@ Otherwise $t$ needs $i$ (or $o$) marked together with another place, which never
 Builds on: [Sound](#sound).
 
 *Source: W.M.P. van der Aalst, Workflow Verification: Finding Control-Flow Errors Using Petri-Net-Based Techniques (2000), Lemma 4.*
+
+## Invariants
+
+Linear algebra on the drawing: what firing does to each place, written as a matrix, and the weightings and firing counts it leaves unchanged. Like the structural properties they need no state space.
+
+### Incidence matrix
+
+What firing each transition does to each place: the tokens it puts in minus the tokens it takes out.
+
+$$
+C(p, t) = W(t, p) - W(p, t) \quad \text{for } p \in P, \; t \in T
+$$
+
+$$
+M \xrightarrow{\sigma} M' \Rightarrow M' = M + C \cdot \overline{\sigma}
+$$
+
+$W(x, y)$ is the weight of the arc from $x$ to $y$, and $0$ if there is none. $\overline{\sigma}$, the *Parikh vector* of $\sigma$, counts how often each transition occurs in $\sigma$. This *marking equation* is only a necessary condition: it ignores the order of the firings.
+
+Builds on: [Enabling and firing](#enabling-and-firing).
+
+*Source: T. Murata, Petri Nets: Properties, Analysis and Applications, Proceedings of the IEEE 77(4) (1989), Section VII.*
+
+### P-invariant
+
+A weighting of the places whose weighted token count never changes, whatever fires: a conservation law of the net.
+
+$$
+y \colon P \to \mathbb{N}, \quad y \neq 0, \quad y \cdot C = 0
+$$
+
+$$
+M_0 \xrightarrow{*} M \Rightarrow y \cdot M = y \cdot M_0
+$$
+
+The app lists the *minimal* ones (no other uses a strict subset of their places); every other invariant with non-negative weights is a sum of multiples of these.
+
+*Covered by P-invariants* (every place has a positive weight in some P-invariant) implies that the net is bounded from every initial marking. In a WF-net, $i + p + o = 1$ says: one token travels through these places.
+
+Builds on: [Incidence matrix](#incidence-matrix), [Bounded](#bounded).
+
+*Source: T. Murata, Petri Nets: Properties, Analysis and Applications, Proceedings of the IEEE 77(4) (1989), Section VII-A.*
+
+### T-invariant
+
+How often to fire each transition to end up in the marking you started from: a cycle of the behaviour.
+
+$$
+x \colon T \to \mathbb{N}, \quad x \neq 0, \quad C \cdot x = 0
+$$
+
+$$
+M \xrightarrow{\sigma} M' \land \overline{\sigma} = x \Rightarrow M' = M
+$$
+
+A net that is live and bounded is *covered by T-invariants*: every transition occurs in one. By the soundness theorem, a sound WF-net's short-circuited net $\overline{N}$ is live and bounded, so a transition in no T-invariant of $\overline{N}$ proves that the WF-net is not sound. (Covered does not imply sound.)
+
+Builds on: [Incidence matrix](#incidence-matrix), [Live](#live), [Short-circuited net](#short-circuited-net), [Soundness theorem](#soundness-theorem).
+
+*Source: T. Murata, Petri Nets: Properties, Analysis and Applications, Proceedings of the IEEE 77(4) (1989), Section VII-A.*
 
 ## Footprints
 

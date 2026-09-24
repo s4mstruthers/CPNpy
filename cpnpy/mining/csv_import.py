@@ -74,10 +74,10 @@ def guess_mapping(header: list[str]) -> ColumnMapping | None:
 
 _DATE_FORMATS = [
     "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
-    "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y",
-    "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
-    "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d",
-    "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y",
+    "%d-%m-%Y %H:%M:%S.%f", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d-%m-%Y",
+    "%d/%m/%Y %H:%M:%S.%f", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+    "%Y/%m/%d %H:%M:%S.%f", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d",
+    "%d.%m.%Y %H:%M:%S.%f", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y",
 ]
 
 
@@ -162,3 +162,46 @@ def read_csv(path: str | Path, mapping: ColumnMapping | None = None) -> EventLog
             rows.sort(key=lambda item: (item[1].timestamp, item[0]))
         log.traces.append(Trace({KEY_NAME: case_id}, [event for _, event in rows]))
     return log
+
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+def write_csv(log: EventLog, path: str | Path, delimiter: str = ",") -> None:
+    """Write one row per event, in the column names PM4Py and Disco use.
+
+    ``case:concept:name`` (the case id), ``concept:name``, ``time:timestamp``
+    (ISO 8601), ``org:resource`` and ``lifecycle:transition`` come first, then
+    the other event attributes, then trace attributes as ``case:<name>``.
+    :func:`read_csv` recognises the standard columns when the file is opened
+    again.
+    """
+    first = [KEY_NAME, KEY_TIME, KEY_RESOURCE, KEY_LIFECYCLE]
+    event_keys = sorted({key for trace in log for event in trace for key in event.attributes}
+                        - set(first))
+    trace_keys = sorted({key for trace in log for key in trace.attributes} - {KEY_NAME})
+    present = [key for key in first
+               if any(key in event.attributes for trace in log for event in trace)]
+    header = ["case:concept:name"] + present + event_keys + [f"case:{k}" for k in trace_keys]
+
+    def cell(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, list):
+            return "|".join(str(item) for item in value)
+        return str(value)
+
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, delimiter=delimiter)
+        writer.writerow(header)
+        for trace in log:
+            case_values = [cell(trace.attributes.get(key)) for key in trace_keys]
+            for event in trace:
+                writer.writerow([trace.case_id]
+                                + [cell(event.attributes.get(key)) for key in present]
+                                + [cell(event.attributes.get(key)) for key in event_keys]
+                                + case_values)

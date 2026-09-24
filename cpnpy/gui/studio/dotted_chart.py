@@ -944,8 +944,15 @@ class DottedChartPanel(QWidget):
         self.size_slider.setValue(int(s.dot_size))
         self.size_slider.valueChanged.connect(lambda _: self._settings_changed(keep_view=True))
 
-        if not any(e.timestamp for t in log.traces[:200] for e in t.events):
+        self._has_time = any(e.timestamp for t in log.traces[:200] for e in t.events)
+        if not self._has_time:
+            # No times: only the logical axes make sense.  Switch quietly --
+            # this panel is still being built, and a log without times should
+            # not change the default axis of the next log's chart.
+            self.x_box.blockSignals(True)
             self.x_box.setCurrentIndex(4)
+            self.x_box.blockSignals(False)
+            self.settings.x_mode = self._last_x_mode = 4
             for index in range(3):
                 self.x_box.model().item(index).setEnabled(False)
 
@@ -1098,8 +1105,19 @@ class DottedChartPanel(QWidget):
         s.grid_step = self.grid_step.value()
         s.grid_lines = self.grid_lines_box.isChecked()
         s.row_lines = self.row_lines_box.isChecked()
-        DottedChartPanel.shared = replace(s)      # new panels start from these settings
+        shared = replace(s)                       # new panels start from these settings
+        if not self._has_time and DottedChartPanel.shared.x_mode < 3:
+            # This log forces a logical axis; that is not a choice to pass on.
+            shared.x_mode = DottedChartPanel.shared.x_mode
+        DottedChartPanel.shared = shared
         self.rebuild(keep_view)
+
+    def _for_this_log(self, s: DotSettings) -> DotSettings:
+        """``s`` as this log can show it: without times, a time axis becomes
+        logical order."""
+        if not self._has_time and s.x_mode < 3:
+            return replace(s, x_mode=4)
+        return s
 
     def rebuild(self, keep_view: bool = False) -> None:
         data = DotData(self.document, self.settings)
@@ -1115,7 +1133,7 @@ class DottedChartPanel(QWidget):
     def showEvent(self, event) -> None:  # noqa: N802
         """Pick up configuration changes made on another log's dotted chart."""
         super().showEvent(event)
-        shared = DottedChartPanel.shared
+        shared = self._for_this_log(DottedChartPanel.shared)
         if shared != self.settings and self.document.log.traces:
             self._apply_settings_to_controls(shared)
 
@@ -1125,7 +1143,7 @@ class DottedChartPanel(QWidget):
                    self.unit_box, self.grid_step, self.grid_lines_box, self.row_lines_box)
         for widget in widgets:
             widget.blockSignals(True)
-        self.x_box.setCurrentIndex(s.x_mode)
+        self.x_box.setCurrentIndex(self._for_this_log(s).x_mode)
         for box, value in ((self.rows_box, s.rows), (self.colour_box, s.colour_by),
                            (self.shape_box, s.shape_by)):
             index = box.findText(value)

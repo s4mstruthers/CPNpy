@@ -3,8 +3,8 @@
 PM4Py is *not* a dependency.  If it is installed (``pip install -e ".[pm4py]"``)
 the app offers these extra discovery algorithms:
 
-* **Heuristics Miner → Petri net** -- the full heuristics net with AND/XOR
-  split semantics, converted to a Petri net;
+* **Heuristics → Petri net (PM4Py)** -- PM4Py's own heuristics net, to
+  compare with the built-in one (:func:`..discovery.heuristics.heuristics_net`);
 * **ILP Miner** -- region-based discovery via integer linear programming;
 * **Split Miner**-style / other miners can be added here the same way.
 

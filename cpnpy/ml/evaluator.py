@@ -54,7 +54,7 @@ from .builtins import Builtin, PartialApplication, make_builtins
 if sys.getrecursionlimit() < 20_000:
     sys.setrecursionlimit(20_000)
 from .errors import EvalError, MatchError
-from .multiset import Multiset
+from .multiset import Multiset, TimedTokens
 from .values import UNIT, Constructor, MLList, Record, Unit, format_value, sort_key
 
 
@@ -171,6 +171,9 @@ class Evaluator:
         self._model_time: int = 0
         self.globals.define("intTime", Builtin("intTime", lambda _v: self._model_time))
         self.globals.define("time", Builtin("time", lambda _v: self._model_time))
+        # The option type: `SOME x` / `NONE` (what Int.fromString returns).
+        self.globals.define("SOME", ConstructorFunction("SOME"))
+        self.globals.define("NONE", Constructor("NONE"))
 
     # -- integration points --------------------------------------------------
     def set_model_time(self, value: int) -> None:
@@ -209,12 +212,13 @@ class Evaluator:
             return self._evaluate_coefficient(expression, env)
 
         if isinstance(expression, Delay):
-            # A bare ``@+`` outside an arc context has no clock to add to, so
-            # we evaluate the base and let the caller (the arc evaluator) deal
-            # with the delay separately.  Reaching here means the expression was
-            # evaluated with ``evaluate`` instead of ``evaluate_arc``.
-            raise EvalError("'@+' is only allowed at the top level of an arc inscription",
-                            expression.position)
+            # `tokens @+ delay`: tokens that become available `delay` time
+            # units after the transition fires (see evaluate_timed_arc).
+            base = self.evaluate(expression.base, env)
+            delay = _expect_time(self.evaluate(expression.delay, env), expression.position)
+            if isinstance(base, TimedTokens):
+                return base.delayed(delay)
+            return TimedTokens([(to_multiset(base), delay, False)])
 
         if isinstance(expression, UnOp):
             return self._evaluate_unary(expression, env)
@@ -262,26 +266,31 @@ class Evaluator:
                      clock: int = 0) -> tuple[Multiset, int]:
         """Evaluate an arc inscription to ``(tokens, timestamp)``.
 
-        Handles the two things that make arcs special:
-
-        * the result is coerced to a multiset, so a bare ``x`` means ``1`x``
-          exactly as CPN Tools reads it;
-        * a top-level ``@+ d`` adds ``d`` to the current clock to produce the
-          time stamp for the produced tokens.  Without ``@+`` the stamp is the
-          current clock, meaning the tokens are available immediately.
+        The result is coerced to a multiset, so a bare ``x`` means ``1`x``
+        exactly as CPN Tools reads it.  The time stamp is that of the first
+        timed term (``x @+ d`` gives ``clock + d``), or the clock itself;
+        :meth:`evaluate_timed_arc` keeps the time of every term.
         """
-        if isinstance(expression, Delay):
-            tokens = to_multiset(self.evaluate(expression.base, environment))
-            delay = self.evaluate(expression.delay, environment)
-            if isinstance(delay, bool) or not isinstance(delay, (int, float)):
-                raise EvalError(
-                    f"time delay must be a number, got {format_value(delay)}",
-                    expression.position,
-                )
-            # Delays may be real (``normal(5.0, 1.0)``); model time is kept as
-            # a number of either kind, like CPN Tools' real-time setting.
-            return tokens, clock + delay
-        return to_multiset(self.evaluate(expression, environment)), clock
+        groups = self.evaluate_timed_arc(expression, environment, clock)
+        tokens = Multiset.empty()
+        for part, _stamp in groups:
+            tokens = tokens + part
+        return tokens, (groups[0][1] if groups else clock)
+
+    def evaluate_timed_arc(self, expression: Expr, environment: Environment,
+                           clock: Any = 0) -> list[tuple[Multiset, Any]]:
+        """Evaluate an arc inscription to ``[(tokens, time stamp), ...]``.
+
+        ``1`x@+5 +++ 1`y@+3`` gives two groups, stamped ``clock + 5`` and
+        ``clock + 3``; an untimed inscription gives one group stamped
+        ``clock``, meaning the tokens are available immediately.  Delays may
+        be real (``normal(5.0, 1.0)``); model time is kept as a number of
+        either kind, like CPN Tools' real-time setting.
+        """
+        value = self.evaluate(expression, environment)
+        if isinstance(value, TimedTokens):
+            return value.stamped(clock)
+        return [(to_multiset(value), clock)]
 
     # -- identifier resolution ----------------------------------------------
     def _lookup_identifier(self, node: Var, environment: Environment) -> Any:
@@ -310,6 +319,8 @@ class Evaluator:
         if isinstance(value, Multiset):
             # `2`(1`x ++ 1`y)` scales an existing multiset.
             return value * count
+        if isinstance(value, TimedTokens):
+            return value.scaled(count)
         return Multiset.singleton(value, count)
 
     def _evaluate_unary(self, node: UnOp, environment: Environment) -> Any:
@@ -368,6 +379,14 @@ class Evaluator:
             return {"<": left_key < right_key, ">": left_key > right_key,
                     "<=": left_key <= right_key, ">=": left_key >= right_key}[operator]
 
+        # -- timed multisets --------------------------------------------------
+        if operator == "+++" or (operator == "++" and (isinstance(left, TimedTokens)
+                                                       or isinstance(right, TimedTokens))):
+            return _as_timed(left) + _as_timed(right)
+        if operator == "---":
+            # Removing timed tokens: like `--`, regardless of their times.
+            return to_multiset(left) - to_multiset(right)
+
         # -- multiset algebra ------------------------------------------------
         if operator in ("++", "--"):
             # In CPN ML a multiset *is* a list ('a ms = 'a list), so `++` on
@@ -385,13 +404,21 @@ class Evaluator:
             if not isinstance(right, MLList):
                 raise EvalError(f"'::' expects a list on the right, got {format_value(right)}", position)
             return right.cons(left)
+        if operator == "@" and not isinstance(right, bool) and isinstance(right, (int, float)):
+            # `1`x@5`: tokens with the time stamp 5 (timed initial markings).
+            if isinstance(left, TimedTokens):
+                return TimedTokens((tokens, right, True) for tokens, _t, _a in left.groups)
+            return TimedTokens([(to_multiset(left), right, True)])
         if operator in ("@", "^^"):
             if isinstance(left, MLList) and isinstance(right, MLList):
                 return left.append(right)
             if isinstance(left, str) and isinstance(right, str):
                 # CPN Tools also uses ^^ for string concatenation in places.
                 return left + right
-            raise EvalError(f"'{operator}' expects two lists", position)
+            hint = (" (join timed tokens with +++, e.g. 1`x@0 +++ 1`y@5)"
+                    if operator == "@" and isinstance(right, Multiset) else "")
+            raise EvalError(f"'{operator}' expects two lists, or a time stamp after '@'{hint}",
+                            position)
 
         # -- strings ----------------------------------------------------------
         if operator == "^":
@@ -704,8 +731,24 @@ def to_multiset(value: Any) -> Multiset:
     CPN Tools treats a bare colour expression on an arc as one token of that
     colour, so ``x`` and ``1`x`` mean the same thing.  We implement that
     coercion here, in one place, rather than scattering it through the
-    simulator.
+    simulator.  Timed tokens lose their times (an input arc, for example,
+    takes tokens regardless of their stamps).
     """
     if isinstance(value, Multiset):
         return value
+    if isinstance(value, TimedTokens):
+        return value.untimed()
     return Multiset.singleton(value, 1)
+
+
+def _as_timed(value: Any) -> TimedTokens:
+    """An operand of ``+++``: untimed tokens are available at once (``@+0``)."""
+    if isinstance(value, TimedTokens):
+        return value
+    return TimedTokens([(to_multiset(value), 0, False)])
+
+
+def _expect_time(value: Any, position: int) -> Any:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise EvalError(f"time delay must be a number, got {format_value(value)}", position)
+    return value

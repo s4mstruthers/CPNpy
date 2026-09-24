@@ -103,6 +103,10 @@ def _expect_multiset(value: Any, where: str) -> Multiset:
     raise EvalError(f"{where} expects a multiset, got {format_value(value)}")
 
 
+def _raise(message: str) -> Any:
+    raise EvalError(message)
+
+
 def make_builtins(rng: random.Random, apply_function: Callable[[Any, Any], Any]) -> dict[str, Any]:
     """Build the standard environment.
 
@@ -119,7 +123,8 @@ def make_builtins(rng: random.Random, apply_function: Callable[[Any, Any], Any])
             table[alias] = builtin
 
     # -- arithmetic ---------------------------------------------------------
-    register("abs", lambda v: abs(_expect_number(v, "abs")) if isinstance(v, float) else abs(_expect_int(v, "abs")))
+    register("abs", lambda v: abs(_expect_number(v, "abs")) if isinstance(v, float) else abs(_expect_int(v, "abs")),
+             1, "Int.abs", "Real.abs")
     register("min", lambda v: min(_expect_pair(v, "min")[0], _expect_pair(v, "min")[1]), 1, "Int.min")
     register("max", lambda v: max(_expect_pair(v, "max")[0], _expect_pair(v, "max")[1]), 1, "Int.max")
     register("real", lambda v: float(_expect_int(v, "real")), 1, "Real.fromInt")
@@ -143,14 +148,66 @@ def make_builtins(rng: random.Random, apply_function: Callable[[Any, Any], Any])
     register("Real.toString", lambda v: (lambda x: f"~{-x!r}" if x < 0 else repr(x))(_expect_number(v, "Real.toString")))
     register("Bool.toString", lambda v: "true" if v else "false")
     register("str", lambda v: v if isinstance(v, str) else format_value(v))
-    register("Int.fromString", lambda v: int(str(v).replace("~", "-")))
+    def _from_string(pattern: str, convert: Callable[[str], Any]) -> Callable[[Any], Any]:
+        """``Int.fromString "12"`` is ``SOME 12``, and ``NONE`` for "abc".
+
+        Like Standard ML: leading blanks are skipped, ``~`` or ``-`` makes the
+        number negative, and whatever follows the number is ignored.
+        """
+        import re
+        compiled = re.compile(r"\s*([~+-]?)(" + pattern + ")")
+
+        def parse(value: Any) -> Any:
+            if not isinstance(value, str):
+                raise EvalError(f"fromString expects a string, got {format_value(value)}")
+            found = compiled.match(value)
+            if not found:
+                return Constructor("NONE")
+            sign = "-" if found.group(1) in ("~", "-") else ""
+            return Constructor("SOME", convert(sign + found.group(2)))
+        return parse
+
+    register("Int.fromString", _from_string(r"\d+", int))
+    register("Real.fromString",
+             _from_string(r"\d+(?:\.\d+)?(?:[eE][~+-]?\d+)?|\.\d+",
+                          lambda text: float(text.replace("~", "-"))))
+
+    # -- options (SOME x / NONE) ----------------------------------------------
+    def _is_some(value: Any) -> bool:
+        if isinstance(value, Constructor) and value.name in ("SOME", "NONE"):
+            return value.name == "SOME"
+        raise EvalError(f"expected an option (SOME x or NONE), got {format_value(value)}")
+
+    def _value_of(value: Any) -> Any:
+        if not _is_some(value):
+            raise EvalError("valOf applied to NONE (exception Option)")
+        return value.argument
+
+    register("isSome", _is_some, 1, "Option.isSome")
+    register("valOf", _value_of, 1, "Option.valOf")
+    register("getOpt", lambda v: (lambda o, d: o.argument if _is_some(o) else d)(*_expect_pair(v, "getOpt")),
+             1, "Option.getOpt")
 
     # -- strings ------------------------------------------------------------
     register("size", lambda v: len(v) if isinstance(v, str) else _multiset_size(v), 1, "String.size")
     register("String.concat", lambda v: "".join(_expect_list(v, "String.concat")))
     register("String.str", lambda v: str(v))
-    register("explode", lambda v: MLList(tuple(str(v))))
-    register("implode", lambda v: "".join(_expect_list(v, "implode")))
+    register("explode", lambda v: MLList(tuple(str(v))), 1, "String.explode")
+    register("implode", lambda v: "".join(_expect_list(v, "implode")), 1, "String.implode")
+    register("concat", lambda v: "".join(_expect_list(v, "concat")))
+
+    def _string_sub(value: Any) -> str:
+        text, index = _expect_pair(value, "String.sub")
+        index = _expect_int(index, "String.sub")
+        if not isinstance(text, str) or not 0 <= index < len(text):
+            raise EvalError(f"String.sub: index {index} is outside the string (exception Subscript)")
+        return text[index]
+
+    register("String.sub", _string_sub)
+    # Characters are one-letter strings in this implementation.
+    register("ord", lambda v: ord(v) if isinstance(v, str) and len(v) == 1 else
+             _raise(f"ord expects a character, got {format_value(v)}"), 1, "Char.ord")
+    register("chr", lambda v: chr(_expect_int(v, "chr")), 1, "Char.chr")
     register(
         "substring",
         lambda v: str(v[0])[_expect_int(v[1], "substring"): _expect_int(v[1], "substring") + _expect_int(v[2], "substring")],
@@ -177,6 +234,22 @@ def make_builtins(rng: random.Random, apply_function: Callable[[Any, Any], Any])
     register("length", lambda v: len(_expect_list(v, "length")), 1, "List.length")
     register("rev", lambda v: MLList(reversed(_expect_list(v, "rev").items)), 1, "List.rev")
     register("List.last", lambda v: _expect_list(v, "List.last")[-1])
+    register("List.concat",
+             lambda v: MLList(item for inner in _expect_list(v, "List.concat")
+                              for item in _expect_list(inner, "List.concat")))
+    register(
+        "List.find",
+        lambda f, xs: next((Constructor("SOME", x) for x in _expect_list(xs, "List.find")
+                            if apply_function(f, x)), Constructor("NONE")),
+        2,
+    )
+    register(
+        "List.partition",
+        lambda f, xs: (lambda items: (MLList(x for x in items if apply_function(f, x)),
+                                      MLList(x for x in items if not apply_function(f, x))))(
+            _expect_list(xs, "List.partition").items),
+        2,
+    )
     register(
         "List.nth",
         lambda v: _expect_list(v[0], "List.nth")[_expect_int(v[1], "List.nth")],
@@ -243,7 +316,16 @@ def make_builtins(rng: random.Random, apply_function: Callable[[Any, Any], Any])
     def _multiset_size(value: Any) -> int:
         return _expect_multiset(value, "size").size()
 
-    register("ms_to_col", lambda v: MLList(_expect_multiset(v, "ms_to_col").expand()))
+    def _ms_to_col(value: Any) -> Any:
+        """The one colour of a multiset of size 1 (CPN Tools' definition)."""
+        tokens = _expect_multiset(value, "ms_to_col")
+        if tokens.size() != 1:
+            raise EvalError(f"ms_to_col needs a multiset of size 1, got {tokens}")
+        return next(tokens.expand())
+
+    register("ms_to_col", _ms_to_col)
+    register("ms_to_list", lambda v: MLList(_expect_multiset(v, "ms_to_list").expand()))
+    register("list_to_ms", lambda v: Multiset.from_values(_expect_list(v, "list_to_ms")))
     register("cf", lambda v: _expect_multiset(v[1], "cf").count(v[0]))
     register("empty_ms", lambda _v: Multiset.empty())
     register("List.length_ms", _multiset_size)

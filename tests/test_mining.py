@@ -273,3 +273,153 @@ def test_against_pm4py(tmp_path):
     assert precision(net, simple) == pytest.approx(
         pm4py.precision_token_based_replay(frame, pn, im, fm), abs=1e-6)
     del pd
+
+
+def test_textbook_typesetting_is_accepted():
+    # Copied from the book or the slides: angle brackets and superscripts.
+    assert parse_simple_log("[⟨a,b,c,d⟩³, ⟨a,c,b,d⟩², ⟨a,e,d⟩]") == \
+        parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]")
+    assert parse_simple_log("[⟨a⟩¹², ⟨b⟩]") == Counter({("a",): 12, ("b",): 1})
+    # A multiplicity of zero leaves the trace out entirely.
+    assert parse_simple_log("[<a>^0, <b>]") == Counter({("b",): 1})
+
+
+def test_csv_dates_with_fractional_seconds():
+    from cpnpy.mining.csv_import import parse_timestamp
+    assert parse_timestamp("05/01/2023 10:00:00.250").microsecond == 250_000
+    assert parse_timestamp("2023/01/05 10:00:00.5").microsecond == 500_000
+
+
+# ---------------------------------------------------------------------------
+# Invariants
+# ---------------------------------------------------------------------------
+def test_incidence_matrix_and_invariants_of_alpha_l1():
+    from cpnpy.mining.analysis import short_circuit
+    from cpnpy.mining.invariants import incidence_matrix, invariants
+    net = alpha_miner(parse_simple_log(L1)).net
+    places, transitions, matrix = incidence_matrix(net)
+    a = transitions.index(next(t for t in net.transitions if net.node_name(t) == "a"))
+    column = {places[i]: row[a] for i, row in enumerate(matrix) if row[a]}
+    # a takes from i_L and puts into the two places after it.
+    assert sorted(column.values()) == [-1, 1, 1]
+    found = invariants(net)
+    # One token per thread: i + p({a},{b,e}) + p({b,e},{d}) + o, and the c-thread.
+    assert sorted(found.describe(y, with_value=True) for y in found.p_invariants) == [
+        "i_L + o_L + p({a},{b,e}) + p({b,e},{d}) = 1",
+        "i_L + o_L + p({a},{c,e}) + p({c,e},{d}) = 1"]
+    assert found.covered_by_p_invariants
+    assert found.t_invariants == []                  # nothing leads back from [o]
+    closed = invariants(short_circuit(net, "i_L", "o_L"))
+    assert sorted(sorted(net.node_name(t) if t in net.transitions else "t*" for t in x)
+                  for x in closed.t_invariants) == [["a", "b", "c", "d", "t*"],
+                                                    ["a", "d", "e", "t*"]]
+    assert closed.covered_by_t_invariants
+
+
+def test_invariants_expose_the_unsound_order_net():
+    from cpnpy.mining.analysis import short_circuit
+    from cpnpy.mining.invariants import invariants
+    from cpnpy.mining import read_pnml
+    net = read_pnml(Path(__file__).resolve().parents[1] / "examples" / "petri" /
+                    "order_handling_unsound.pnml")
+    found = invariants(net)
+    assert [net.node_name(p) for p in found.uncovered_places()] == ["c2", "c4"]
+    closed = invariants(short_circuit(net, net.source_places()[0], net.sink_places()[0]))
+    # `reject` is in no T-invariant of N̄: N̄ is not live and bounded, not sound.
+    assert [net.node_name(t) for t in closed.uncovered_transitions()] == ["reject"]
+
+
+def test_weighted_invariant():
+    from cpnpy.mining.invariants import invariants
+    # t: 2 tokens from p to 1 token in q, and back: 1·p + 2·q is conserved.
+    net = PetriNet("weights")
+    p, q = net.add_place("p"), net.add_place("q")
+    forward, back = net.add_transition("f"), net.add_transition("b")
+    net.add_arc(p, forward, 2)
+    net.add_arc(forward, q)
+    net.add_arc(q, back)
+    net.add_arc(back, p, 2)
+    net.initial_marking = Marking({p.id: 4})
+    found = invariants(net)
+    assert [found.describe(y, with_value=True) for y in found.p_invariants] == ["p + 2·q = 4"]
+    assert [sorted(x.values()) for x in found.t_invariants] == [[1, 1]]
+
+
+# ---------------------------------------------------------------------------
+# Filtering and CSV export
+# ---------------------------------------------------------------------------
+def test_filters():
+    from cpnpy.mining.filtering import FilterSettings, apply_filters, top_variants
+    log = EventLog.from_simple_log(parse_simple_log(
+        "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>, <a,b>]"), "L")
+
+    def run(**settings):
+        return apply_filters(log, FilterSettings(**settings)).simple_log()
+
+    # 80% of 7 cases needs 5.6: the variants with 3, 2 and 1 cases.
+    assert run(variant_coverage=80) == Counter({("a", "b", "c", "d"): 3,
+                                                 ("a", "c", "b", "d"): 2, ("a", "e", "d"): 1})
+    assert run(top_variants=1) == Counter({("a", "b", "c", "d"): 3})
+    assert run(end_activities={"d"})[("a", "b")] == 0
+    assert run(activities=({"a", "d"}, "keep events")) == Counter({("a", "d"): 6, ("a",): 1})
+    assert run(activities=({"e"}, "mandatory")) == Counter({("a", "e", "d"): 1})
+    assert ("a", "e", "d") not in run(activities=({"e"}, "forbidden"))
+    assert run(case_length=(3, 3)) == Counter({("a", "e", "d"): 1})
+    # Ties are broken by first occurrence, so unique variants can still be cut.
+    unique = EventLog.from_simple_log(parse_simple_log("[<a>, <b>, <c>, <d>]"), "U")
+    assert [v for v, _ in top_variants(unique, coverage=50)] == [("a",), ("b",)]
+    filtered = apply_filters(log, FilterSettings(end_activities={"d"}, top_variants=2))
+    assert filtered.name == "L (filtered)"
+    assert filtered.attributes["cpnpy:filter"] == "end with d; the 2 most frequent variants"
+    assert len(log) == 7                                   # the original is untouched
+
+
+def test_projection_keeps_skipped_events_and_time_frame():
+    from cpnpy.mining.filtering import FilterSettings, apply_filters
+    log = read_xes(DATA / "plane_wilma_10.xes")            # start + complete events
+    kept = apply_filters(log, FilterSettings(activities=({"Move in", "stow bag"},
+                                                         "keep events")))
+    assert kept.simple_log() == Counter({("Move in", "stow bag"): 10})
+    assert kept.event_count == 40                          # their start events stay too
+    first = min(e.timestamp for t in log for e in t)
+    early = apply_filters(log, FilterSettings(
+        time_frame=(first, first + timedelta(seconds=10), "contained")))
+    assert 0 < len(early) < len(log)
+
+
+def test_csv_export_round_trip(tmp_path):
+    from cpnpy.mining.csv_import import write_csv
+    log = read_xes(DATA / "plane_wilma_10.xes")
+    write_csv(log, tmp_path / "log.csv")
+    again = read_csv(tmp_path / "log.csv")
+    assert again.simple_log() == log.simple_log()
+    assert [e.timestamp for e in again[0]] == [e.timestamp for e in log[0]]
+
+
+# ---------------------------------------------------------------------------
+# Heuristics Miner -> Petri net
+# ---------------------------------------------------------------------------
+def test_heuristics_net_of_l1_is_the_textbook_model():
+    from cpnpy.mining.discovery.heuristics import heuristics_net
+    log = parse_simple_log(L1)
+    result = heuristics_net(log)
+    # After a: b and c together (5 cases) or e alone (1 case); d waits for the same.
+    assert dict(result.causal.outputs["a"]) == {frozenset({"b", "c"}): 5, frozenset({"e"}): 1}
+    assert dict(result.causal.inputs["d"]) == {frozenset({"b", "c"}): 5, frozenset({"e"}): 1}
+    assert align_log(result.net, log).average_fitness == pytest.approx(1.0)
+    assert precision(result.net, log) == pytest.approx(1.0)
+    assert check_soundness(result.net).sound
+    # Silent steps that change nothing were removed: only the AND split and join remain.
+    assert sum(1 for t in result.net.transitions.values() if t.silent) == 2
+
+
+@pytest.mark.parametrize("text", [
+    "[<a,b,c,d>^3, <a,c,b,d>^4, <a,b,c,e,f,b,c,d>^2, <a,b,c,e,f,c,b,d>, "
+    "<a,c,b,e,f,b,c,d>^2, <a,c,b,e,f,b,c,e,f,c,b,d>]",
+    "[<a,c>^2, <a,b,c>^3, <a,b,b,c>^2, <a,b,b,b,b,c>]",
+    "[<a,b,c,d>^30, <a,c,b,d>^20, <a,d>, <a,b,d>]",
+])
+def test_heuristics_net_replays_its_log(text):
+    from cpnpy.mining.discovery.heuristics import heuristics_net
+    log = parse_simple_log(text)
+    assert align_log(heuristics_net(log).net, log).average_fitness == pytest.approx(1.0)

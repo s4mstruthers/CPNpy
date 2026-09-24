@@ -40,6 +40,7 @@ def summarise(space, graph_limit: int = 200) -> dict[str, Any]:
     net = space.net
     places = list(net.all_places())
     partial = space.partial
+    bounds = space.integer_bounds()
     result: dict[str, Any] = {
         "nodes": space.node_count,
         "arcs": space.arc_count,
@@ -51,7 +52,7 @@ def summarise(space, graph_limit: int = 200) -> dict[str, Any]:
         "home": None if partial else space.home_markings(),
         "dead_transitions": [t.name for t in space.dead_transitions()],
         "live": None if partial else [t.name for t in space.live_transitions()],
-        "bounds": [(p.id, p.name, *space.integer_bounds()[p.id]) for p in places],
+        "bounds": [(p.id, p.name, *bounds[p.id]) for p in places],
         "multiset": {k: str(v) for k, v in space.upper_multiset_bounds().items()},
         "report": space.report(),
         "graph": None,

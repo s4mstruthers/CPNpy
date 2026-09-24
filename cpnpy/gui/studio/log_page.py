@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from ...mining import pm4py_bridge
 from ...mining.dfg import discover_dfg
 from ...mining.discovery.alpha import AlphaResult, alpha_miner
-from ...mining.discovery.heuristics import heuristics_miner
+from ...mining.discovery.heuristics import heuristics_miner, heuristics_net
 from ...mining.discovery.inductive import InductiveResult, inductive_miner
 from ...mining.footprint import footprint_of_log
 from ...mining.stats import format_duration
@@ -83,6 +83,7 @@ def _table(model: QStandardItemModel) -> QTableView:
 
 class LogPage(QWidget):
     open_model = Signal(object)          # ModelDocument
+    open_log = Signal(object)            # LogDocument (a filtered copy)
     status = Signal(str)
     #: Emitted after the log was exported; the document now lives in that file.
     saved = Signal()
@@ -109,7 +110,12 @@ class LogPage(QWidget):
         self.classifier_box.currentIndexChanged.connect(self._classifier_changed)
         self.header.actions.addWidget(label("Classifier", "muted"))
         self.header.actions.addWidget(self.classifier_box)
-        self.header.actions.addWidget(button("Export XES…", self.export))
+        self.header.actions.addWidget(button("Filter…", self.filter_log,
+                                             tooltip="Keep part of the log (variants, "
+                                                     "activities, start/end, length, time) "
+                                                     "as a new log"))
+        self.header.actions.addWidget(button("Export…", self.export,
+                                             tooltip="Save the log as XES or CSV"))
         root.addWidget(self.header)
 
         self.tabs = SegmentedControl(TABS)
@@ -152,16 +158,35 @@ class LogPage(QWidget):
         self._refresh_header()
 
     def export(self) -> None:
-        """Save the log as XES.  The document then refers to that file, so it
-        can be reopened at the next launch and removed without losing it."""
-        path, _ = QFileDialog.getSaveFileName(self, "Export event log",
-                                              f"{self.document.name}.xes", "XES (*.xes *.xes.gz)")
-        if path:
+        """Save the log as XES (or CSV).  The document then refers to that file,
+        so it can be reopened at the next launch and removed without losing it."""
+        path, chosen = QFileDialog.getSaveFileName(
+            self, "Export event log", f"{self.document.name}.xes",
+            "XES (*.xes *.xes.gz);;CSV, one row per event (*.csv)")
+        if not path:
+            return
+        if chosen.startswith("CSV") and not path.lower().endswith(".csv"):
+            path += ".csv"
+        if path.lower().endswith(".csv"):
+            from ...mining.csv_import import write_csv
+            write_csv(self.document.log, path)
+        else:
             write_xes(self.document.log, path)
-            self.document.path = path
-            self._refresh_header()
-            self.status.emit(f"Saved {path}")
-            self.saved.emit()
+        self.document.path = path
+        self._refresh_header()
+        self.status.emit(f"Saved {path}")
+        self.saved.emit()
+
+    def filter_log(self) -> None:
+        """Filter this log into a new one (the Filter… dialog)."""
+        from .filter_dialog import FilterDialog
+        dialog = FilterDialog(self.document, self)
+        if dialog.exec() != FilterDialog.Accepted:
+            return
+        filtered = LogDocument(dialog.result_log())
+        if self.document.classifier in filtered.log.available_classifiers():
+            filtered.set_classifier(self.document.classifier)
+        self.open_log.emit(filtered)
 
     def _show_tab(self, index: int) -> None:
         if index not in self._built:
@@ -441,6 +466,7 @@ class LogPage(QWidget):
         start_end = (f"Start activities: {', '.join(sorted(fp.start))}     "
                      f"End activities: {', '.join(sorted(fp.end))}")
         card.add(label(start_end, "muted", wrap=True, selectable=True))
+        card.body.addStretch(0)
         layout.addWidget(card, 1)
 
     # -------------------------------------------------------------- discover
@@ -454,6 +480,9 @@ class LogPage(QWidget):
              "fitness may drop slightly."),
             ("heuristics", "Heuristics Miner",
              "Frequency-based dependency measures, robust to noise. Produces a dependency graph."),
+            ("heuristics_net", "Heuristics Miner → Petri net",
+             "The same, plus which forks are AND or XOR (learned from the log as a causal "
+             "net), as a Petri net. Fits well; not always sound."),
         ]
         if pm4py_bridge.available():
             algorithms += [
@@ -501,8 +530,9 @@ class LogPage(QWidget):
         def update_params() -> None:
             key = group.checkedButton().property("key")
             noise_row.setVisible(key == "imf")
-            dependency_row.setVisible(key in ("heuristics", "pm_heuristics"))
-            none_row.setVisible(key not in ("imf", "heuristics", "pm_heuristics"))
+            dependency_row.setVisible(key in ("heuristics", "heuristics_net", "pm_heuristics"))
+            none_row.setVisible(key not in ("imf", "heuristics", "heuristics_net",
+                                            "pm_heuristics"))
         group.idToggled.connect(lambda *_: update_params())
         update_params()
 
@@ -556,10 +586,8 @@ class LogPage(QWidget):
                 derivation.setVisible(True)
                 steps_host.addWidget(label(
                     "Dependency graph: edge labels are a ⇒ b values. It has no split/join "
-                    "semantics, so it is not a Petri net"
-                    + (" — use “Heuristics Miner → Petri net (PM4Py)” for that."
-                       if pm4py_bridge.available() else
-                       " (install the optional PM4Py extra to convert it)."), "muted", wrap=True))
+                    "semantics, so it is not a Petri net — “Heuristics Miner → Petri net” "
+                    "learns those from the log.", "muted", wrap=True))
                 open_button.setEnabled(False)
             else:
                 net = payload.net if hasattr(payload, "net") else payload
@@ -593,6 +621,7 @@ class LogPage(QWidget):
                 "im": lambda: inductive_miner(simple),
                 "imf": lambda: inductive_miner(simple, noise_threshold=f),
                 "heuristics": lambda: heuristics_miner(simple, dependency_threshold=d),
+                "heuristics_net": lambda: heuristics_net(simple, dependency_threshold=d),
                 "pm_heuristics": lambda: pm4py_bridge.heuristics_petri_net(simple, d),
                 "pm_ilp": lambda: pm4py_bridge.ilp_petri_net(simple),
             }

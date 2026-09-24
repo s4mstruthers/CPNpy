@@ -63,3 +63,27 @@ def test_report_mentions_the_key_sections():
     for heading in ("Statistics", "Boundedness Properties", "Home Properties",
                     "Liveness Properties"):
         assert heading in report
+
+
+def test_a_timed_state_waits_past_a_release_that_enables_nothing():
+    # t0 puts a token in X at +1 and one in Y at +2; only Y enables t1.  The
+    # state after t0 must advance time twice, not be reported as dead.
+    from cpnpy.model.net import Arc, CPNet, Place, Transition
+    net = CPNet("Waiting")
+    net.add_declaration("colset T = unit timed;")
+    page = net.add_page("Top")
+    start, x, y, z = (Place(name=n, colour_set_name="T") for n in "SXYZ")
+    start.initial_marking_text = "1`()"
+    t0, t1 = Transition(name="t0"), Transition(name="t1")
+    page.places += [start, x, y, z]
+    page.transitions += [t0, t1]
+    for place, transition, orientation, inscription in [
+            (start, t0, "PtoT", "()"), (x, t0, "TtoP", "()@+1"), (y, t0, "TtoP", "()@+2"),
+            (y, t1, "PtoT", "()"), (z, t1, "TtoP", "()")]:
+        page.arcs.append(Arc(place_id=place.id, transition_id=transition.id,
+                             orientation=orientation, expression_text=inscription))
+    assert net.compile() == []
+    space = StateSpace(net).generate()
+    assert space.node_count == 3
+    assert space.dead_transitions() == []
+    assert space.dead_markings() == [2]

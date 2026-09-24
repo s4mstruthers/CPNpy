@@ -137,3 +137,121 @@ def test_places_in_a_fusion_set_share_one_marking():
     simulator.step()
     assert marking_of(net, simulator, "Shared A").is_empty()
     assert marking_of(net, simulator, "Sink").size() == 1
+
+
+# -- review fixes ---------------------------------------------------------------
+def _counter_net(input_inscription: str) -> tuple[CPNet, Transition]:
+    """A holds 2, 3, 4; `t` takes `input_inscription` from A for n < 5."""
+    net = CPNet("Counter")
+    net.add_declaration("colset N = int with 1..5;")
+    net.add_declaration("var n : N;")
+    page = net.add_page("Top")
+    a = Place(name="A", colour_set_name="N", initial_marking_text="1`2 ++ 1`3 ++ 1`4")
+    b = Place(name="B", colour_set_name="N")
+    t = Transition(name="t", guard_text="[n < 5]")
+    page.places += [a, b]
+    page.transitions.append(t)
+    page.arcs += [
+        Arc(place_id=a.id, transition_id=t.id, orientation="PtoT",
+            expression_text=input_inscription),
+        Arc(place_id=b.id, transition_id=t.id, orientation="TtoP", expression_text="n"),
+    ]
+    assert net.compile() == []
+    return net, t
+
+
+def test_variable_only_in_a_computed_input_is_enumerated():
+    # `n` is bound by no pattern, so it must be tried over N = 1..5: n+1 must
+    # be in A, i.e. n = 1, 2, 3 (as CPN Tools does).  Used to find nothing.
+    net, t = _counter_net("1`(n+1)")
+    bindings = Simulator(net).enabled_bindings(t)
+    assert [b.as_dict()["n"] for b in bindings] == [1, 2, 3]
+
+
+def test_two_computed_input_terms_do_not_recurse_forever():
+    # Used to rotate the two unevaluable terms until RecursionError.
+    net, t = _counter_net("1`(n+1) ++ 1`(n+2)")
+    bindings = Simulator(net).enabled_bindings(t)
+    assert [b.as_dict()["n"] for b in bindings] == [1, 2]
+
+
+def test_the_seed_also_fixes_the_models_own_random_draws():
+    net = CPNet("Random")
+    net.add_declaration("colset N = int;")
+    page = net.add_page("Top")
+    source = Place(name="Source", colour_set_name="UNIT", initial_marking_text="5`()")
+    drawn = Place(name="Drawn", colour_set_name="N")
+    draw = Transition(name="draw")
+    page.places += [source, drawn]
+    page.transitions.append(draw)
+    page.arcs += [
+        Arc(place_id=source.id, transition_id=draw.id, orientation="PtoT", expression_text="()"),
+        Arc(place_id=drawn.id, transition_id=draw.id, orientation="TtoP",
+            expression_text="discrete(1, 1000000)"),
+    ]
+    assert net.compile() == []
+
+    def run() -> Multiset:
+        simulator = Simulator(net, seed=42)
+        simulator.run(10)
+        return marking_of(net, simulator, "Drawn")
+
+    assert run() == run()
+
+
+def _timed_net(output_inscription: str, transition_delay: str = "") -> tuple[CPNet, Simulator]:
+    net = CPNet("Timed")
+    net.add_declaration("colset T = int timed;")
+    net.add_declaration("var n : T;")
+    page = net.add_page("Top")
+    a = Place(name="A", colour_set_name="T", initial_marking_text="1`1")
+    b = Place(name="B", colour_set_name="T")
+    t = Transition(name="t", time_text=transition_delay)
+    page.places += [a, b]
+    page.transitions.append(t)
+    page.arcs += [
+        Arc(place_id=a.id, transition_id=t.id, orientation="PtoT", expression_text="n"),
+        Arc(place_id=b.id, transition_id=t.id, orientation="TtoP",
+            expression_text=output_inscription),
+    ]
+    assert net.compile() == []
+    simulator = Simulator(net, seed=0)
+    simulator.step()
+    return net, simulator
+
+
+def _stamps(net, simulator, place_name):
+    return sorted((value, stamp) for value, stamp, _count in
+                  marking_of(net, simulator, place_name).items())
+
+
+def test_transition_and_arc_delays_add_up():
+    # CPN Tools: time stamp = model time + transition delay + arc delay.
+    net, simulator = _timed_net("n @+ 3", transition_delay="@+5")
+    assert _stamps(net, simulator, "B") == [(1, 8)]
+
+
+def test_each_timed_term_keeps_its_own_delay():
+    net, simulator = _timed_net("1`n@+2 +++ 1`(n+10)@+7")
+    assert _stamps(net, simulator, "B") == [(1, 2), (11, 7)]
+
+
+def test_a_delay_inside_an_if_branch():
+    net, simulator = _timed_net("if n = 1 then 1`n@+4 else empty")
+    assert _stamps(net, simulator, "B") == [(1, 4)]
+
+
+def test_a_trailing_delay_applies_to_the_whole_inscription():
+    net, simulator = _timed_net("1`n ++ 1`(n+1) @+ 6")
+    assert _stamps(net, simulator, "B") == [(1, 6), (2, 6)]
+
+
+def test_timed_initial_marking_with_time_stamps():
+    net = CPNet("Stamps")
+    net.add_declaration("colset T = int timed;")
+    page = net.add_page("Top")
+    page.places.append(Place(name="P", colour_set_name="T",
+                             initial_marking_text="1`3@5 +++ 2`4@0"))
+    assert net.compile() == []
+    tokens = net.initial_marking().get(page.places[0].id)
+    assert sorted(tokens.items()) == [(3, 5, 1), (4, 0, 2)]

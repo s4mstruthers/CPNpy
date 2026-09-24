@@ -12,6 +12,8 @@ form and, instead of the CPN state space tool, an **Analysis** tab:
   says the net is sound iff (N̄, [i]) is live and bounded.
 * **Structure**: free-choice, well-structured, S-coverable, the start and
   end rule.
+* **Invariants**: the incidence matrix, and the P- and T-invariants (of N̄
+  for a WF-net), which prove boundedness or unsoundness without a state space.
 * **Behavioural properties** of the net as drawn: bounded / safe, dead
   transitions, deadlocks, liveness, reversibility.
 * **Footprint** of the net's behaviour (the → ← ‖ # matrix of the α
@@ -37,8 +39,9 @@ from PySide6.QtWidgets import (
     QMessageBox, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from ...mining.analysis import analyse, check_soundness, check_workflow_net
+from ...mining.analysis import analyse, check_soundness, check_workflow_net, short_circuit
 from ...mining.footprint import footprint_of_net
+from ...mining.invariants import invariants
 from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
 from ...model.net import Arc, Place, Transition
@@ -297,12 +300,17 @@ class PetriNetPage(CpnPage):
                                  f"({NBAR}, [{I}]) is live and bounded.")
         self.structure_card = Card("Structure", "Properties of the drawing alone. They "
                                    "point at the construct behind a problem.")
+        self.invariants_card = Card("Invariants", "Linear algebra on the incidence matrix: "
+                                    "weighted token counts that never change (P-invariants), "
+                                    "and firing counts that lead back to where they started "
+                                    "(T-invariants).")
         self.properties_card = Card("Behavioural properties", "Of the net as drawn, from "
                                     "its initial marking.")
         self.footprint_card = Card("Footprint", "The ordering relations of the net's "
                                    "behaviour: which transition can directly follow which.")
         # The card captions explain the idea; hovering shows the maths.
         for card, key in ((self.soundness_card, "sound"), (self.theorem_card, "short_circuit"),
+                          (self.invariants_card, "incidence_matrix"),
                           (self.footprint_card, "footprint")):
             attach_definition(card.caption_label, key)
         self.more_card = Card("More")
@@ -312,7 +320,8 @@ class PetriNetPage(CpnPage):
         self.more_card.add(flow(button("Reachability graph…", self.show_reachability_graph),
                                 button("Conformance with a log…", self.open_as_model)))
         for card in (self.soundness_card, self.theorem_card, self.structure_card,
-                     self.properties_card, self.footprint_card, self.more_card):
+                     self.invariants_card, self.properties_card, self.footprint_card,
+                     self.more_card):
             layout.addWidget(card)
         layout.addStretch(1)
         return page
@@ -351,7 +360,11 @@ class PetriNetPage(CpnPage):
                 footprint_error = None
             except ValueError as error:
                 footprint, footprint_error = None, str(error)
-            return soundness, properties, footprint, footprint_error, drawn is not petri
+            workflow = soundness.workflow
+            linear = (invariants(drawn), invariants(short_circuit(
+                drawn, workflow.source, workflow.sink)) if workflow.is_workflow_net else None)
+            return (soundness, properties, footprint, footprint_error, drawn is not petri,
+                    linear)
 
         run_in_background(compute, self._show_analysis,
                           lambda message: self.soundness_card.add(
@@ -359,7 +372,7 @@ class PetriNetPage(CpnPage):
 
     def _result_cards(self) -> tuple:
         return (self.soundness_card, self.theorem_card, self.structure_card,
-                self.properties_card, self.footprint_card)
+                self.invariants_card, self.properties_card, self.footprint_card)
 
     def _finding(self, card: Card, text: str, path: list[str] | None = None,
                  source: str | None = None) -> None:
@@ -377,7 +390,7 @@ class PetriNetPage(CpnPage):
         card.add(row)
 
     def _show_analysis(self, result) -> None:
-        soundness, properties, footprint, footprint_error, from_source = result
+        soundness, properties, footprint, footprint_error, from_source, linear = result
         for card in self._result_cards():
             card.clear()
         workflow = soundness.workflow
@@ -407,6 +420,7 @@ class PetriNetPage(CpnPage):
             self._finding(card, finding, path, workflow.source)
         self._show_theorem(soundness)
         self._show_structure(soundness)
+        self._show_invariants(*linear)
 
         if from_source:
             self.properties_card.add(label("The net has no tokens yet, so this is from one "
@@ -447,6 +461,82 @@ class PetriNetPage(CpnPage):
                 + "→ causality  ← inverse  ‖ parallel  # choice. Start: "
                 f"{', '.join(sorted(footprint.start)) or '–'} · end: "
                 f"{', '.join(sorted(footprint.end)) or '–'}", "muted", wrap=True))
+
+    def _show_invariants(self, drawn, closed) -> None:
+        """P-invariants of the net; T-invariants of N̄ for a WF-net (a WF-net
+        itself has none: nothing leads back from [o])."""
+        card = self.invariants_card
+        self._invariants = drawn
+
+        def names(ids) -> str:
+            return ", ".join(escape(drawn.net.node_name(node)) for node in ids)
+
+        covered = drawn.covered_by_p_invariants
+        uncovered = drawn.uncovered_places()
+        card.add(Verdict(
+            "Covered by P-invariants", status_for(covered),
+            "too many invariants to list" if covered is None else
+            "every place is in one, so the net is bounded from any initial marking"
+            if covered else f"in no P-invariant: {names(uncovered)}",
+            definition="p_invariant"))
+        for invariant in drawn.p_invariants[:12]:
+            card.add(label("• " + escape(drawn.describe(invariant, with_value=True)), "muted",
+                           wrap=True, selectable=True))
+        if len(drawn.p_invariants) > 12:
+            card.add(label(f"… and {len(drawn.p_invariants) - 12} more", "muted"))
+
+        target, where = (closed, NBAR) if closed is not None else (drawn, "the net")
+        covered = target.covered_by_t_invariants
+        missing = [t for t in target.uncovered_transitions()]
+        if covered is None:
+            detail = "too many invariants to list"
+        elif covered:
+            detail = (f"every transition of {where} is in one" + (
+                f": a sound WF-net needs this ({NBAR} is live and bounded), but it does not "
+                "prove soundness" if closed is not None else ""))
+        else:
+            detail = f"in no T-invariant of {where}: {names(missing)}" + (
+                f", so {NBAR} is not live and bounded and the WF-net is not sound"
+                if closed is not None else ", so the net is not both live and bounded")
+        card.add(Verdict("Covered by T-invariants", status_for(covered),
+                         f"<span>{detail}</span>", definition="t_invariant"))
+        for invariant in target.t_invariants[:12]:
+            card.add(label("• " + escape(target.describe(invariant)), "muted", wrap=True,
+                           selectable=True))
+        if len(target.t_invariants) > 12:
+            card.add(label(f"… and {len(target.t_invariants) - 12} more", "muted"))
+        card.add(flow(button("Incidence matrix…", self.show_incidence_matrix,
+                             tooltip="What firing each transition does to each place")))
+
+    def show_incidence_matrix(self) -> None:
+        """The incidence matrix C (places × transitions) in a dialog."""
+        from PySide6.QtWidgets import QAbstractItemView, QDialogButtonBox, QTableWidget, \
+            QTableWidgetItem
+        found = getattr(self, "_invariants", None) or invariants(self.petri_net())
+        net = found.net
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Incidence matrix of {self.net.name}")
+        table = QTableWidget(len(found.places), len(found.transitions))
+        table.setHorizontalHeaderLabels([net.node_name(t) for t in found.transitions])
+        table.setVerticalHeaderLabels([net.node_name(p) for p in found.places])
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        for i, row in enumerate(found.incidence):
+            for j, value in enumerate(row):
+                cell = QTableWidgetItem("0" if not value else f"{value:+d}")
+                cell.setTextAlignment(Qt.AlignCenter)
+                table.setItem(i, j, cell)
+        table.resizeColumnsToContents()
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(label("C(p, t) = tokens t puts into p − tokens t takes from p. "
+                               "Firing t adds column t to the marking.", "muted", wrap=True))
+        layout.addWidget(table)
+        layout.addWidget(buttons)
+        dialog.resize(min(900, 140 + 80 * len(found.transitions)),
+                      min(640, 140 + 32 * len(found.places)))
+        dialog.show()
+        self._matrix_dialog = dialog
 
     def _name(self, node_id: str | None) -> str:
         if node_id is None:

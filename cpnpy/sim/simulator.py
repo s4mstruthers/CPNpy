@@ -19,9 +19,9 @@ A timed model adds a global clock.  Three rules govern it:
 1. A token in a timed place carries a **time stamp**: the model time at which
    it becomes available.  Only tokens whose stamp has been reached may be
    consumed.
-2. Produced tokens are stamped ``clock + delay``, where the delay comes from
-   the arc's ``@+`` expression, or the transition's own time inscription if the
-   arc has none.
+2. Produced tokens are stamped ``clock + delay``, where the delay is the
+   transition's own time inscription plus the output arc's ``@+`` expression
+   (either may be absent), as in CPN Tools.
 3. When no transition is enabled at the current clock but some place holds a
    token stamped for the future, the clock **jumps** to the earliest such
    stamp.  Model time therefore moves in event-driven jumps, never in ticks.
@@ -34,7 +34,8 @@ Determinism
 Which enabled binding element fires is a free choice in CPN semantics.  The
 simulator uses its own seeded random generator for that choice, separate from
 the one inscriptions draw from, so that a replayed run makes the same choices
-even if the model's own random calls change.
+even if the model's own random calls change.  A seed given to the simulator
+seeds both generators, so the whole run is reproducible.
 """
 
 from __future__ import annotations
@@ -80,6 +81,11 @@ class Simulator:
     def __init__(self, net: CPNet, marking: Marking | None = None,
                  seed: int | None = None) -> None:
         self.net = net
+        if seed is not None:
+            # Seed the model's own random functions too (``uniform``,
+            # ``discrete`` ...), before the initial marking may call them, so
+            # that the same seed replays the same run.
+            net.evaluator.rng.seed(seed)
         self.marking = marking if marking is not None else net.initial_marking()
         self.clock = 0
         self.step_count = 0
@@ -134,8 +140,8 @@ class Simulator:
         environment = Environment(bindings, self.net.evaluator.globals)
         self.net.evaluator.set_model_time(now)
 
-        # The transition's own time inscription is the default delay for output
-        # arcs that do not carry their own `@+`.
+        # The transition's own time inscription delays every output token; an
+        # output arc's `@+` adds to it (CPN Tools adds the two delays).
         default_delay = 0
         if transition.time_ast is not None:
             value = self.net.evaluator.evaluate(transition.time_ast, environment)
@@ -170,24 +176,28 @@ class Simulator:
             place = self.net.find_place(arc.place_id)
             colour_set = self.net.colour_set_of(place) if place else None
 
-            tokens, stamp = self.net.evaluator.evaluate_arc(
+            # One group per timed term: `1`x@+2 +++ 1`y@+5` stamps x and y
+            # differently.
+            groups = self.net.evaluator.evaluate_timed_arc(
                 arc.expression_ast, environment, now
             )
-            tokens = expand_lists(tokens, colour_set)
             if colour_set is not None and colour_set.timed:
-                # No `@+` on the arc means the transition's delay applies.
-                if stamp == now:
-                    stamp = now + default_delay
                 existing = result.get(key)
                 if not isinstance(existing, TimedMultiset):
                     existing = TimedMultiset.from_multiset(existing, now)
-                result.set(key, existing.add(TimedMultiset.from_multiset(tokens, stamp)))
+                for tokens, stamp in groups:
+                    tokens = expand_lists(tokens, colour_set)
+                    existing = existing.add(
+                        TimedMultiset.from_multiset(tokens, stamp + default_delay))
+                result.set(key, existing)
             else:
                 existing = result.get(key)
                 if isinstance(existing, TimedMultiset):
                     # Defensive: a place whose colour set lost its `timed` flag.
                     existing = existing.available_at(now)
-                result.set(key, existing + tokens)
+                for tokens, _stamp in groups:
+                    existing = existing + expand_lists(tokens, colour_set)
+                result.set(key, existing)
 
         return result, now
 

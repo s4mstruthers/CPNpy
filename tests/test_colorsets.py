@@ -73,3 +73,61 @@ def test_union_membership_checks_the_payload():
     assert union.contains(Constructor("Walk"))
     assert not union.contains(Constructor("Car", "three"))
     assert not union.contains(Constructor("Bike", 3))
+
+
+# -- declarations that depend on values and functions -------------------------
+def _compiled(*declarations):
+    from cpnpy.model.net import CPNet
+    net = CPNet("Declarations")
+    for declaration in declarations:
+        net.add_declaration(declaration)
+    assert net.compile() == []
+    return net
+
+
+def test_a_range_may_use_a_declared_value():
+    # Declared in either order: the value is found once it exists.
+    net = _compiled("colset N = int with 1..n;", "val n = 4;",
+                    "colset M = int with ~n..n * 2;")
+    assert list(net.declarations.colour_sets["N"].members()) == [1, 2, 3, 4]
+    assert list(net.declarations.colour_sets["M"].members())[0] == -4
+
+
+def test_subset_by_a_predicate_keeps_only_matching_values():
+    net = _compiled("colset N = int with 1..6;", "fun even x = x mod 2 = 0;",
+                    "colset E = subset N by even;")
+    evens = net.declarations.colour_sets["E"]
+    assert list(evens.members()) == [2, 4, 6]
+    assert not evens.contains(3)
+
+
+def test_subset_with_a_list_is_finite_even_over_int():
+    net = _compiled("colset L = subset INT with [3, 5, 7];")
+    listed = net.declarations.colour_sets["L"]
+    assert listed.is_finite()
+    assert list(listed.members()) == [3, 5, 7]
+    assert not listed.contains(4)
+
+
+def test_colour_set_functions():
+    from cpnpy.ml.parser import parse_expression
+    net = _compiled("colset PH = index ph with 1..3;")
+
+    def run(source):
+        return net.evaluator.evaluate(parse_expression(source))
+
+    assert run("PH.size ()") == 3
+    assert run("PH.all ()").size() == 3
+    assert run("PH.ord (ph 2)") == 1
+    assert run("PH.col 0") == Constructor("ph", 1)
+    assert run("PH.legal (ph 3)") is True
+    assert run("PH.ran ()") in list(net.declarations.colour_sets["PH"].members())
+
+
+def test_an_unknown_bound_names_the_colour_set():
+    from cpnpy.model.net import CPNet
+    net = CPNet("Broken")
+    net.add_declaration("colset N = int with 1..missing;")
+    problems = net.compile()
+    assert len(problems) == 1
+    assert "colset N" in problems[0].message and "missing" in problems[0].message

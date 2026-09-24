@@ -454,20 +454,27 @@ class SubsetColourSet(ColourSet):
     """
 
     def __init__(self, name: str, base: ColourSet, predicate: Callable[[Any], bool],
-                 timed: bool = False, predicate_source: str = "") -> None:
+                 timed: bool = False, predicate_source: str = "",
+                 members: Sequence[Any] | None = None) -> None:
         super().__init__(name, timed)
         self.base = base
         self.predicate = predicate
         # Kept so that the writer can reproduce the original declaration text.
         self.predicate_source = predicate_source
+        #: ``subset A with [v1, v2]``: the listed values, in order.  Finite
+        #: even when ``A`` is not.
+        self.listed = list(members) if members is not None else None
 
     def contains(self, value: Any) -> bool:
         return self.base.contains(value) and bool(self.predicate(value))
 
     def is_finite(self) -> bool:
-        return self.base.is_finite()
+        return self.listed is not None or self.base.is_finite()
 
     def members(self) -> Iterator[Any]:
+        if self.listed is not None:
+            yield from self.listed
+            return
         for value in self.base.members():
             if self.predicate(value):
                 yield value

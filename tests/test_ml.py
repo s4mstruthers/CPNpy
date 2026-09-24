@@ -169,3 +169,32 @@ def test_non_pattern_expression_is_rejected():
     # `x + 1` cannot be matched -- that would require inverting addition.
     with pytest.raises(ParseError):
         expression_to_pattern(parse_expression("x + 1"))
+
+
+# -- basis additions ----------------------------------------------------------
+def test_op_turns_an_operator_into_a_function(evaluator):
+    assert run(evaluator, "List.foldl (op +) 0 [1, 2, 3]") == 6
+    assert run(evaluator, "List.foldr (op ::) [] [1, 2]") == MLList((1, 2))
+
+
+def test_options(evaluator):
+    assert run(evaluator, "Int.fromString \"12\"") == Constructor("SOME", 12)
+    assert run(evaluator, "Int.fromString \"~7\"") == Constructor("SOME", -7)
+    assert run(evaluator, "Int.fromString \"x\"") == Constructor("NONE")
+    assert run(evaluator, "case Int.fromString \"3\" of SOME n => n | NONE => 0") == 3
+    assert run(evaluator, "valOf (SOME 4) + getOpt (NONE, 1)") == 5
+    assert run(evaluator, "isSome NONE") is False
+
+
+def test_ms_to_col_returns_the_single_colour(evaluator):
+    assert run(evaluator, "ms_to_col (1`5)") == 5
+    with pytest.raises(EvalError):
+        run(evaluator, "ms_to_col (2`5)")
+
+
+def test_more_of_the_basis(evaluator):
+    assert run(evaluator, "List.concat [[1], [2, 3]]") == MLList((1, 2, 3))
+    assert run(evaluator, "String.sub (\"abc\", 1)") == "b"
+    assert run(evaluator, "Char.ord #\"a\"") == 97
+    assert run(evaluator, "Int.abs ~2") == 2
+    assert run(evaluator, "List.find (fn x => x > 1) [1, 2, 3]") == Constructor("SOME", 2)

@@ -413,8 +413,12 @@ class Binder:
     def _search(self, transition: Transition, demands: Sequence[Demand], index: int,
                 bindings: dict[str, Any], remaining: dict[str, Multiset],
                 opaque_arcs: Sequence[Arc], marking: Marking, clock: int,
-                results: list[BindingElement]) -> None:
-        """Depth-first satisfaction of the demand list."""
+                results: list[BindingElement], stalled: int = 0) -> None:
+        """Depth-first satisfaction of the demand list.
+
+        ``stalled`` counts how many demands in a row have been postponed
+        because they could not be evaluated yet (see :meth:`_postpone`).
+        """
         if len(results) >= self.max_bindings:
             self.truncated = True
             return
@@ -432,11 +436,8 @@ class Binder:
             count = self._evaluate(demand.count, bindings)
         except CPNMLError:
             # Cannot evaluate yet -- postpone by moving this demand to the end.
-            if index + 1 < len(demands):
-                reordered = list(demands)
-                reordered.append(reordered.pop(index))
-                self._search(transition, reordered, index, bindings, remaining,
-                             opaque_arcs, marking, clock, results)
+            self._postpone(transition, demands, index, bindings, remaining,
+                           opaque_arcs, marking, clock, results, stalled)
             return
 
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
@@ -470,24 +471,77 @@ class Binder:
 
         # Not a pattern: it can only be evaluated.
         self._consume_concrete(transition, demands, index, bindings, remaining,
-                               opaque_arcs, marking, clock, results, demand, count)
+                               opaque_arcs, marking, clock, results, demand, count,
+                               stalled)
+
+    def _postpone(self, transition: Transition, demands: Sequence[Demand], index: int,
+                  bindings: dict[str, Any], remaining: dict[str, Multiset],
+                  opaque_arcs: Sequence[Arc], marking: Marking, clock: int,
+                  results: list[BindingElement], stalled: int) -> None:
+        """Move an unevaluable demand to the end, or unblock the search.
+
+        A demand such as ``1`(n+1)`` cannot be evaluated until ``n`` is bound.
+        Usually a later demand binds it, so the demand is rotated to the back.
+        When *every* remaining demand has been rotated without progress, no
+        demand will ever bind the missing variables (they occur only in these
+        expressions, a guard or an output arc).  Then, as CPN Tools does, the
+        missing variables are enumerated over their colour sets and the search
+        continues with them bound.  Rotating for ever instead used to recurse
+        until Python gave up.
+        """
+        if stalled + 1 < len(demands) - index:
+            reordered = list(demands)
+            reordered.append(reordered.pop(index))
+            self._search(transition, reordered, index, bindings, remaining,
+                         opaque_arcs, marking, clock, results, stalled + 1)
+            return
+        missing: set[str] = set()
+        for demand in demands[index:]:
+            missing |= self._free(demand.count) | self._free(demand.value)
+        unbound = sorted(missing - set(bindings))
+        if not unbound:
+            return      # stuck on an evaluation error, not on a variable
+        for combination in itertools.product(*self._domains(transition, unbound)):
+            if len(results) >= self.max_bindings:
+                self.truncated = True
+                return
+            trial = dict(bindings)
+            trial.update(zip(unbound, combination))
+            self._search(transition, demands, index, trial, remaining,
+                         opaque_arcs, marking, clock, results)
+
+    def _domains(self, transition: Transition, names: Sequence[str]) -> list[list[Any]]:
+        """The values each of ``names`` ranges over, from its colour set."""
+        domains: list[list[Any]] = []
+        for name in names:
+            colour_set = self.net.declarations.variable_colour_set(name)
+            if colour_set is None:
+                raise EvalError(
+                    f"variable '{name}' on transition '{transition.name}' is not declared"
+                )
+            try:
+                domains.append(list(colour_set.members()))
+            except InfiniteColourSetError:
+                raise EvalError(
+                    f"variable '{name}' on transition '{transition.name}' is not "
+                    f"determined by any input arc, and its colour set "
+                    f"'{colour_set.name}' cannot be enumerated. Bind it on an input "
+                    f"arc, or give it a finite colour set."
+                )
+        return domains
 
     def _consume_concrete(self, transition: Transition, demands: Sequence[Demand],
                           index: int, bindings: dict[str, Any],
                           remaining: dict[str, Multiset], opaque_arcs: Sequence[Arc],
                           marking: Marking, clock: int, results: list[BindingElement],
-                          demand: Demand, count: int) -> None:
+                          demand: Demand, count: int, stalled: int = 0) -> None:
         """Handle a demand whose value expression is fully determined."""
         try:
             value = self._evaluate(demand.value, bindings)
         except CPNMLError:
-            # Still has unbound variables and is not a pattern.  Defer it; if
-            # it is the last demand there is nothing left to bind it, so give up.
-            if index + 1 < len(demands):
-                reordered = list(demands)
-                reordered.append(reordered.pop(index))
-                self._search(transition, reordered, index, bindings, remaining,
-                             opaque_arcs, marking, clock, results)
+            # Still has unbound variables and is not a pattern: defer it.
+            self._postpone(transition, demands, index, bindings, remaining,
+                           opaque_arcs, marking, clock, results, stalled)
             return
 
         pool = remaining.get(demand.place_id, Multiset.empty())
@@ -520,24 +574,7 @@ class Binder:
             return
 
         # Enumerate the remaining variables over their colour sets.
-        domains: list[list[Any]] = []
-        for name in unbound:
-            colour_set = self.net.declarations.variable_colour_set(name)
-            if colour_set is None:
-                raise EvalError(
-                    f"variable '{name}' on transition '{transition.name}' is not declared"
-                )
-            try:
-                domains.append(list(colour_set.members()))
-            except InfiniteColourSetError:
-                raise EvalError(
-                    f"variable '{name}' on transition '{transition.name}' is not "
-                    f"determined by any input arc, and its colour set "
-                    f"'{colour_set.name}' cannot be enumerated. Bind it on an input "
-                    f"arc, or give it a finite colour set."
-                )
-
-        for combination in itertools.product(*domains):
+        for combination in itertools.product(*self._domains(transition, unbound)):
             if len(results) >= self.max_bindings:
                 self.truncated = True
                 return

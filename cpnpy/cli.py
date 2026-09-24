@@ -15,7 +15,8 @@ Commands
 ``gui``         launch the CPN editor
 ``studio``      launch CPNpy Studio (process mining workspace)
 ``mine``        process mining from the command line:
-                ``stats``, ``discover``, ``conform``, ``soundness``
+                ``stats``, ``filter``, ``discover``, ``conform``,
+                ``soundness``, ``invariants``
 """
 
 from __future__ import annotations
@@ -49,10 +50,16 @@ def command_check(arguments: argparse.Namespace) -> int:
     if net.errors:
         return 1
     print(f"'{net.name}' compiled cleanly: "
-          f"{sum(1 for _ in net.all_places())} places, "
-          f"{sum(1 for _ in net.all_transitions())} transitions, "
-          f"{sum(1 for _ in net.all_arcs())} arcs.")
+          f"{_count(net.all_places(), 'place')}, "
+          f"{_count(net.all_transitions(), 'transition')}, "
+          f"{_count(net.all_arcs(), 'arc')}.")
     return 0
+
+
+def _count(items, noun: str) -> str:
+    """``1 place`` / ``3 places``."""
+    number = sum(1 for _ in items)
+    return f"{number} {noun}{'' if number == 1 else 's'}"
 
 
 def command_info(arguments: argparse.Namespace) -> int:
@@ -194,6 +201,21 @@ def command_mine_discover(arguments: argparse.Namespace) -> int:
             print(f"{step}\n    {content}")
         for warning in result.warnings:
             print(f"warning: {warning}")
+    elif arguments.algorithm == "heuristics":
+        from .mining.discovery.heuristics import END, START, heuristics_net
+        result = heuristics_net(simple, dependency_threshold=arguments.dependency)
+        print(f"Dependency graph: {len(result.graph.edges)} arcs "
+              f"(a => b >= {arguments.dependency:g})")
+
+        def shown(binding) -> str:
+            return "{" + ", ".join(sorted("start" if a == START else "end" if a == END
+                                          else a for a in binding)) + "}"
+        for activity in sorted((set(result.causal.inputs) | set(result.causal.outputs))
+                               - {START, END}):
+            for side, bindings in (("in ", result.causal.inputs), ("out", result.causal.outputs)):
+                listed = " or ".join(f"{shown(b)} x{n}" for b, n in
+                                     bindings.get(activity, {}).most_common())
+                print(f"  {activity} {side}: {listed or '-'}")
     else:
         noise = arguments.noise if arguments.algorithm == "imf" else 0.0
         result = inductive_miner(simple, noise_threshold=noise)
@@ -231,6 +253,74 @@ def command_mine_soundness(arguments: argparse.Namespace) -> int:
     for finding in report.findings:
         print(f"  - {finding}")
     return 0 if report.sound else 1
+
+
+def command_mine_filter(arguments: argparse.Namespace) -> int:
+    from .mining.filtering import FilterSettings, apply_filters
+    from .mining.stats import summarise
+
+    def names(text: str | None) -> set[str] | None:
+        return None if text is None else {n.strip() for n in text.split(",") if n.strip()}
+
+    log = _read_log(arguments.log)
+    settings = FilterSettings(
+        start_activities=names(arguments.start), end_activities=names(arguments.end),
+        variant_coverage=arguments.variants, top_variants=arguments.top_variants)
+    for option, mode in (("keep", "keep events"), ("mandatory", "mandatory"),
+                         ("forbidden", "forbidden")):
+        if getattr(arguments, option) is not None:
+            settings.activities = (names(getattr(arguments, option)), mode)
+    if arguments.min_length is not None or arguments.max_length is not None:
+        settings.case_length = (arguments.min_length or 0,
+                                arguments.max_length if arguments.max_length is not None
+                                else 10**9)
+    filtered = apply_filters(log, settings)
+    before, after = summarise(log), summarise(filtered)
+    print(f"Filters: {filtered.attributes['cpnpy:filter']}")
+    print(f"Kept {after.case_count:,} of {before.case_count:,} cases, "
+          f"{after.event_count:,} events, {after.variant_count:,} variants")
+    if arguments.output:
+        if arguments.output.lower().endswith(".csv"):
+            from .mining.csv_import import write_csv
+            write_csv(filtered, arguments.output)
+        else:
+            from .mining import write_xes
+            write_xes(filtered, arguments.output)
+        print(f"Wrote {arguments.output}")
+    return 0
+
+
+def command_mine_invariants(arguments: argparse.Namespace) -> int:
+    from .mining import read_pnml
+    from .mining.analysis import check_workflow_net, short_circuit
+    from .mining.invariants import invariants
+    net = read_pnml(arguments.model)
+    found = invariants(net)
+    names = [net.node_name(t) for t in found.transitions]
+    width = max([len(net.node_name(p)) for p in found.places] + [5])
+    print("Incidence matrix C (rows: places, columns: transitions)")
+    print(" " * width + "  " + "  ".join(f"{n:>{max(3, len(n))}}" for n in names))
+    for place, row in zip(found.places, found.incidence):
+        cells = "  ".join(f"{value:>{max(3, len(n))}d}" for value, n in zip(row, names))
+        print(f"{net.node_name(place):<{width}}  {cells}")
+    print("\nP-invariants (weighted token count in the initial marking):")
+    for invariant in found.p_invariants:
+        print("  " + found.describe(invariant, with_value=True))
+    uncovered = found.uncovered_places()
+    print("  covered by P-invariants: " + ("yes (structurally bounded)" if not uncovered else
+          "no, missing " + ", ".join(net.node_name(p) for p in uncovered)))
+    workflow = check_workflow_net(net)
+    if workflow.is_workflow_net:
+        found = invariants(short_circuit(net, workflow.source, workflow.sink))
+        print("\nT-invariants of the short-circuited net (with t* from o to i):")
+    else:
+        print("\nT-invariants:")
+    for invariant in found.t_invariants:
+        print("  " + found.describe(invariant))
+    uncovered = found.uncovered_transitions()
+    print("  covered by T-invariants: " + ("yes" if not uncovered else
+          "no, missing " + ", ".join(found.net.node_name(t) for t in uncovered)))
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
     stats.set_defaults(handler=command_mine_stats)
     discover = mining.add_parser("discover", help="discover a Petri net")
     discover.add_argument("log")
-    discover.add_argument("-a", "--algorithm", choices=["alpha", "im", "imf"], default="im")
+    discover.add_argument("-a", "--algorithm", choices=["alpha", "im", "imf", "heuristics"],
+                          default="im")
     discover.add_argument("--noise", type=float, default=0.2, help="IMf noise threshold")
+    discover.add_argument("--dependency", type=float, default=0.5,
+                          help="Heuristics Miner dependency threshold (default 0.5)")
     discover.add_argument("-o", "--output", help="write the model as PNML")
     discover.set_defaults(handler=command_mine_discover)
     conform = mining.add_parser("conform", help="fitness, precision, ... of a model on a log")
@@ -298,6 +391,29 @@ def build_parser() -> argparse.ArgumentParser:
     soundness = mining.add_parser("soundness", help="check WF-net soundness")
     soundness.add_argument("model", help="a .pnml file")
     soundness.set_defaults(handler=command_mine_soundness)
+    filtering = mining.add_parser("filter", help="keep part of a log (variants, "
+                                  "activities, start/end, length)")
+    filtering.add_argument("log")
+    filtering.add_argument("--variants", type=float, metavar="PERCENT",
+                           help="keep the most frequent variants covering PERCENT of cases")
+    filtering.add_argument("--top-variants", type=int, metavar="K",
+                           help="keep the K most frequent variants")
+    filtering.add_argument("--keep", metavar="A,B",
+                           help="keep only the events of these activities")
+    filtering.add_argument("--mandatory", metavar="A,B",
+                           help="keep cases that contain one of these activities")
+    filtering.add_argument("--forbidden", metavar="A,B",
+                           help="remove cases that contain one of these activities")
+    filtering.add_argument("--start", metavar="A,B", help="keep cases starting with these")
+    filtering.add_argument("--end", metavar="A,B", help="keep cases ending with these")
+    filtering.add_argument("--min-length", type=int, help="at least this many events")
+    filtering.add_argument("--max-length", type=int, help="at most this many events")
+    filtering.add_argument("-o", "--output", help="write the result (.xes, .xes.gz or .csv)")
+    filtering.set_defaults(handler=command_mine_filter)
+    invariant = mining.add_parser("invariants",
+                                  help="incidence matrix, P- and T-invariants of a net")
+    invariant.add_argument("model", help="a .pnml file")
+    invariant.set_defaults(handler=command_mine_invariants)
 
     return parser
 
@@ -305,7 +421,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
-    return arguments.handler(arguments)
+    try:
+        return arguments.handler(arguments)
+    except BrokenPipeError:
+        # The output went into `head` or similar, which stopped reading: not
+        # an error.  Point stdout at nowhere so the exit flush stays quiet.
+        import os
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
