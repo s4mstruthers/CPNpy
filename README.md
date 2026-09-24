@@ -114,9 +114,9 @@ and Linux (see [Keyboard shortcuts](#keyboard-shortcuts)).
 **Check whether a WF-net is sound**
 
 1. **File ▸ New Petri Net** (⌘N / Ctrl+N).
-2. Pick **Place** and click on the canvas. Type a name and press Return, and
-   the tool switches back to Select on its own. Do the same with
-   **Transition**.
+2. Pick **Place** and click on the canvas. Type a name and press Return (or
+   click elsewhere to keep the suggested name), and the tool switches back to
+   Select on its own. Do the same with **Transition**.
 3. Pick **Arc** and drag from a place to a transition, or the other way
    round. Drag again from the same node to add more arcs.
 4. Open the **Analysis** tab on the right. It shows whether the net is a
@@ -327,7 +327,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 
 | To… | Do this |
 |---|---|
-| Add a place / transition | Pick **Place** / **Transition**, click the canvas, type the name, press Return |
+| Add a place / transition | Pick **Place** / **Transition**, click the canvas, type the name, press Return (or just click elsewhere: the name box closes and keeps the name) |
 | Rename | Double-click the place or transition, or use the Element tab |
 | Connect | Hover near a place or transition and drag the translucent arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
