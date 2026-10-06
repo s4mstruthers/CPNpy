@@ -6,6 +6,16 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.3
+
+- **A more modern look throughout.** Drop-down lists, check boxes, radio
+  buttons, tooltips, the Filter dialog's sections and the other dialogs now
+  have the same rounded style as the rest of the app. Drop-down lists are
+  wide enough to show their longest entry in full.
+- **Keyboard hints match your computer**: Windows and Linux show Ctrl and
+  Backspace where a Mac shows ⌘ and ⌫.
+- The dotted chart can be panned by dragging with the middle mouse button.
+
 ## 0.3.2
 
 - **Update notices work.** In 0.3.0 and 0.3.1, checking for updates failed
