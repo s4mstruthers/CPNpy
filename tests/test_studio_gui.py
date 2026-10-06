@@ -1713,3 +1713,25 @@ def test_opening_a_file_from_outside_the_folder(app, tmp_path, monkeypatch, fake
     window.tree.paths_dropped.emit([str(log)], str(week / "logs"), False)
     assert (week / "logs" / "events.xes").exists() and asked[-1] == (["events.xes"], False)
     window.close()
+
+
+def test_a_file_moved_in_finder_stays_open(app, tmp_path):
+    """Regression: an open file moved into a subfolder outside the app was
+    marked missing and listed again, unopened, in its new place."""
+    import os
+
+    from cpnpy.gui.studio.app import StudioWindow
+
+    week = _week(tmp_path)
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    window.open_path(str(week / "transfer.cpn"))
+    net = window.documents[-1]
+    os.rename(week / "transfer.cpn", week / "models" / "transfer.cpn")      # as Finder does
+    target = (week / "models" / "transfer.cpn").resolve()
+    assert _wait_for(app, lambda: Path(net.path).resolve() == target)
+    _pump(app, 1.0)
+    assert not net.missing and net in window.documents
+    assert window._key(target) not in window.placeholders                   # no duplicate row
+    window.close()

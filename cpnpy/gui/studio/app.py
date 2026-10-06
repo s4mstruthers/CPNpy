@@ -474,6 +474,9 @@ class StudioWindow(QMainWindow):
         self._unsettled: dict[str, tuple] = {}
         self._gone_checks: dict[str, int] = {}
         self._reload_attempts: dict[str, int] = {}
+        #: Each open file's identity on disk (device, inode), so a file moved or
+        #: renamed in Finder is recognised in its new place (see _relocate).
+        self._identities: dict[int, tuple[int, int]] = {}
         #: Documents with a "changed on disk" question open: not autosaved meanwhile.
         self._conflicts: set[int] = set()
         #: Autosave: one timer per document, restarted on each edit.
@@ -887,6 +890,7 @@ class StudioWindow(QMainWindow):
         if document.path:
             key = self._key(document.path)
             self._opening.discard(key)
+            self._remember_identity(document)
             if isinstance(document, CpnDocument):
                 if not document.path.lower().endswith(".cpn") or made_by_cpnpy(document.path):
                     self._cpnpy_files.add(document.id)
@@ -1340,6 +1344,7 @@ class StudioWindow(QMainWindow):
         signature = _signature(document.path) if document.path else None
         if signature is not None:
             self._own_writes[self._key(document.path)] = signature
+            self._remember_identity(document)     # a safe save is a new file on disk
         if previous and self._key(previous) != self._key(document.path) \
                 and self._key(previous) in self._created and Path(previous).exists():
             # Save As of a net the app created ("Untitled 1.pnml"): the old file
@@ -2686,8 +2691,13 @@ class StudioWindow(QMainWindow):
                     again.add(path)
                 else:
                     self._gone_checks.pop(key, None)
-                    for document in documents:
-                        self._set_missing(document, True)
+                    if self.workspace is not None:
+                        # Moved within the folder, perhaps: the rescan looks
+                        # for it (_relocate) before calling it missing.
+                        self._rescan_workspace(force=True)
+                    else:
+                        for document in documents:
+                            self._set_missing(document, True)
                 continue
             self._gone_checks.pop(key, None)
             if path not in self.watcher.files():
@@ -2764,6 +2774,7 @@ class StudioWindow(QMainWindow):
                 document.net = content
                 if isinstance(document, CpnDocument):
                     document.dirty = False
+            self._remember_identity(document)       # another app's safe save: a new file
             self._replace_page(document)
             for other in self.documents:            # comparisons show the new log too
                 if isinstance(other, ComparisonDocument) and document in other.logs:
@@ -2826,18 +2837,62 @@ class StudioWindow(QMainWindow):
              ("Close", lambda: self.remove_documents([document.id]))])
 
     def _check_missing(self) -> bool:
-        """Mark open documents whose files are gone, or back.  True if any changed."""
+        """Follow open files moved within the folder; mark the ones that are gone
+        (or back) as missing.  True if anything changed."""
         changed = False
         for document in self.documents:
             if not document.path or isinstance(document, ComparisonDocument):
                 continue
             there = os.path.exists(document.path)
+            if there:
+                self._remember_identity(document)
+            elif self._relocate(document):
+                changed = True
+                continue
             if there == document.missing:
                 self._set_missing(document, not there)
                 if there:
                     self._file_changed(document.path)    # back, perhaps changed
                 changed = True
         return changed
+
+    def _remember_identity(self, document) -> None:
+        try:
+            status = os.stat(document.path)
+        except (OSError, TypeError):
+            return
+        self._identities[document.id] = (status.st_dev, status.st_ino)
+
+    def _relocate(self, document) -> bool:
+        """An open file vanished from its place: was it moved within the folder?
+
+        A file moved or renamed in Finder (or with ``mv``) keeps its identity
+        on disk, so it is looked for among the folder's files; if found, the
+        document follows it -- open, unsaved edits and all -- instead of being
+        marked missing while the file also shows up, unopened, in its new place.
+        """
+        identity = self._identities.get(document.id)
+        if identity is None or self.workspace is None or self._tree is None:
+            return False
+        taken = {self._key(d.path) for d in self.documents if d.path}
+        for file in self.workspace.files(self._tree):
+            if self._key(file.path) in taken:
+                continue
+            try:
+                status = os.stat(file.path)
+            except OSError:
+                continue
+            if (status.st_dev, status.st_ino) != identity:
+                continue
+            old = document.path
+            self._paths_moved(Path(old), file.path)
+            if document.missing:
+                self._set_missing(document, False)
+            self.statusBar().showMessage(
+                f"{Path(old).name} was moved to {self.workspace.relative(file.path)} — it "
+                "is still open", 8000)
+            return True
+        return False
 
     # -- iCloud
     def _download_from_icloud(self, path: Path, placeholder: Path) -> None:
