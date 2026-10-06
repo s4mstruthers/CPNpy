@@ -360,7 +360,7 @@ class CpnPage(QWidget):
         self.structure_toggle = _tool("☰ Model", "Show or hide the pages and declarations "
                                       "panel")
         # What to write next to the green token counts (a compact menu button).
-        self.values_button = _tool("Tokens ▾", "What to write next to the green token "
+        self.values_button = _tool("Tokens", "What to write next to the green token "
                                    "counts. Hidden values still show on hover and in the "
                                    "Marking table.")
         self.values_button.setPopupMode(QToolButton.InstantPopup)

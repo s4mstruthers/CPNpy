@@ -137,7 +137,8 @@ RADIUS = 10
 
 
 def _arrow_images(colour: str) -> dict[str, str]:
-    """Small up/down chevrons for spin boxes and combo boxes, as PNG files.
+    """Small up/down chevrons (spin boxes, combo boxes) and the tick and dash of a
+    check box, as PNG files.
 
     A stylesheet that styles a spin box's buttons must also supply the
     arrows (Qt then stops drawing its own), and stylesheets can only take
@@ -152,7 +153,9 @@ def _arrow_images(colour: str) -> dict[str, str]:
     folder.mkdir(exist_ok=True)
     paths = {}
     for name, points in (("up", ((3, 10), (8, 5), (13, 10))),
-                         ("down", ((3, 6), (8, 11), (13, 6)))):
+                         ("down", ((3, 6), (8, 11), (13, 6))),
+                         ("check", ((4, 8.5), (7, 11.5), (12.5, 5))),
+                         ("dash", ((4.5, 8), (11.5, 8)))):
         path = folder / f"chevron-{name}-{colour.lstrip('#')}.png"
         if not path.exists():
             image = QImage(32, 32, QImage.Format_ARGB32)
@@ -172,11 +175,13 @@ def _arrow_images(colour: str) -> dict[str, str]:
 def stylesheet() -> str:
     t = tokens()
     arrows = _arrow_images(t.text_secondary)
+    ticks = _arrow_images(t.accent_text)            # white, on the accent fill
     return f"""
     QWidget {{ color: {t.text}; }}
     QMainWindow, #studioRoot {{ background: {t.page}; }}
+    QDialog, QMessageBox {{ background: {t.page}; }}
     QToolTip {{ background: {t.surface}; color: {t.text}; border: 1px solid {t.border};
-                padding: 6px 8px; border-radius: 6px; }}
+                padding: 6px 8px; border-radius: 8px; }}
 
     /* ---- sidebar -------------------------------------------------------- */
     #sidebar {{ background: {t.sidebar}; border-right: 1px solid {t.border}; }}
@@ -241,10 +246,15 @@ def stylesheet() -> str:
     QToolButton#canvasTool {{ background: {t.surface}; border: 1px solid {t.border};
         border-radius: 7px; padding: 4px 9px; }}
     QToolButton#canvasTool:hover {{ background: {t.surface_alt}; }}
+    QToolButton#canvasTool::menu-indicator {{ image: url("{arrows['down']}");
+        subcontrol-position: right center; width: 9px; height: 9px; right: 6px; }}
+    QToolButton#canvasTool[popupMode="2"] {{ padding-right: 20px; }}
     QToolButton#canvasTool:checked {{ background: {t.accent}; color: {t.accent_text};
         border-color: {t.accent}; }}
 
     /* ---- inputs ------------------------------------------------------- */
+    QTextBrowser, QTextEdit {{ background: {t.surface}; border: 1px solid {t.border};
+        border-radius: 10px; padding: 6px; }}
     QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit {{
         background: {t.surface}; border: 1px solid {t.border}; border-radius: 7px;
         padding: 4px 8px; selection-background-color: {t.accent}; }}
@@ -253,31 +263,68 @@ def stylesheet() -> str:
     QSpinBox, QDoubleSpinBox {{ padding-right: 20px; }}
     QSpinBox::up-button, QSpinBox::down-button,
     QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ subcontrol-origin: border;
-        width: 18px; border: none; border-left: 1px solid {t.border};
-        background: {t.surface_alt}; }}
+        width: 18px; border: none; border-radius: 4px; margin: 2px 3px;
+        background: transparent; }}
     QSpinBox::up-button:hover, QSpinBox::down-button:hover,
     QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
-        background: {t.border}; }}
+        background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
     QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-position: top right;
-        border-top-right-radius: 7px; border-bottom: 1px solid {t.border}; }}
+        margin-bottom: 0; }}
     QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-position: bottom right;
-        border-bottom-right-radius: 7px; }}
+        margin-top: 0; }}
     QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{arrows['up']}");
         width: 10px; height: 10px; }}
     QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{arrows['down']}");
         width: 10px; height: 10px; }}
     QSpinBox::up-arrow:disabled, QSpinBox::down-arrow:disabled,
     QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{ image: none; }}
-    QComboBox {{ padding-right: 22px; }}
+    /* combobox-popup: 0 -- a list that drops down below the box (as on the
+       web), which follows the stylesheet; the menu-like one paints a square
+       panel of its own around the rounded list. */
+    QComboBox {{ padding-right: 22px; combobox-popup: 0; }}
     QComboBox::drop-down {{ border: none; width: 20px; }}
     QComboBox::down-arrow {{ image: url("{arrows['down']}"); width: 10px; height: 10px; }}
+    /* The list that drops down: rounded like the menus (widgets.round_menus
+       makes its window see-through, so the corners show). */
+    QComboBoxPrivateContainer {{ background: transparent; border: none; }}
     QComboBox QAbstractItemView {{ background: {t.surface}; border: 1px solid {t.border};
-        selection-background-color: {t.accent}; outline: none; }}
+        border-radius: 10px; padding: 5px; outline: none;
+        selection-background-color: {t.accent}; selection-color: {t.accent_text}; }}
+    QComboBox QAbstractItemView::item {{ padding: 6px 12px; border-radius: 6px;
+        min-height: 18px; }}
+    QComboBox QAbstractItemView::item:selected, QComboBox QAbstractItemView::item:hover {{
+        background: {t.accent}; color: {t.accent_text}; }}
     QSlider::groove:horizontal {{ height: 4px; background: {t.border}; border-radius: 2px; }}
     QSlider::sub-page:horizontal {{ background: {t.accent}; border-radius: 2px; }}
     QSlider::handle:horizontal {{ background: {t.surface}; border: 1px solid {t.axis};
         width: 16px; height: 16px; margin: -7px 0; border-radius: 8px; }}
     QRadioButton, QCheckBox {{ spacing: 8px; }}
+    /* Check boxes (also in lists, e.g. a chart's legend) and radio buttons:
+       rounded, filled with the accent colour when on. */
+    QCheckBox::indicator, QAbstractItemView::indicator {{ width: 14px; height: 14px;
+        border: 1px solid {t.axis}; border-radius: 4px; background: {t.surface}; }}
+    QCheckBox::indicator:hover, QAbstractItemView::indicator:hover {{
+        border-color: {t.accent}; }}
+    QCheckBox::indicator:checked, QAbstractItemView::indicator:checked {{
+        background: {t.accent}; border-color: {t.accent}; image: url("{ticks['check']}"); }}
+    QCheckBox::indicator:indeterminate, QAbstractItemView::indicator:indeterminate {{
+        background: {t.accent}; border-color: {t.accent}; image: url("{ticks['dash']}"); }}
+    QCheckBox::indicator:disabled {{ background: {t.surface_alt}; border-color: {t.border}; }}
+    QRadioButton::indicator {{ width: 14px; height: 14px; border: 1px solid {t.axis};
+        border-radius: 8px; background: {t.surface}; }}
+    QRadioButton::indicator:hover {{ border-color: {t.accent}; }}
+    QRadioButton::indicator:checked {{ width: 6px; height: 6px; border: 5px solid {t.accent};
+        background: {t.surface}; }}
+
+    /* Framed sections (the Filter dialog's): rounded like the cards. */
+    QGroupBox {{ border: 1px solid {t.border}; border-radius: 10px; margin-top: 14px;
+        padding: 10px 8px 8px 8px; background: {t.surface}; }}
+    QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
+        left: 4px; padding: 0 4px; color: {t.text}; font-weight: 600; }}
+    QGroupBox::indicator {{ width: 14px; height: 14px; border: 1px solid {t.axis};
+        border-radius: 4px; background: {t.surface}; }}
+    QGroupBox::indicator:checked {{ background: {t.accent}; border-color: {t.accent};
+        image: url("{ticks['check']}"); }}
 
     /* ---- tables and lists --------------------------------------------- */
     QTableView, QTreeView, QListView {{ background: {t.surface}; border: none;
@@ -287,6 +334,10 @@ def stylesheet() -> str:
         border-bottom: 1px solid {t.border}; padding: 6px 8px; font-weight: 600;
         font-size: 11px; }}
     QTableCornerButton::section {{ background: {t.surface}; border: none; }}
+    /* A list on its own in a dialog (Compare logs, the Filter dialog's
+       activities) gets a rounded frame, like a text field. */
+    QDialog QListWidget, QDialog QListView {{ border: 1px solid {t.border};
+        border-radius: 8px; padding: 4px; }}
 
     /* ---- scroll bars: thin overlays ------------------------------------- */
     QScrollArea {{ background: transparent; border: none; }}
