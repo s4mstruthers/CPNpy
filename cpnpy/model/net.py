@@ -35,6 +35,7 @@ preserve attributes this implementation does not model.
 from __future__ import annotations
 
 import itertools
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator
 
@@ -50,6 +51,9 @@ from .declarations import DeclarationBlock
 # Identifier generation
 # ---------------------------------------------------------------------------
 _ID_COUNTER = itertools.count(1)
+#: Ids of the form we make: an element built with one (read from a file)
+#: moves the counter past it.
+_NUMBERED_ID = re.compile(r"ID(\d+)")
 
 
 def new_id(prefix: str = "ID") -> str:
@@ -60,6 +64,23 @@ def new_id(prefix: str = "ID") -> str:
     ids from imported files rather than renumbering them.
     """
     return f"{prefix}{next(_ID_COUNTER)}"
+
+
+def _keep_unique(identifier: str) -> None:
+    """An element was built with ``identifier``: new ids must not repeat it.
+
+    The counter starts at 1 in every session, while a file saved in an
+    earlier one already uses ``ID1``, ``ID2``, ...: a place added after
+    opening it could get a transition's id, and the file could no longer be
+    saved.
+    """
+    global _ID_COUNTER
+    match = _NUMBERED_ID.fullmatch(identifier)
+    if match is None:
+        return
+    number = int(match.group(1))
+    upcoming = next(_ID_COUNTER)
+    _ID_COUNTER = itertools.count(max(upcoming, number + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +146,9 @@ class Place:
     # Filled in by :meth:`CPNet.compile`.
     initial_marking_ast: Expr | None = None
 
+    def __post_init__(self) -> None:
+        _keep_unique(self.id)
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -161,6 +185,9 @@ class Transition:
     @property
     def is_substitution(self) -> bool:
         return self.substitution_subpage is not None
+
+    def __post_init__(self) -> None:
+        _keep_unique(self.id)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -204,6 +231,9 @@ class Arc:
         """Does this arc put tokens *into* the place?"""
         return self.orientation in ("TtoP", "BOTHDIR")
 
+    def __post_init__(self) -> None:
+        _keep_unique(self.id)
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -218,6 +248,9 @@ class Page:
     transitions: list[Transition] = field(default_factory=list)
     arcs: list[Arc] = field(default_factory=list)
     source_element: Any = None
+
+    def __post_init__(self) -> None:
+        _keep_unique(self.id)
 
     # -- lookup helpers ------------------------------------------------------
     def place(self, place_id: str) -> Place | None:

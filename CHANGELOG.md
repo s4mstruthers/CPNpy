@@ -6,6 +6,13 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.9
+
+- **Fixed:** adding a place or transition to a net saved in an earlier
+  session could give it the same hidden id as an existing one, and then the
+  net could not be saved ("An arc must connect a place and a transition").
+  New places, transitions and arcs now always get an id of their own.
+
 ## 0.3.8
 
 - **Draw nets faster.** Drag the arrow beside a place out onto empty canvas
