@@ -4,9 +4,10 @@
 # that system.  Every run smoke-tests the app (packaging/build.py) and keeps
 # the result as a downloadable artifact on the run's page.  Pushing a version
 # tag (git tag v0.3.0 && git push origin v0.3.0) also publishes a GitHub
-# Release with the downloads attached.  (GitHub shows each one's SHA-256,
-# which the app's updater, cpnpy/gui/studio/updates.py, checks.)  The tag must
-# match __version__ in cpnpy/__init__.py.
+# Release with the downloads attached, described by the version's section
+# of CHANGELOG.md.  (GitHub shows each download's SHA-256, which the app's
+# updater, cpnpy/gui/studio/updates.py, checks.)  The tag must match
+# __version__ in cpnpy/__init__.py, and CHANGELOG.md needs a section for it.
 
 name: Build apps
 
@@ -55,7 +56,7 @@ jobs:
           sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
 
-      - name: Check the tag matches the version
+      - name: Check the tag matches the version, and CHANGELOG.md says what is new
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
@@ -64,6 +65,7 @@ jobs:
             echo "The tag ${{ github.ref_name }} does not match __version__ = $version in cpnpy/__init__.py"
             exit 1
           fi
+          python packaging/release_notes.py "$version" > /dev/null
 
       - name: Install CPNpy and PyInstaller
         run: |
@@ -89,12 +91,19 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+
       - uses: actions/download-artifact@v5
         with:
           path: apps
           merge-multiple: true
 
+      # The release's text is the version's section of CHANGELOG.md, written
+      # for the people using the app: CPNpy shows it when offering the update.
+      - name: Release notes from CHANGELOG.md
+        run: python3 packaging/release_notes.py "${{ github.ref_name }}" > release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: apps/*
-          generate_release_notes: true
+          body_path: release-notes.md

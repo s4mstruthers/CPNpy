@@ -126,7 +126,7 @@ class SettingsDialog(QDialog):
         self.restore.setChecked(values["restore"])
         form.addRow("Launch", self.restore)
 
-        self.updates = QCheckBox("Check for updates automatically (once a day)")
+        self.updates = QCheckBox("Check for a new version when CPNpy opens")
         self.updates.setChecked(values["check_updates"])
         form.addRow("Updates", self.updates)
         layout.addLayout(form)

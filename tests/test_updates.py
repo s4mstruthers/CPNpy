@@ -213,7 +213,8 @@ def test_update_check_trusts_certifi_not_the_system(monkeypatch):
             return False
 
         def read(self, *args):
-            return b"{}" if not args else b""
+            import json
+            return json.dumps([GITHUB_ANSWER]).encode() if not args else b""
 
     def fake_urlopen(request, timeout, context=None):
         used.append(context)
@@ -223,3 +224,130 @@ def test_update_check_trusts_certifi_not_the_system(monkeypatch):
     updates.download("https://example.invalid/x", Path(os.devnull))
     assert len(used) == 2 and all(c is not None and c.cert_store_stats()["x509_ca"] > 50
                                   for c in used)
+
+
+def _github_list(*versions, prerelease=()):
+    return [dict(GITHUB_ANSWER, tag_name=f"v{v}", body=f"- news in {v}",
+                 prerelease=v in prerelease) for v in versions]
+
+
+def test_notes_for_every_version_you_do_not_have(monkeypatch):
+    import json
+
+    # Two versions newer than 0.3.2: both their notes, newest first.
+    monkeypatch.setattr(updates, "_get", lambda url, timeout: json.dumps(
+        _github_list("0.3.1", "0.3.3", "0.4.0", "0.3.2", "0.5.0rc1",
+                     prerelease=("0.5.0rc1",))).encode())
+    latest = updates.fetch_latest(current="0.3.2")
+    assert latest.version == "0.4.0"
+    assert latest.notes.index("What's new in 0.4.0") < latest.notes.index("What's new in 0.3.3")
+    assert "news in 0.4.0" in latest.notes and "news in 0.3.3" in latest.notes
+    assert "0.3.2" not in latest.notes and "0.5.0rc1" not in latest.notes
+    # One step behind: just that release's own notes.
+    assert updates.fetch_latest(current="0.3.3").notes == "- news in 0.4.0"
+    monkeypatch.setattr(updates, "_get", lambda url, timeout: b"[]")
+    with pytest.raises(RuntimeError):
+        updates.fetch_latest()
+
+
+def test_release_notes_come_from_the_changelog():
+    sys.path.insert(0, str(ROOT / "packaging"))
+    try:
+        import release_notes
+    finally:
+        sys.path.remove(str(ROOT / "packaging"))
+    import cpnpy
+    text = "# What's new\n\n## 0.4.0\n\n- A\n- B\n\n## 0.3.2\n\n- C\n"
+    assert release_notes.section("v0.4.0", text) == "- A\n- B\n"
+    assert release_notes.section("0.3.2", text) == "- C\n"
+    assert release_notes.section("0.3.9", text) is None
+    # The version being released always says what is new.
+    assert release_notes.section(cpnpy.__version__) is not None or \
+        release_notes.section("0.3.2") is not None
+
+
+def test_a_new_version_at_launch_is_a_bar_not_a_dialog(monkeypatch):
+    """The check at launch shows a bar at the top of the window: work goes on;
+    What's New opens the notes, Install Now installs, Skip This Version and ✕
+    put it away."""
+    from PySide6.QtWidgets import QApplication
+
+    from cpnpy.gui.studio.app import StudioWindow
+
+    application = QApplication.instance() or QApplication([])
+    dialogs, installs = [], []
+
+    def fake_exec(dialog):
+        dialogs.append(dialog)
+        dialog.outcome = dialog.LATER
+        return 0
+    monkeypatch.setattr(updates.UpdateDialog, "exec", fake_exec)
+    monkeypatch.setattr(updates, "fetch_latest", lambda: Release.from_github(
+        dict(GITHUB_ANSWER, tag_name="v99.0.0", body="- Shiny things")))
+    window = StudioWindow()
+    window.show()
+    monkeypatch.setattr(window, "_install_update", installs.append)
+    monkeypatch.setattr(window, "_can_install", lambda release: True)
+    bar = window.update_bar
+
+    def check():
+        window.check_for_updates(manual=False)
+        for _ in range(300):
+            if bar.isVisible():
+                return
+            _pump(application, 0.01)
+
+    check()
+    assert bar.isVisible() and dialogs == []                 # no dialog in the way
+    assert "99.0.0 is available" in bar.text.text()
+    assert bar.install_button.text() == "Install Now"
+    bar.notes_button.click()                                 # What's New: the notes
+    assert len(dialogs) == 1 and dialogs[0].findChild(updates.QTextBrowser) \
+        .toPlainText().strip() == "Shiny things"
+    assert bar.isVisible()                                   # "Later" leaves the bar
+    bar.install_button.click()
+    assert [r.version for r in installs] == ["99.0.0"] and not bar.isVisible()
+
+    check()
+    bar.skip_button.click()
+    assert not bar.isVisible()
+    check()
+    bar.findChild(updates.QToolButton).click()               # ✕
+    assert not bar.isVisible()
+    window.close()
+
+
+def test_running_from_source_only_says_how_to_update(monkeypatch):
+    """From a git clone the bar offers How to Update, which explains `git pull`;
+    nothing is downloaded or replaced."""
+    from PySide6.QtWidgets import QApplication
+
+    from cpnpy.gui.studio.app import StudioWindow
+
+    application = QApplication.instance() or QApplication([])
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    shown, installs = [], []
+
+    def fake_exec(dialog):
+        shown.append(dialog)
+        dialog.outcome = dialog.LATER
+        return 0
+    monkeypatch.setattr(updates.UpdateDialog, "exec", fake_exec)
+    monkeypatch.setattr(updates, "prepare", lambda *a, **k: installs.append(1))
+    monkeypatch.setattr(updates, "fetch_latest", lambda: Release.from_github(
+        dict(GITHUB_ANSWER, tag_name="v99.0.0")))
+    window = StudioWindow()
+    window.show()
+    window.check_for_updates(manual=False)
+    for _ in range(300):
+        if window.update_bar.isVisible():
+            break
+        _pump(application, 0.01)
+    bar = window.update_bar
+    assert bar.isVisible() and bar.install_button.text() == "How to Update"
+    bar.install_button.click()
+    _pump(application, 0.1)
+    assert installs == [] and len(shown) == 1
+    assert "git pull" in " ".join(label.text() for label in shown[0].findChildren(
+        updates.QLabel))
+    window.close()

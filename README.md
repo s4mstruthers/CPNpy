@@ -577,32 +577,42 @@ run's page, under *Artifacts*).
 
 **Publishing a release:**
 
-1. Set `__version__` in `cpnpy/__init__.py` (e.g. `0.3.0`) and merge that
-   into `main`. It is the only place the version is written:
+1. Add a section for the new version at the top of
+   [CHANGELOG.md](CHANGELOG.md) (`## 0.4.0`, then a few bullet points). Write
+   it for the people using the app: it becomes the text of the release on
+   GitHub, and the app shows it when it offers the update.
+2. Set `__version__` in `cpnpy/__init__.py` to the same version and merge
+   both into `main`. It is the only place the version is written:
    `pyproject.toml`, the download names and the app's update check all read
    it from there.
-2. Tag that commit with the same version and push the tag:
+3. Tag that commit with the same version and push the tag:
 
    ```bash
    git pull
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.4.0
+   git push origin v0.4.0
    ```
 
 About five minutes later the
 [Releases page](https://github.com/s4mstruthers/CPNpy/releases) has the
-macOS (Apple silicon and Intel), Windows and Linux apps. (The build refuses
-a tag that does not match `__version__`.)
+macOS (Apple silicon and Intel), Windows and Linux apps. The build refuses a
+tag that does not match `__version__`, or a version with no section in
+`CHANGELOG.md`.
 
-**Updates.** The app checks the latest release on GitHub at launch (at most
-once a day; *Settings* turns that off) and with **Help ▸ Check for
-Updates…**. If it is newer than the running version, it shows the release
-notes and offers *Download & Install*: the app downloads the file for its
-system, checks it against the SHA-256 GitHub lists for it, unpacks it next to
-itself, and
-restarts into the new version (the old one is kept until the new one is in
-place). Run from source, it does not change itself and says to `git pull`
-instead. See `cpnpy/gui/studio/updates.py`.
+**Updates.** Each time it opens, the app checks the latest release on GitHub
+(*Settings* turns that off). If there is a newer version, a slim bar at the
+top of the window says so, without getting in the way: **What's New** shows
+the changelog of every version you don't have yet, **Install Now** installs
+it, **Skip This Version** stays quiet until the next one, and **✕** closes the
+bar until next time. **Help ▸ Check for Updates…** checks straight away.
+Installing downloads the file for the system, checks it against the SHA-256
+GitHub lists for it, unpacks it next to the app, and restarts into the new
+version (the old one is kept until the new one is in place).
+
+Run from source (a git clone), the app never changes itself: the bar's
+button says **How to Update** and explains `git pull`. It only appears when
+the clone is older than the latest release. See
+`cpnpy/gui/studio/updates.py`.
 
 ---
 

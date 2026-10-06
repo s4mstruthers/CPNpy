@@ -504,7 +504,19 @@ class StudioWindow(QMainWindow):
         root.addWidget(self._build_sidebar())
         self.content = QStackedWidget()
         self.content.addWidget(scroll(self._build_welcome(), horizontal=True))
-        root.addWidget(self.content)
+        # Above the pages: "a new version is out" (see check_automatically).
+        from .updates import UpdateBar
+        self.update_bar = UpdateBar()
+        self.update_bar.whats_new.connect(lambda: self._show_update_dialog(
+            self.update_bar.release))
+        self.update_bar.install.connect(lambda: self._update_action(
+            self.update_bar.release, "install"))
+        self.update_bar.skip.connect(lambda: self._update_action(
+            self.update_bar.release, "skip"))
+        right = QWidget()
+        right.setLayout(vbox(self.update_bar, self.content, spacing=0))
+        right.layout().setStretch(1, 1)
+        root.addWidget(right)
         root.setStretchFactor(1, 1)
         root.setSizes([220, 1260])
         self.setCentralWidget(root)
@@ -1808,10 +1820,12 @@ class StudioWindow(QMainWindow):
 
     # ---------------------------------------------------------------- updates
     def check_automatically(self) -> None:
-        """At launch: look for a newer version, at most once a day, quietly."""
+        """At launch: look for a newer version, quietly unless there is one.
+
+        Every time the app opens, so nobody misses a release; "Skip This
+        Version" in the dialog keeps a version from being offered again.
+        """
         if not self.persist or not self._setting("updates/automatic", True):
-            return
-        if time.time() - self._setting("updates/last_check", 0.0) < 24 * 3600:
             return
         self.check_for_updates(manual=False)
 
@@ -1827,7 +1841,6 @@ class StudioWindow(QMainWindow):
         self._checking_updates = True
         if manual:
             self.statusBar().showMessage("Checking for updates…")
-        self._set_setting("updates/last_check", time.time())
 
         def failed(message: str) -> None:
             self._checking_updates = False
@@ -1852,15 +1865,37 @@ class StudioWindow(QMainWindow):
             return
         if not manual and self._setting("updates/skipped", "") == release.version:
             return
-        can_install = updates.installed_app() is not None and \
-            release.download_for() is not None
-        dialog = updates.UpdateDialog(release, can_install, self)
+        if manual:
+            self._show_update_dialog(release)      # asked for: the dialog with the notes
+        else:
+            # At launch: a bar at the top that does not stop anyone working.
+            self.update_bar.offer(release, self._can_install(release))
+
+    def _can_install(self, release) -> bool:
+        from . import updates
+        return updates.installed_app() is not None and release.download_for() is not None
+
+    def _show_update_dialog(self, release) -> None:
+        """What's new in ``release`` (and the versions before it), and what to do."""
+        from . import updates
+        dialog = updates.UpdateDialog(release, self._can_install(release), self)
         dialog.exec()
-        if dialog.outcome == dialog.SKIP:
+        self._update_action(release, {dialog.SKIP: "skip", dialog.PAGE: "page",
+                                      dialog.INSTALL: "install"}.get(dialog.outcome))
+
+    def _update_action(self, release, action: str | None) -> None:
+        if action is None:                          # Later
+            return
+        self.update_bar.hide()
+        if action == "skip":
             self._set_setting("updates/skipped", release.version)
-        elif dialog.outcome == dialog.PAGE:
+            self.statusBar().showMessage(f"CPNpy {release.version} skipped — you will be told "
+                                         "about the next version", 6000)
+        elif action == "page":
             QDesktopServices.openUrl(QUrl(release.page))
-        elif dialog.outcome == dialog.INSTALL:
+        elif not self._can_install(release):       # "How to Update" (run from source)
+            self._show_update_dialog(release)
+        else:
             self._install_update(release)
 
     def _install_update(self, release) -> None:
