@@ -30,7 +30,9 @@ dependencies = []
 [project.optional-dependencies]
 # The desktop application.  Installed separately so that `import cpnpy` stays
 # cheap for headless use (PySide6 is ~150 MB).
-gui = ["PySide6>=6.6"]
+# certifi: the certificates the standalone app trusts when it checks GitHub for
+# updates (its bundled Python cannot find the system's own).
+gui = ["PySide6>=6.6", "certifi"]
 dev = ["pytest>=8.0"]
 # Optional: the ILP Miner, PM4Py's heuristics net, and a cross-check of the
 # built-in algorithms.  PM4Py is AGPL-3.0 licensed.

@@ -10,11 +10,12 @@ started in three ways:
     (see :mod:`cpnpy.analysis.state_space_process`).  A frozen app has no
     separate Python to run, so it runs itself with this flag.  No window opens.
 ``CPNpy --cpnpy-self-test [MODEL.cpn]``
-    Used by the build script: build the main window without showing it and,
-    given a model, compute its state space the way the app does (in a worker
-    process); print ``ok`` and exit.  Proves the bundle contains everything
-    the GUI imports and can start its own workers, also on machines without a
-    screen (with QT_QPA_PLATFORM=offscreen).
+    Used by the build script: build the main window without showing it,
+    check the update check has certificates to trust and, given a model,
+    compute its state space the way the app does (in a worker process); print
+    ``ok`` and exit.  Proves the bundle contains everything the GUI imports,
+    can reach GitHub securely and can start its own workers, also on machines
+    without a screen (with QT_QPA_PLATFORM=offscreen).
 """
 
 from __future__ import annotations
@@ -34,6 +35,15 @@ def self_test(model_path: str | None = None) -> int:
     window = StudioWindow(persist=False)    # persist=False: leave the user's settings alone
     application.processEvents()
     window.close()
+
+    # The update check needs certificates to reach GitHub; a bundle without
+    # them fails with CERTIFICATE_VERIFY_FAILED on users' machines (0.3.0).
+    from cpnpy.gui.studio.updates import ssl_context
+    certificates = ssl_context().cert_store_stats()["x509_ca"]
+    if certificates == 0:
+        print("update check: no trusted certificates in the app", flush=True)
+        return 1
+    print(f"update check: {certificates} trusted certificates", flush=True)
 
     if model_path:
         import time

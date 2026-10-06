@@ -27,6 +27,7 @@ import os
 import platform
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -134,10 +135,26 @@ class Release:
         return self.digests.get(name)
 
 
+def ssl_context() -> ssl.SSLContext:
+    """Certificates to trust when talking to GitHub.
+
+    The standalone app carries its own Python, which cannot find the
+    system's certificates (on macOS it then fails with "CERTIFICATE_VERIFY_
+    FAILED: unable to get local issuer certificate"), so it uses certifi's
+    bundle; PyInstaller packs that file into the app.  Without certifi (run
+    from source), the system's own certificates are used.
+    """
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _get(url: str, timeout: float) -> bytes:
     request = Request(url, headers={"Accept": "application/vnd.github+json",
                                     "User-Agent": f"CPNpy/{__version__}"})
-    with urlopen(request, timeout=timeout) as response:      # noqa: S310 - https only
+    with urlopen(request, timeout=timeout, context=ssl_context()) as response:  # noqa: S310
         return response.read()
 
 
@@ -153,7 +170,8 @@ def download(url: str, target: Path, progress: Callable[[int, int], None] | None
              cancelled: Callable[[], bool] | None = None, timeout: float = 30.0) -> Path:
     """Download ``url`` to ``target``, reporting (bytes so far, total) as it goes."""
     request = Request(url, headers={"User-Agent": f"CPNpy/{__version__}"})
-    with urlopen(request, timeout=timeout) as response, open(target, "wb") as out:  # noqa: S310
+    with urlopen(request, timeout=timeout, context=ssl_context()) as response, \
+            open(target, "wb") as out:  # noqa: S310
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
         while chunk := response.read(1 << 16):
