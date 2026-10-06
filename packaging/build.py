@@ -46,6 +46,31 @@ ROOT = PACKAGING.parent
 DIST = ROOT / "dist"
 
 
+def fail(title: str, detail: str) -> None:
+    """Stop with an error; on GitHub Actions also show it on the run's page."""
+    print(f"!! {title}\n{detail}", file=sys.stderr, flush=True)
+    if os.environ.get("GITHUB_ACTIONS"):
+        # Annotations survive where full logs are hard to reach; keep the tail.
+        tail = "\n".join(detail.strip().splitlines()[-40:])
+        encoded = tail.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+        print(f"::error title={title}::{encoded}", flush=True)
+    sys.exit(1)
+
+
+def run(command: list[str], title: str, attempts: int = 1, **options) -> None:
+    """Run a build command, showing its output; report its last lines if it fails."""
+    import time
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(command, capture_output=True, text=True, **options)
+        print(result.stdout + result.stderr, end="", flush=True)
+        if result.returncode == 0:
+            return
+        if attempt < attempts:
+            print(f"   ({title} failed, retrying in 10 s)", flush=True)
+            time.sleep(10)
+    fail(title, f"exit {result.returncode}\n{result.stdout}\n{result.stderr}")
+
+
 def version() -> str:
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     return re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)
@@ -74,9 +99,9 @@ def executable() -> Path:
 # ---------------------------------------------------------------------------
 def run_pyinstaller() -> None:
     print("== PyInstaller", flush=True)
-    subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-                    "--distpath", str(DIST), "--workpath", str(ROOT / "build"),
-                    str(PACKAGING / "cpnpy.spec")], check=True, cwd=ROOT)
+    run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
+         "--distpath", str(DIST), "--workpath", str(ROOT / "build"),
+         str(PACKAGING / "cpnpy.spec")], "PyInstaller failed", cwd=ROOT)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +118,7 @@ def smoke_test() -> None:
     result = subprocess.run([str(program), "--cpnpy-self-test", str(model)], capture_output=True,
                             text=True, timeout=300, env=environment)
     if result.returncode != 0 or not result.stdout.rstrip().endswith("ok"):
-        sys.exit(f"self-test failed (exit {result.returncode}):\n{result.stdout}\n{result.stderr}")
+        fail("Self-test failed", f"exit {result.returncode}\n{result.stdout}\n{result.stderr}")
     print("   window and state space job: ok")
 
     # b) The worker on its own, with its messages visible if something breaks.
@@ -103,8 +128,8 @@ def smoke_test() -> None:
             [str(program), "--cpnpy-state-space-worker", str(model), "1000", str(output)],
             input="", capture_output=True, text=True, timeout=180, env=environment)
         if "done" not in result.stdout or not output.exists():
-            sys.exit(f"state space worker failed (exit {result.returncode}):\n"
-                     f"{result.stdout}\n{result.stderr}")
+            fail("State space worker failed",
+                 f"exit {result.returncode}\n{result.stdout}\n{result.stderr}")
     print("   state space worker: ok")
 
 
@@ -127,12 +152,13 @@ def _dmg(name: str) -> Path:
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir()
     # ditto copies an app bundle faithfully (symlinks, permissions, signatures).
-    subprocess.run(["ditto", str(DIST / "CPNpy.app"), str(staging / "CPNpy.app")], check=True)
+    run(["ditto", str(DIST / "CPNpy.app"), str(staging / "CPNpy.app")], "Copying the app failed")
     (staging / "Applications").symlink_to("/Applications")
     target = DIST / f"{name}.dmg"
     target.unlink(missing_ok=True)
-    subprocess.run(["hdiutil", "create", "-volname", "CPNpy", "-srcfolder", str(staging),
-                    "-ov", "-format", "UDZO", str(target)], check=True)
+    # hdiutil sometimes fails with "Resource busy" on CI machines; retry it.
+    run(["hdiutil", "create", "-volname", "CPNpy", "-srcfolder", str(staging),
+         "-ov", "-format", "UDZO", str(target)], "Making the disk image failed", attempts=3)
     shutil.rmtree(staging)
     return target
 
@@ -159,6 +185,13 @@ def _tarball(name: str) -> Path:
 
 
 def main() -> None:
+    try:
+        build()
+    except subprocess.TimeoutExpired as error:
+        fail("Timed out", f"{' '.join(map(str, error.cmd))}\n{error.stdout or ''}\n{error.stderr or ''}")
+
+
+def build() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--skip-tests", action="store_true", help="do not smoke-test the build")
     parser.add_argument("--no-package", action="store_true", help="do not make the .dmg/.zip/.tar.gz")
