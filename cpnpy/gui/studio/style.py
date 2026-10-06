@@ -296,9 +296,14 @@ def stylesheet() -> str:
     QSplitter::handle {{ background: {t.border}; }}
     QGraphicsView {{ background: {t.canvas}; border: none; }}
     QStatusBar {{ background: {t.page}; color: {t.text_muted}; border-top: 1px solid {t.border}; }}
-    QMenu {{ background: {t.surface}; border: 1px solid {t.border}; padding: 4px; }}
-    QMenu::item {{ padding: 5px 18px; border-radius: 5px; }}
+    /* Pop-up menus: rounded like the cards (see widgets.round_menus, which
+       gives them the see-through window the corners need). */
+    QMenu {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 10px;
+             padding: 5px; }}
+    QMenu::item {{ padding: 6px 24px 6px 12px; border-radius: 6px; margin: 1px 0; }}
     QMenu::item:selected {{ background: {t.accent}; color: {t.accent_text}; }}
+    QMenu::item:disabled {{ color: {t.text_muted}; }}
+    QMenu::separator {{ height: 1px; background: {t.border}; margin: 5px 8px; }}
     QProgressBar {{ background: {t.border}; border: none; border-radius: 2px; max-height: 4px; }}
     QProgressBar::chunk {{ background: {t.accent}; border-radius: 2px; }}
     QTabWidget::pane {{ border: none; }}

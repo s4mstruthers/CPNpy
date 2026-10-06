@@ -25,10 +25,11 @@ GITHUB_ANSWER = {
     "html_url": "https://github.com/s4mstruthers/CPNpy/releases/tag/v0.3.0",
     "body": "## What's new\n- Folders stay in sync",
     "prerelease": False,
-    "assets": [{"name": n, "browser_download_url": f"https://example.invalid/{n}"} for n in (
+    "assets": [{"name": n, "browser_download_url": f"https://example.invalid/{n}",
+                "digest": "sha256:" + "AB" * 32} for n in (
         "CPNpy-0.3.0-Linux-x64.tar.gz", "CPNpy-0.3.0-macOS-arm64.dmg",
-        "CPNpy-0.3.0-macOS-arm64.dmg.sha256", "CPNpy-0.3.0-macOS-x64.dmg",
-        "CPNpy-0.3.0-Windows-x64.zip")],
+        "CPNpy-0.3.0-macOS-x64.dmg", "CPNpy-0.3.0-Windows-x64.zip")]
+    + [{"name": "CPNpy-0.2.0-old.zip", "browser_download_url": "https://example.invalid/old"}],
 }
 
 
@@ -62,16 +63,17 @@ def test_the_right_download_for_each_system():
     assert release.download_for("Windows", "x64")[0] == "CPNpy-0.3.0-Windows-x64.zip"
     assert release.download_for("Linux", "x64")[0] == "CPNpy-0.3.0-Linux-x64.tar.gz"
     assert release.download_for("Linux", "arm64") is None
-    assert release.checksum_for("CPNpy-0.3.0-macOS-arm64.dmg").endswith(".sha256")
-    assert release.checksum_for("CPNpy-0.3.0-Windows-x64.zip") is None
+    # GitHub's own SHA-256 of each upload (none for an old upload without one).
+    assert release.checksum_for("CPNpy-0.3.0-macOS-arm64.dmg") == "ab" * 32
+    assert release.checksum_for("CPNpy-0.2.0-old.zip") is None
 
 
 def test_checksums(tmp_path):
     archive = tmp_path / "CPNpy.zip"
     archive.write_bytes(b"the app")
     digest = hashlib.sha256(b"the app").hexdigest()
-    assert updates.verify(archive, f"{digest}  CPNpy.zip\n")
-    assert not updates.verify(archive, "0" * 64 + "  CPNpy.zip")
+    assert updates.verify(archive, digest) and updates.verify(archive, digest.upper())
+    assert not updates.verify(archive, "0" * 64)
     assert not updates.verify(archive, "")
 
 
@@ -166,7 +168,8 @@ def test_check_for_updates_in_the_app(monkeypatch):
     assert told and "latest version" in told[0]
 
     # A newer one: from source it cannot install itself, so it offers the page.
-    monkeypatch.setattr(updates, "fetch_latest", lambda: Release.from_github(GITHUB_ANSWER))
+    monkeypatch.setattr(updates, "fetch_latest", lambda: Release.from_github(
+        dict(GITHUB_ANSWER, tag_name="v99.0.0")))         # newer than whatever runs
     window.check_for_updates(manual=True)
     for _ in range(300):
         if opened:

@@ -101,6 +101,8 @@ class Release:
     notes: str                       # Markdown
     page: str                        # the release's web page
     assets: dict[str, str] = field(default_factory=dict)     # file name → download URL
+    #: file name → SHA-256 (hex), as GitHub computes it for every upload
+    digests: dict[str, str] = field(default_factory=dict)
     prerelease: bool = False
 
     @classmethod
@@ -111,6 +113,9 @@ class Release:
                    assets={a["name"]: a["browser_download_url"]
                            for a in data.get("assets", [])
                            if a.get("name") and a.get("browser_download_url")},
+                   digests={a["name"]: a["digest"].split(":", 1)[1].lower()
+                            for a in data.get("assets", [])
+                            if a.get("name") and str(a.get("digest", "")).startswith("sha256:")},
                    prerelease=bool(data.get("prerelease") or data.get("draft")))
 
     def download_for(self, system: str | None = None,
@@ -125,8 +130,8 @@ class Release:
         return None
 
     def checksum_for(self, name: str) -> str | None:
-        """URL of ``<name>.sha256`` when the release has one."""
-        return self.assets.get(f"{name}.sha256")
+        """The SHA-256 GitHub reports for ``name`` (None for an old upload without one)."""
+        return self.digests.get(name)
 
 
 def _get(url: str, timeout: float) -> bytes:
@@ -161,9 +166,9 @@ def download(url: str, target: Path, progress: Callable[[int, int], None] | None
     return target
 
 
-def verify(path: Path, checksum_text: str) -> bool:
-    """Does the file match a ``sha256sum``-style line ("<hex>  <name>")?"""
-    expected = checksum_text.strip().split()[0].lower() if checksum_text.strip() else ""
+def verify(path: Path, expected: str) -> bool:
+    """Does the file's SHA-256 match ``expected`` (hex)?"""
+    expected = expected.strip().lower()
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):
@@ -274,7 +279,7 @@ def prepare(release: Release, progress: Callable[[int, int], None] | None = None
     try:
         archive = download(url, work / name, progress, cancelled)
         checksum = release.checksum_for(name)
-        if checksum is not None and not verify(archive, _get(checksum, 30).decode()):
+        if checksum is not None and not verify(archive, checksum):
             raise RuntimeError(f"{name} did not download correctly (its checksum does not "
                                "match). Try again later.")
         new = unpack(archive, work)

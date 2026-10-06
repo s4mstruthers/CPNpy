@@ -591,15 +591,15 @@ run's page, under *Artifacts*).
 
 About five minutes later the
 [Releases page](https://github.com/s4mstruthers/CPNpy/releases) has the
-macOS (Apple silicon and Intel), Windows and Linux apps, each with a
-`.sha256` checksum. (The build refuses a tag that does not match
-`__version__`.)
+macOS (Apple silicon and Intel), Windows and Linux apps. (The build refuses
+a tag that does not match `__version__`.)
 
 **Updates.** The app checks the latest release on GitHub at launch (at most
 once a day; *Settings* turns that off) and with **Help ▸ Check for
 Updates…**. If it is newer than the running version, it shows the release
 notes and offers *Download & Install*: the app downloads the file for its
-system, checks it against its checksum, unpacks it next to itself, and
+system, checks it against the SHA-256 GitHub lists for it, unpacks it next to
+itself, and
 restarts into the new version (the old one is kept until the new one is in
 place). Run from source, it does not change itself and says to `git pull`
 instead. See `cpnpy/gui/studio/updates.py`.

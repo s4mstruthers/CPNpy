@@ -4,9 +4,9 @@
 # that system.  Every run smoke-tests the app (packaging/build.py) and keeps
 # the result as a downloadable artifact on the run's page.  Pushing a version
 # tag (git tag v0.3.0 && git push origin v0.3.0) also publishes a GitHub
-# Release with the downloads attached, each with a .sha256 checksum that the
-# app's updater (cpnpy/gui/studio/updates.py) checks.  The tag must match
-# __version__ in cpnpy/__init__.py.
+# Release with the downloads attached.  (GitHub shows each one's SHA-256,
+# which the app's updater, cpnpy/gui/studio/updates.py, checks.)  The tag must
+# match __version__ in cpnpy/__init__.py.
 
 name: Build apps
 
@@ -93,12 +93,6 @@ jobs:
         with:
           path: apps
           merge-multiple: true
-
-      - name: Checksums (checked by the app's updater)
-        run: |
-          cd apps
-          for file in *; do sha256sum "$file" > "$file.sha256"; done
-          ls -l
 
       - uses: softprops/action-gh-release@v2
         with:

@@ -1399,6 +1399,11 @@ def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
     # The view and the expanded subfolders are remembered in the folder.
     window.set_view_mode("kind")
     assert "PETRI NETS" in _layout(window) and "models" not in _layout(window)
+    # Regression: the headings' rows were in the tree but not laid out (an
+    # empty By kind view), so check what the view actually shows.
+    for section in (window.logs_section, window.petri_section, window.cpn_section):
+        for i in range(section.childCount()):
+            assert window.tree.visualItemRect(section.child(i)).height() > 0
     assert Workspace(week).settings() == {"view": "kind", "expanded": ["models"]}
     window.close()
     again = StudioWindow()
@@ -1610,6 +1615,7 @@ def test_the_app_keeps_the_folder_up_to_date(app, tmp_path):
     model_page = window.current_page()
     assert model.path is None and model_page.keep_button.isVisibleTo(window)
     assert window.items[model.id].parent() is window.unsaved_section
+    assert window.tree.visualItemRect(window.items[model.id]).height() > 0
     model_page.keep_button.click()
     kept = week / "logs" / "α · Boarding.pnml"
     assert kept.exists() and Path(model.path) == kept and read_pnml(str(kept)).transitions
