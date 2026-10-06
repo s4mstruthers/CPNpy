@@ -28,6 +28,10 @@ Tools
     Click a place then a transition (or the reverse) to connect them.  The
     direction is inferred from the order of the two clicks, which is how CPN
     Tools behaves and saves having two separate arc tools.
+
+With ``select``, the arrow beside a hovered node draws arcs the same way.
+Dragging an arc (either way) onto empty canvas adds the other kind of node
+there, joined by it -- the quick way to grow a net.
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ from . import arc_editing as edit
 from . import theme
 from .panning import MiddleButtonPan
 from .items import (
-    PLAIN_PLACE, ArcItem, PlaceItem, TransitionItem, to_model,
+    PLAIN_PLACE, PLAIN_TRANSITION, ArcItem, PlaceItem, TransitionItem, to_model,
 )
 
 #: Grid spacing in scene units: the background's dots, and what nodes and
@@ -93,7 +97,13 @@ class _ConnectHandle(QGraphicsPathItem):
 
     #: Opacity at rest (a hint that it is there, not in the way) and with the
     #: mouse on it (clear enough to aim at).
-    RESTING, HOT = 0.15, 0.6
+    RESTING, HOT = 0.3, 0.75
+
+    def set_node(self, node) -> None:
+        self.node = node
+        other = "transition" if isinstance(node, PlaceItem) else "place"
+        self.setToolTip(f"Drag to a {other} to add an arc, or to empty space to add "
+                        f"a new {other} joined by one")
 
     def set_hot(self, hot: bool) -> None:
         """Mouse on the handle: clearer and a little larger."""
@@ -107,6 +117,36 @@ class _ConnectHandle(QGraphicsPathItem):
 
     def boundingRect(self) -> QRectF:  # noqa: N802
         return QRectF(-14, -14, 28, 28)
+
+
+class _GhostNode(QGraphicsPathItem):
+    """While an arc is dragged over empty canvas: a see-through preview of
+    the place or transition that letting go there will add."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        accent = theme.palette().accent
+        pen = QPen(accent, 1.6, Qt.DashLine)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        fill = QColor(accent)
+        fill.setAlpha(40)
+        self.setBrush(fill)
+        self.setZValue(41)                     # just above the rubber-band line
+        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.kind: type | None = None
+
+    def show_as(self, kind: type, rect: QRectF, centre: QPointF, radius: float) -> None:
+        if kind is not self.kind or rect != self.path().boundingRect():
+            path = QPainterPath()
+            if kind is PlaceItem:
+                path.addEllipse(rect)
+            else:
+                path.addRoundedRect(rect, radius, radius)
+            self.setPath(path)
+            self.kind = kind
+        self.setPos(centre)
+        self.show()
 
 
 def _rect(item: QGraphicsItem) -> tuple[float, float, float, float]:
@@ -157,6 +197,8 @@ class NetScene(QGraphicsScene):
         self._connecting: dict | None = None
         #: The "drag to connect" arrow next to a hovered node (made on demand).
         self._handle: _ConnectHandle | None = None
+        #: The preview of the node a drag to empty space will add (on demand).
+        self._ghost: _GhostNode | None = None
         #: Edit mode: arcs and labels can be dragged (CPN IDE's rules, see
         #: :mod:`cpnpy.gui.arc_editing`).
         self.editable = True
@@ -195,6 +237,7 @@ class NetScene(QGraphicsScene):
         self._arc_drag = None
         self._connecting = None
         self._handle = None                    # deleted with the scene
+        self._ghost = None
         self._snap_node = None
         self.place_items.clear()
         self.transition_items.clear()
@@ -337,6 +380,10 @@ class NetScene(QGraphicsScene):
         if self._connecting is not None and self._connecting.get("clicked"):
             self._arc_press(position)             # the second click of click-click
             return
+        if not self._handle_hit(position):
+            # A redraw (say, finishing a name with this very click) takes the
+            # arrow away: put it back where the mouse is, if it belongs there.
+            self._update_connect_handle(position)
         if self._handle_hit(position):
             node = self._handle.node
             self.hide_connect_handle()
@@ -665,38 +712,52 @@ class NetScene(QGraphicsScene):
     def plain(self) -> bool:
         return getattr(self.net, "plain", False)
 
+    def _hold_views_still(self) -> None:
+        """Adding a node must not shift the drawing on screen: a net smaller
+        than the window is otherwise re-centred as it grows, moving the new
+        node away from the mouse that just put it there."""
+        for view in self.views():
+            if isinstance(view, NetView):
+                view.hold_still()
+
     def _create_place(self, position: QPointF) -> None:
-        assert self.page is not None
         self.about_to_change.emit()
-        if self.snap_to_grid:
-            position = on_grid(position)
-        x, y = to_model(position)
-        prefix = "p" if self.plain else "P"
-        place = Place(name=self._unique_name(prefix, [p.name for p in self.net.all_places()]),
-                      colour_set_name="UNIT")
-        place.graphics.x, place.graphics.y = x, y
-        if self.plain:
-            place.graphics.width = place.graphics.height = PLAIN_PLACE
-        self.page.places.append(place)
+        self._hold_views_still()
+        place = self._new_place(on_grid(position) if self.snap_to_grid else position)
         self.rebuild()
         self.model_changed.emit()
         self.created.emit(place)
 
     def _create_transition(self, position: QPointF) -> None:
-        assert self.page is not None
         self.about_to_change.emit()
-        if self.snap_to_grid:
-            position = on_grid(position)
-        x, y = to_model(position)
+        self._hold_views_still()
+        transition = self._new_transition(on_grid(position) if self.snap_to_grid else position)
+        self.rebuild()
+        self.model_changed.emit()
+        self.created.emit(transition)
+
+    def _new_place(self, position: QPointF) -> Place:
+        """Add a place centred on ``position`` to the model (no redraw)."""
+        assert self.page is not None
+        prefix = "p" if self.plain else "P"
+        place = Place(name=self._unique_name(prefix, [p.name for p in self.net.all_places()]),
+                      colour_set_name="UNIT")
+        place.graphics.x, place.graphics.y = to_model(position)
+        if self.plain:
+            place.graphics.width = place.graphics.height = PLAIN_PLACE
+        self.page.places.append(place)
+        return place
+
+    def _new_transition(self, position: QPointF) -> Transition:
+        """Add a transition centred on ``position`` to the model (no redraw)."""
+        assert self.page is not None
         prefix = "t" if self.plain else "T"
         transition = Transition(
             name=self._unique_name(prefix, [t.name for t in self.net.all_transitions()])
         )
-        transition.graphics.x, transition.graphics.y = x, y
+        transition.graphics.x, transition.graphics.y = to_model(position)
         self.page.transitions.append(transition)
-        self.rebuild()
-        self.model_changed.emit()
-        self.created.emit(transition)
+        return transition
 
     # -- drawing arcs: drag from one node to another (or click both) -----------
     def _node_under(self, position: QPointF):
@@ -727,7 +788,7 @@ class NetScene(QGraphicsScene):
         self.addItem(line)
         line.setLine(node.pos().x(), node.pos().y(), position.x(), position.y())
         self._connecting = {"source": node, "line": line, "press": position,
-                            "clicked": False, "target": None}
+                            "clicked": False, "target": None, "spot": None}
         node.set_halo(True)
 
     def _arc_move(self, position: QPointF) -> None:
@@ -735,7 +796,6 @@ class NetScene(QGraphicsScene):
         if pending is None:
             return
         source = pending["source"]
-        pending["line"].setLine(source.pos().x(), source.pos().y(), position.x(), position.y())
         target = self._node_under(position)
         if pending["target"] is not None and pending["target"] is not target \
                 and pending["target"] is not source:
@@ -744,6 +804,19 @@ class NetScene(QGraphicsScene):
         if valid:
             target.set_halo(True)
         pending["target"] = target if valid else None
+        # Over empty canvas, a drag (not the click-click way) shows the node
+        # that letting go will add, and the line runs to it.
+        spot = None
+        if target is None and not pending["clicked"]:
+            spot = self._drop_spot(source, position)
+        if spot is not None and pending["spot"] is None:
+            other = "transition" if isinstance(source, PlaceItem) else "place"
+            self.message.emit(f"Let go to add a {other} here, joined by an arc "
+                              f"(Esc cancels)")
+        pending["spot"] = spot
+        self._show_ghost(source, spot)
+        end = position if spot is None else spot
+        pending["line"].setLine(source.pos().x(), source.pos().y(), end.x(), end.y())
         pen = pending["line"].pen()
         pen.setColor(theme.palette().danger if target is not None and not valid
                      and target is not source else theme.palette().accent)
@@ -753,15 +826,88 @@ class NetScene(QGraphicsScene):
         pending = self._connecting
         if pending is None or pending.get("clicked"):
             return
+        source = pending["source"]
         node = self._node_under(position)
         moved = (position - pending["press"]).manhattanLength()
-        if node is pending["source"] or (node is None and moved < 6):
+        if node is source or (node is None and moved < 6):
             # A click, not a drag: wait for a click on the second node.
             pending["clicked"] = True
+            self._show_ghost(source, None)
             self.message.emit("Now click the place or transition to connect to "
                               "(Esc cancels)")
             return
+        spot = self._drop_spot(source, position) if node is None else None
+        if spot is not None:
+            self._cancel_connection()
+            self._connect_to_new_node(source, spot)
+            return
         self._finish_connection(node)
+
+    # -- dragging an arc to empty canvas adds the node at its end ---------------
+    #: Least space (scene units) between the source and a node added beside it.
+    NEW_NODE_GAP = 16.0
+    #: How far (scene units) a new node moves to line up with another node.
+    NEW_NODE_ALIGN = 12.0
+
+    def _new_node_size(self, kind: type) -> tuple[float, float]:
+        """The size a new place or transition gets (see :meth:`_new_place`)."""
+        if self.plain:
+            return (PLAIN_PLACE, PLAIN_PLACE) if kind is PlaceItem \
+                else (PLAIN_TRANSITION, PLAIN_TRANSITION)
+        return (76.0, 48.0) if kind is PlaceItem else (82.0, 48.0)
+
+    def _drop_spot(self, source, position: QPointF) -> QPointF | None:
+        """Where a node added by letting go at ``position`` would be centred:
+        on the grid, or else lined up with a nearby node when it is almost
+        level with it.  ``None`` while it would still overlap ``source``
+        (too close to tell a drag from a fumble)."""
+        if self.snap_to_grid:
+            centre = on_grid(position)
+        else:
+            nodes = [*self.place_items.values(), *self.transition_items.values()]
+            sx, sy = edit.snap_node((position.x(), position.y()),
+                                    [self._centre(n) for n in nodes], self.NEW_NODE_ALIGN)
+            centre = QPointF(position.x() if sx is None else sx,
+                             position.y() if sy is None else sy)
+        kind = TransitionItem if isinstance(source, PlaceItem) else PlaceItem
+        width, height = self._new_node_size(kind)
+        new = QRectF(centre.x() - width / 2, centre.y() - height / 2, width, height)
+        gap = self.NEW_NODE_GAP
+        if new.adjusted(-gap, -gap, gap, gap).intersects(QRectF(*_rect(source))):
+            return None
+        return centre
+
+    def _show_ghost(self, source, spot: QPointF | None) -> None:
+        if spot is None:
+            if self._ghost is not None and self._ghost.scene() is self:
+                self._ghost.hide()
+            return
+        if self._ghost is None or self._ghost.scene() is not self:
+            self._ghost = _GhostNode()
+            self.addItem(self._ghost)
+        kind = TransitionItem if isinstance(source, PlaceItem) else PlaceItem
+        width, height = self._new_node_size(kind)
+        self._ghost.show_as(kind, QRectF(-width / 2, -height / 2, width, height), spot,
+                            2.0 if self.plain else theme.RADIUS)
+
+    def _connect_to_new_node(self, source, spot: QPointF) -> Arc:
+        """Add the other kind of node at ``spot`` and an arc to it from
+        ``source`` -- one edit, so one undo takes both away."""
+        self.about_to_change.emit()
+        self._hold_views_still()
+        if isinstance(source, PlaceItem):
+            new = self._new_transition(spot)
+            arc = self._add_arc(source.place, new, "PtoT")
+        else:
+            new = self._new_place(spot)
+            arc = self._add_arc(new, source.transition, "TtoP")
+        self.rebuild()
+        self.model_changed.emit()
+        what = "transition" if isinstance(new, Transition) else "place"
+        self.message.emit(f"Added {what} {new.name}, joined by an arc — type its name, "
+                          f"or drag on from it")
+        self.created.emit(new)
+        return arc
 
     def _finish_connection(self, target) -> None:
         pending = self._connecting
@@ -789,6 +935,8 @@ class NetScene(QGraphicsScene):
         for node in (pending["source"], pending.get("target")):
             if node is not None and node.scene() is self:
                 node.set_halo(False)
+        if self._ghost is not None and self._ghost.scene() is self:
+            self._ghost.hide()
 
     def connect(self, place: Place, transition: Transition, orientation: str) -> None:
         """Add an arc (in a plain net, a second arc the same way adds weight)."""
@@ -803,14 +951,21 @@ class NetScene(QGraphicsScene):
             self.message.emit(f"That arc already exists: its weight is now "
                               f"{weight_of(existing)}")
         else:
-            default = "" if self.plain else ("1`()" if place.colour_set_name == "UNIT" else "")
-            self.page.arcs.append(Arc(place_id=place.id, transition_id=transition.id,
-                                      orientation=orientation, expression_text=default))
+            self._add_arc(place, transition, orientation)
             what = (f"{place.name} → {transition.name}" if orientation == "PtoT"
                     else f"{transition.name} → {place.name}")
             self.message.emit(f"Arc {what} added — keep dragging to add more")
         self.rebuild()
         self.model_changed.emit()
+
+    def _add_arc(self, place: Place, transition: Transition, orientation: str) -> Arc:
+        """Add an arc to the model (no redraw), with the usual inscription."""
+        assert self.page is not None
+        default = "" if self.plain else ("1`()" if place.colour_set_name == "UNIT" else "")
+        arc = Arc(place_id=place.id, transition_id=transition.id,
+                  orientation=orientation, expression_text=default)
+        self.page.arcs.append(arc)
+        return arc
 
     # -- the "drag to connect" arrow ------------------------------------------------
     #: How near (screen pixels) the mouse must come to a node for its arrow.
@@ -873,11 +1028,15 @@ class NetScene(QGraphicsScene):
                                                *self.transition_items.values()]):
             self.hide_connect_handle()                    # on a node: no arrow
             return
+        if any(self._owner_of(item) is not None and item.parentItem() is not None
+               for item in self.items(position)):
+            self.hide_connect_handle()                    # on a label: it moves itself
+            return
         if self._handle is None or self._handle.scene() is not self:
             self._handle = _ConnectHandle()
             self.addItem(self._handle)
         handle = self._handle
-        handle.node = node
+        handle.set_node(node)
         handle.setPos(node.pos() + QPointF(ux, uy) * (edge + self.HANDLE_GAP / scale))
         handle.setRotation(math.degrees(math.atan2(uy, ux)))
         handle.set_hot(False)
@@ -1113,6 +1272,12 @@ class NetView(MiddleButtonPan, QGraphicsView):
             editor.hide()
             editor.deleteLater()
             self.setFocus()
+
+    def hold_still(self) -> None:
+        """Keep the drawing where it is on screen from now on, even if the
+        scene grows (as after panning; zooming to fit lets go again)."""
+        if not self._pan_following:
+            self._grow_pan_area()
 
     # -- zoom -----------------------------------------------------------------
     @property

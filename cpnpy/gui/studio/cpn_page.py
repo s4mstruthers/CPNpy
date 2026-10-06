@@ -965,11 +965,13 @@ class CpnPage(QWidget):
         self.scene.tool = tool
         delete = shortcut_text("Backspace")
         self.tool_hint.setText({
-            "select": f"Drag to move · hover a node and drag its arrow to connect · "
-                      f"double-click to rename · {delete} deletes",
+            "select": f"Drag to move · hover a node and drag its arrow to connect, or "
+                      f"to empty space to add the next node · double-click to rename · "
+                      f"{delete} deletes",
             "place": "Click on the canvas to add a place",
             "transition": "Click on the canvas to add a transition",
-            "arc": "Drag from a place to a transition (or back) — or click one, then the other",
+            "arc": "Drag from a place to a transition (or back), or to empty space to add "
+                   "one — or click one node, then the other",
         }[tool])
         self.scene.set_editable(self.scene.editable)      # handles only with the select tool
         self.view.setDragMode(NetView.RubberBandDrag if tool == "select" else NetView.NoDrag)
@@ -1003,8 +1005,10 @@ class CpnPage(QWidget):
         self.set_dirty(True)
 
     def _element_created(self, element) -> None:
-        """A new place or transition: back to Select and type its name."""
-        self.tool_switch.set_index(0)
+        """A new place or transition: back to Select (from the Place and
+        Transition tools) and type its name."""
+        if self.scene.tool in ("place", "transition"):
+            self.tool_switch.set_index(0)
         QTimer.singleShot(0, lambda: self.start_rename(element.id))
 
     def start_rename(self, element_id: str) -> None:
@@ -1190,7 +1194,11 @@ class CpnPage(QWidget):
         if item is not None:
             self.scene.clearSelection()
             item.setSelected(True)
-            self.view.centerOn(item)
+            # Scroll only if it is out of sight: a jump under the mouse while
+            # drawing (every edit reveals the selection) loses your place.
+            shown = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
+            if not shown.contains(item.sceneBoundingRect()):
+                self.view.centerOn(item)
 
     def _marking_row_clicked(self, row: int, _column: int) -> None:
         item = self.marking_table.item(row, 0)
