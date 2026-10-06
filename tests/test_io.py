@@ -61,3 +61,26 @@ def test_graphics_survive_a_round_trip():
     original.pages[0].places[0].graphics.x = -123.5
     reloaded = round_trip(original)
     assert reloaded.pages[0].places[0].graphics.x == -123.5
+
+
+def test_new_elements_never_reuse_an_id_from_an_opened_file(tmp_path):
+    """Regression: the id counter starts at 1 in every session, so a place
+    added after opening a file saved in an earlier session could get one of
+    its transitions' ids -- and the file could then no longer be saved."""
+    from cpnpy.mining.petrinet import PetriNet
+    from cpnpy.model.net import Place, Transition, new_id
+    from cpnpy.model.plain import from_petri_net, to_petri_net
+
+    # The file uses the very ids this session would hand out next.
+    first = int(new_id()[2:]) + 1
+    petri = PetriNet("earlier")
+    for n in range(first, first + 20, 2):
+        petri.add_place(f"p{n}", id=f"ID{n}")
+        petri.add_transition(f"t{n}", id=f"ID{n + 1}")
+        petri.add_arc(f"ID{n}", f"ID{n + 1}")
+    net = from_petri_net(petri)
+    place, transition = Place(name="new"), Transition(name="new")
+    used = {f"ID{n}" for n in range(first, first + 20)}
+    assert place.id not in used and transition.id not in used
+    net.pages[0].places.append(place)
+    to_petri_net(net)                            # saves without complaint
