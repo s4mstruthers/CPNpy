@@ -82,7 +82,8 @@ from .widgets import (
     round_menus, scroll, set_dialog_folder, shortcut_text, vbox,
 )
 from .workspace import (
-    FORBIDDEN_CHARACTERS, Workspace, WorkspaceFolder, display_name, file_stem, file_suffix,
+    FORBIDDEN_CHARACTERS, Workspace, WorkspaceFolder, display_name, file_kind, file_stem,
+    file_suffix,
     made_by_cpnpy, safe_file_name, unique_path,
 )
 from .workers import run_in_background
@@ -474,9 +475,9 @@ class StudioWindow(QMainWindow):
         self._unsettled: dict[str, tuple] = {}
         self._gone_checks: dict[str, int] = {}
         self._reload_attempts: dict[str, int] = {}
-        #: Each open file's identity on disk (device, inode), so a file moved or
-        #: renamed in Finder is recognised in its new place (see _relocate).
-        self._identities: dict[int, tuple[int, int]] = {}
+        #: Each open file's identity on disk, so a file moved or renamed in
+        #: Finder is recognised in its new place (see _relocate).
+        self._identities: dict[int, tuple] = {}
         #: Documents with a "changed on disk" question open: not autosaved meanwhile.
         self._conflicts: set[int] = set()
         # One Snap to grid setting for every editor, kept between launches.
@@ -2913,12 +2914,22 @@ class StudioWindow(QMainWindow):
                 changed = True
         return changed
 
-    def _remember_identity(self, document) -> None:
+    @staticmethod
+    def _identity(path) -> tuple | None:
+        """What a move or rename keeps: the file's number on disk (device,
+        inode), and its size and modification time.  The number alone is not
+        enough: Linux hands a deleted file's number to the next new file, and
+        that file must not be taken for the one that was open."""
         try:
-            status = os.stat(document.path)
+            status = os.stat(path)
         except (OSError, TypeError):
-            return
-        self._identities[document.id] = (status.st_dev, status.st_ino)
+            return None
+        return status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns
+
+    def _remember_identity(self, document) -> None:
+        identity = self._identity(document.path)
+        if identity is not None:
+            self._identities[document.id] = identity
 
     def _relocate(self, document) -> bool:
         """An open file vanished from its place: was it moved within the folder?
@@ -2932,14 +2943,11 @@ class StudioWindow(QMainWindow):
         if identity is None or self.workspace is None or self._tree is None:
             return False
         taken = {self._key(d.path) for d in self.documents if d.path}
+        kind = file_kind(Path(document.path))
         for file in self.workspace.files(self._tree):
-            if self._key(file.path) in taken:
+            if self._key(file.path) in taken or file.kind != kind:
                 continue
-            try:
-                status = os.stat(file.path)
-            except OSError:
-                continue
-            if (status.st_dev, status.st_ino) != identity:
+            if self._identity(file.path) != identity:
                 continue
             old = document.path
             self._paths_moved(Path(old), file.path)
