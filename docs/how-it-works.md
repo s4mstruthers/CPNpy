@@ -270,6 +270,9 @@ examples/models.py   four complete models, also used as test fixtures
     filter_dialog.py the Filter… dialog of a log page
     dotted_chart.py, charts.py, widgets.py, style.py, workers.py, documents.py
 tests/               the test suite (tests/data holds a small course plane-boarding log)
+packaging/           the standalone apps: PyInstaller recipe (cpnpy.spec), entry
+                     script, icons, build.py (build, smoke-test, pack)
+.github/workflows/   build-apps.yml: builds the macOS, Windows and Linux apps
 ```
 
 ---

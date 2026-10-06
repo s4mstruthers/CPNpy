@@ -16,6 +16,12 @@ The worker is ``python -m cpnpy.analysis.state_space_process`` started with
 the same interpreter, rather than :mod:`multiprocessing`, which would
 re-import the GUI's main script in the child.
 
+Inside a standalone app (built with PyInstaller, see ``packaging/``) there is
+no separate Python to run: ``sys.executable`` is the app itself.  The app is
+then started again with :data:`WORKER_FLAG` as its first argument, and its
+entry script hands those runs to :func:`run_worker` instead of opening a
+window (:func:`worker_command` picks the right form).
+
 Usage::
 
     job = StateSpaceJob(net, max_nodes=20_000)
@@ -65,6 +71,28 @@ def summarise(space, graph_limit: int = 200) -> dict[str, Any]:
                 for arcs in space.arcs.values() for arc in arcs]
         result["graph"] = (nodes, arcs)
     return result
+
+
+#: First argument that makes a standalone app run as a state space worker.
+WORKER_FLAG = "--cpnpy-state-space-worker"
+
+
+def worker_command(*arguments: str) -> list[str]:
+    """The command line that starts a worker with ``arguments``.
+
+    From source (or a pip/conda install) that is this module run by the same
+    Python.  In a frozen app ``sys.executable`` is the app's own program, so
+    the app is re-launched with :data:`WORKER_FLAG` instead.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, WORKER_FLAG, *arguments]
+    return [sys.executable, "-m", "cpnpy.analysis.state_space_process", *arguments]
+
+
+def run_worker(arguments: list[str]) -> int:
+    """Run the worker on ``[MODEL, MAX_NODES, OUT]`` (the arguments after the flag)."""
+    model_path, max_nodes, output_path = arguments
+    return _child(model_path, int(max_nodes), output_path)
 
 
 def _child(model_path: str, max_nodes: int, output_path: str) -> int:
@@ -146,11 +174,13 @@ class StateSpaceJob:
     def start(self) -> None:
         # A fresh interpreter running this module: nothing of the GUI's state
         # (Qt, open windows) is inherited.
+        # From source, run from the project folder so ``-m cpnpy...`` resolves
+        # even without an install; a frozen app finds its code by itself.
+        cwd = None if getattr(sys, "frozen", False) else str(Path(__file__).resolve().parents[2])
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "cpnpy.analysis.state_space_process", self.model_path,
-             str(self.max_nodes), self.output_path],
+            worker_command(self.model_path, str(self.max_nodes), self.output_path),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, encoding="utf-8", bufsize=1, cwd=str(Path(__file__).resolve().parents[2]),
+            text=True, encoding="utf-8", bufsize=1, cwd=cwd,
             # Windows: don't flash a console window for the worker.
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.phase = "Exploring"
@@ -218,4 +248,4 @@ class StateSpaceJob:
 
 
 if __name__ == "__main__":      # the child process
-    raise SystemExit(_child(sys.argv[1], int(sys.argv[2]), sys.argv[3]))
+    raise SystemExit(run_worker(sys.argv[1:4]))

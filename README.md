@@ -36,11 +36,35 @@
 
 ## Install
 
-CPNpy runs on **macOS, Windows and Linux** (Python 3.10 or newer, with Qt
-through PySide6). The easiest way to set it up is a **conda** environment
-called `cpnpy`, defined in `environment.yml`.
+CPNpy runs on **macOS, Windows and Linux**. Download the app, or run it from
+source if you want to change the code.
 
-### 1. Get conda (once)
+### Download the app
+
+No Python needed. Take the file for your system from the
+[latest release](https://github.com/s4mstruthers/CPNpy/releases/latest):
+
+| System | File | Then |
+|---|---|---|
+| macOS | `CPNpy-…-macOS-arm64.dmg` (Apple silicon) or `…-macOS-x64.dmg` (Intel) | Open it and drag **CPNpy** onto **Applications**. |
+| Windows | `CPNpy-…-Windows-x64.zip` | Unzip it anywhere and start `CPNpy\CPNpy.exe`. For a desktop shortcut: right-click `CPNpy.exe` ▸ *Send to* ▸ *Desktop*. |
+| Linux | `CPNpy-…-Linux-x64.tar.gz` | `tar xzf CPNpy-*.tar.gz`, then `./CPNpy/install-desktop-entry.sh` to add it to the applications menu and the desktop. |
+
+The apps are not signed with a paid developer certificate, so the system asks
+once, the first time you start one:
+
+- **macOS** says Apple could not check it. Click *Done*, then open *System
+  Settings ▸ Privacy & Security* and click *Open Anyway* next to CPNpy. (Or
+  in Terminal: `xattr -dr com.apple.quarantine /Applications/CPNpy.app`.)
+- **Windows** shows *Windows protected your PC*. Click *More info*, then
+  *Run anyway*.
+
+### From source
+
+You need Python 3.10 or newer, with Qt through PySide6. The easiest way to set
+it up is a **conda** environment called `cpnpy`, defined in `environment.yml`.
+
+#### 1. Get conda (once)
 
 Install [Miniforge](https://github.com/conda-forge/miniforge), a small conda
 that uses the conda-forge packages.
@@ -51,7 +75,7 @@ that uses the conda-forge packages.
 | Windows | Download and run **Miniforge3-Windows-x86_64.exe** from the Miniforge page. Then use the **Miniforge Prompt** from the Start menu (or run `conda init powershell` once in it to use conda in PowerShell). |
 | Linux | `curl -LO https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh`, then `bash Miniforge3-Linux-x86_64.sh` and open a new terminal. |
 
-### 2. Get the code and create the environment
+#### 2. Get the code and create the environment
 
 The same commands on every system (Terminal on macOS and Linux, Miniforge
 Prompt or PowerShell on Windows):
@@ -66,7 +90,7 @@ conda activate cpnpy
 No git? Use **Code ▸ Download ZIP** on GitHub, unzip it and `cd` into the
 folder.
 
-### 3. Start the app
+#### 3. Start the app
 
 ```bash
 cpnpy-studio
@@ -415,6 +439,20 @@ print(report.sound, report.findings)
 CPN ML subset, binding search, timed nets, the state space, the file format
 and the project layout.
 
+**Building the apps.** `packaging/` turns CPNpy into a standalone app with
+PyInstaller. In the environment:
+
+```bash
+pip install pyinstaller
+python packaging/build.py      # → dist/CPNpy.app or dist/CPNpy/, plus a .dmg / .zip / .tar.gz
+```
+
+The script also smoke-tests the result. Each system can only build its own
+app, so the [Build apps](.github/workflows/build-apps.yml) workflow builds all
+of them on GitHub for every push and pull request (download them from the
+run's page). Pushing a version tag, e.g. `git tag v0.1.0 && git push origin
+v0.1.0`, also publishes them as a release.
+
 ---
 
 ## Limitations and roadmap
@@ -435,8 +473,8 @@ Plainly stated:
    heavily concurrent models. They run in the background.
 5. **Plain Petri nets live on one page.**
 
-Next up: several instances of a subpage, CPN monitors, and app bundles so
-CPNpy starts like any other desktop app.
+Next up: several instances of a subpage, CPN monitors, and signed apps that
+open without a security prompt.
 
 ## Licence
 

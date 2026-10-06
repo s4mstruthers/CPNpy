@@ -335,8 +335,8 @@ DEFINITIONS: tuple[Definition, ...] = (
         (r"C(p, t) = W(t, p) - W(p, t) \quad \text{for } p \in P, \; t \in T",
          r"M \xrightarrow{\sigma} M' \Rightarrow M' = M + C \cdot \overline{\sigma}"),
         ("$W(x, y)$ is the weight of the arc from $x$ to $y$, and $0$ if there is none. "
-         "$\overline{\sigma}$, the *Parikh vector* of $\sigma$, counts how often each "
-         "transition occurs in $\sigma$. This *marking equation* is only a necessary "
+         r"$\overline{\sigma}$, the *Parikh vector* of $\sigma$, counts how often each "
+         r"transition occurs in $\sigma$. This *marking equation* is only a necessary "
          "condition: it ignores the order of the firings.",),
         f"{MURATA_1989}, Section VII", "invariants", ("firing",)),
     Definition(
@@ -360,8 +360,8 @@ DEFINITIONS: tuple[Definition, ...] = (
          r"M \xrightarrow{\sigma} M' \land \overline{\sigma} = x \Rightarrow M' = M"),
         ("A net that is live and bounded is *covered by T-invariants*: every transition "
          "occurs in one. By the soundness theorem, a sound WF-net's short-circuited net "
-         "$\overline{N}$ is live and bounded, so a transition in no T-invariant of "
-         "$\overline{N}$ proves that the WF-net is not sound. (Covered does not imply "
+         r"$\overline{N}$ is live and bounded, so a transition in no T-invariant of "
+         r"$\overline{N}$ proves that the WF-net is not sound. (Covered does not imply "
          "sound.)",),
         f"{MURATA_1989}, Section VII-A", "invariants",
         ("incidence_matrix", "live", "short_circuit", "soundness_theorem")),

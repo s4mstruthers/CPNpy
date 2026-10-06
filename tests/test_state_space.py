@@ -87,3 +87,17 @@ def test_a_timed_state_waits_past_a_release_that_enables_nothing():
     assert space.node_count == 3
     assert space.dead_transitions() == []
     assert space.dead_markings() == [2]
+
+
+def test_worker_command_from_source_and_from_a_frozen_app(monkeypatch):
+    """From source the worker is ``python -m …``; a frozen app relaunches itself."""
+    import sys
+
+    from cpnpy.analysis.state_space_process import WORKER_FLAG, worker_command
+
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    assert worker_command("m.cpn", "10", "out") == [
+        sys.executable, "-m", "cpnpy.analysis.state_space_process", "m.cpn", "10", "out"]
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert worker_command("m.cpn", "10", "out") == [sys.executable, WORKER_FLAG, "m.cpn", "10", "out"]

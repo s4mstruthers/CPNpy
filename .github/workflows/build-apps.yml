@@ -1,0 +1,88 @@
+# Build the standalone CPNpy Studio app for macOS, Windows and Linux.
+#
+# PyInstaller cannot cross-compile, so each app is built on a machine running
+# that system.  Every run smoke-tests the app (packaging/build.py) and keeps
+# the result as a downloadable artifact on the run's page.  Pushing a version
+# tag (git tag v0.1.0 && git push origin v0.1.0) also publishes a GitHub
+# Release with the three downloads attached.
+
+name: Build apps
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:          # the "Run workflow" button on the Actions tab
+
+permissions:
+  contents: write             # only used by the release job, to attach the apps
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false        # one system failing should not cancel the others
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-14
+          - name: macOS (Intel)
+            os: macos-15-intel
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            # The oldest supported Ubuntu: an app built against an older
+            # system library (glibc) also runs on newer distributions.
+            os: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Qt's system libraries (Linux)
+        if: runner.os == 'Linux'
+        # Installed here so PyInstaller bundles them: users then need fewer
+        # libraries of their own.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+
+      - name: Install CPNpy and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[gui]" pyinstaller
+
+      - name: Build and smoke-test the app
+        run: python packaging/build.py
+
+      - name: Keep the app as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CPNpy-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: apps
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: apps/*
+          generate_release_notes: true
