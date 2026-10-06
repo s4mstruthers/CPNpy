@@ -579,8 +579,10 @@ python packaging/build.py      # → dist/CPNpy.app or dist/CPNpy/, plus a .dmg 
 
 The script also smoke-tests the result. Each system can only build its own
 app, so the [Build apps](.github/workflows/build-apps.yml) workflow builds all
-of them on GitHub for every push and pull request (download them from the
-run's page, under *Artifacts*).
+of them on GitHub: for every pull request (after the test suite passes; not
+for documentation-only changes) and for every release tag. Download them from
+the run's page, under *Artifacts*, or start a build by hand with *Run
+workflow* on the Actions tab.
 
 **Publishing a release:**
 
