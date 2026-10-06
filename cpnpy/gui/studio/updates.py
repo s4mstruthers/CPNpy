@@ -38,12 +38,16 @@ from pathlib import Path
 from typing import Callable
 from urllib.request import Request, urlopen
 
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QTextBrowser, QVBoxLayout
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QToolButton,
+    QVBoxLayout,
+)
 
 from ... import __version__
 
 REPOSITORY = "s4mstruthers/CPNpy"
-LATEST_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
+RELEASES_URL = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=30"
 RELEASES_PAGE = f"https://github.com/{REPOSITORY}/releases/latest"
 
 
@@ -158,9 +162,25 @@ def _get(url: str, timeout: float) -> bytes:
         return response.read()
 
 
-def fetch_latest(timeout: float = 10.0) -> Release:
-    """The latest published release (raises on a network or GitHub problem)."""
-    return Release.from_github(json.loads(_get(LATEST_URL, timeout)))
+def fetch_latest(timeout: float = 10.0, current: str = __version__) -> Release:
+    """The newest published release (raises on a network or GitHub problem).
+
+    Its :attr:`~Release.notes` say what is new in every version newer than
+    ``current``, newest first, so someone several versions behind sees all of
+    it, not just the last step.
+    """
+    releases = [Release.from_github(data) for data in json.loads(_get(RELEASES_URL, timeout))
+                if isinstance(data, dict) and not data.get("draft")]
+    releases = sorted((r for r in releases if not r.prerelease),
+                      key=lambda r: parse_version(r.version), reverse=True)
+    if not releases:
+        raise RuntimeError("CPNpy has no published releases yet.")
+    latest = releases[0]
+    newer = [r for r in releases if is_newer(r.version, current)]
+    if len(newer) > 1:
+        latest.notes = "\n\n".join(f"### What's new in {r.version}\n\n"
+                                    f"{r.notes.strip() or '_No notes._'}" for r in newer)
+    return latest
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +357,7 @@ class UpdateDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         heading = QLabel(f"<b>CPNpy {release.version} is available</b> — you have "
-                         f"{__version__}.")
+                         f"{__version__}. Here is what's new:")
         heading.setWordWrap(True)
         layout.addWidget(heading)
         notes = QTextBrowser()
@@ -371,3 +391,49 @@ class UpdateDialog(QDialog):
             self.accept()
         else:
             self.reject()
+
+
+class UpdateBar(QFrame):
+    """A slim bar at the top of the window: a new version is out.
+
+    Shown by the check at launch instead of a dialog, so it never gets in
+    the way: carry on working, or choose What's New, Install Now (or, run
+    from source, How to Update), Skip This Version, or close it (✕).
+    """
+
+    whats_new = Signal()
+    install = Signal()
+    skip = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("updateBar")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 7, 8, 7)
+        layout.setSpacing(8)
+        self.text = QLabel()
+        self.text.setWordWrap(True)
+        layout.addWidget(self.text, 1)
+        self.notes_button = QPushButton("What's New")
+        self.notes_button.clicked.connect(self.whats_new.emit)
+        self.install_button = QPushButton("Install Now")
+        self.install_button.setObjectName("primary")
+        self.install_button.clicked.connect(self.install.emit)
+        self.skip_button = QPushButton("Skip This Version")
+        self.skip_button.clicked.connect(self.skip.emit)
+        close = QToolButton()
+        close.setObjectName("updateBarClose")
+        close.setText("✕")
+        close.setToolTip("Close (you are reminded next time CPNpy opens)")
+        close.clicked.connect(self.hide)
+        for widget in (self.notes_button, self.install_button, self.skip_button, close):
+            layout.addWidget(widget)
+        self.release: Release | None = None
+        self.setVisible(False)
+
+    def offer(self, release: Release, can_install: bool) -> None:
+        self.release = release
+        self.text.setText(f"<b>CPNpy {release.version} is available</b> — you have "
+                          f"{__version__}.")
+        self.install_button.setText("Install Now" if can_install else "How to Update")
+        self.setVisible(True)
