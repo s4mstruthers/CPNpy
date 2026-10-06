@@ -362,3 +362,44 @@ def test_release_notes_script_writes_utf8_on_windows_too(tmp_path):
                              "0.3.2"], capture_output=True, env=environment, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors="replace")
     assert "✕" in result.stdout.decode("utf-8")
+
+
+def test_install_progress_stays_up_after_the_download(monkeypatch):
+    """Regression (0.3.2 → 0.3.3): once downloaded, while the update was being
+    checked and unpacked, the progress dialog kept appearing and vanishing
+    (it hid itself at 100 % and every tick set 100 % again)."""
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    from cpnpy.gui.studio.app import StudioWindow
+
+    application = QApplication.instance() or QApplication([])
+    unpacking = threading.Event()
+    release_it = threading.Event()
+
+    def fake_prepare(release, progress=None, cancelled=None):
+        progress(10, 100)
+        progress(100, 100)                      # downloaded
+        unpacking.set()
+        release_it.wait(10)                     # "checking and unpacking"
+        raise InterruptedError("stop here")
+    monkeypatch.setattr(updates, "prepare", fake_prepare)
+    window = StudioWindow()
+    window.show()
+    window._install_update(Release.from_github(dict(GITHUB_ANSWER, tag_name="v99.0.0")))
+    dialog = window.update_progress
+    seen_hidden = False
+    for _ in range(80):                         # 0.8 s of ticks while "unpacking"
+        _pump(application, 0.01)
+        seen_hidden |= not dialog.isVisible()
+    assert unpacking.is_set()
+    assert not seen_hidden                      # no flicker
+    assert dialog.maximum() == 0 and "Preparing" in dialog.labelText()
+    release_it.set()
+    for _ in range(200):
+        _pump(application, 0.01)
+        if not dialog.isVisible():
+            break
+    assert not dialog.isVisible()               # closed once it is over
+    window.close()
