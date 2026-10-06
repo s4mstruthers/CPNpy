@@ -1234,3 +1234,72 @@ def test_empty_workspace_says_so(app, tmp_path):
     window.close_workspace()
     assert window.empty_hint.isHidden()
     window.close()
+
+
+def _middle_drag(app, view, start, end, steps=4):
+    """Press the middle button at ``start``, move to ``end`` and release."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    def send(kind, point, button, buttons):
+        event = QMouseEvent(kind, QPointF(point), view.viewport().mapToGlobal(point).toPointF(),
+                            button, buttons, Qt.NoModifier)
+        QApplication.sendEvent(view.viewport(), event)
+
+    from PySide6.QtCore import QEvent, QPoint
+    send(QEvent.MouseButtonPress, QPoint(*start), Qt.MiddleButton, Qt.MiddleButton)
+    for step in range(1, steps + 1):
+        point = QPoint(start[0] + (end[0] - start[0]) * step // steps,
+                       start[1] + (end[1] - start[1]) * step // steps)
+        send(QEvent.MouseMove, point, Qt.NoButton, Qt.MiddleButton)
+    send(QEvent.MouseButtonRelease, QPoint(*end), Qt.MiddleButton, Qt.NoButton)
+    app.processEvents()
+
+
+def test_middle_drag_pans_the_net_editor(app):
+    """Regression (#11): middle-drag panning did nothing (Qt's hand drag only
+    starts on the left button), did nothing while the whole net was in view,
+    and could leave the view stuck in hand-drag mode."""
+    from PySide6.QtWidgets import QGraphicsView
+    from cpnpy.gui.studio.app import StudioWindow
+
+    root = Path(__file__).resolve().parents[1]
+    window = StudioWindow()
+    window.resize(1300, 850)
+    window.show()
+    window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+    page = window.current_page()
+    view = page.view
+    _pump(app, 0.2)
+    view.zoom_to_fit()                    # the whole net in view: nothing to scroll
+    landmark = page.scene.itemsBoundingRect().center()     # a fixed point of the drawing
+
+    def on_screen():
+        point = view.mapFromScene(landmark)
+        return point.x(), point.y()
+
+    start_position = on_screen()
+    for tool in (0, 1):                   # whatever tool is picked (Select, Place)
+        page.tool_switch.set_index(tool)
+        cursor = view.viewport().cursor().shape()
+        before = on_screen()
+        _middle_drag(app, view, (300, 300), (380, 340))
+        # The drawing follows the pointer exactly.
+        assert on_screen() == (before[0] + 80, before[1] + 40)
+        assert view.dragMode() != QGraphicsView.ScrollHandDrag
+        assert view.viewport().cursor().shape() == cursor      # the tool's cursor is back
+    assert on_screen() == (start_position[0] + 160, start_position[1] + 80)
+
+    # Over a node too: the node is not dragged, the view pans.
+    node = next(iter(page.scene.place_items.values()))
+    position = node.pos()
+    start = view.mapFromScene(node.sceneBoundingRect().center())
+    before = on_screen()
+    _middle_drag(app, view, (start.x(), start.y()), (start.x() - 50, start.y() - 30))
+    assert node.pos() == position and on_screen() == (before[0] - 50, before[1] - 30)
+
+    # Zoom to fit brings the whole net back.
+    view.zoom_to_fit()
+    assert view.sceneRect() == page.scene.sceneRect()
+    window.close()

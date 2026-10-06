@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...mining.layout import layered_layout
+from ..panning import MiddleButtonPan
 from . import style
 from .widgets import shortcut_text
 
@@ -509,12 +510,12 @@ class ZoomControls(QFrame):
         self.plus.setEnabled(scale < self.view.MAX_ZOOM - 1e-6)
 
 
-class GraphView(QGraphicsView):
+class GraphView(MiddleButtonPan, QGraphicsView):
     """Pan/zoom view with 'fit', a floating zoom bar and image export.
 
     Zooming: the ``− 100% + Fit`` bar, ⌘/Ctrl + scroll wheel, trackpad pinch,
     the View menu (⌘+ / ⌘− / ⌘0 fit), or plain + / − / 0 / 1 while the canvas
-    has keyboard focus.  Drag to pan.
+    has keyboard focus.  Drag (with either the left or the middle button) to pan.
     """
 
     zoom_changed = Signal(float)
@@ -565,6 +566,7 @@ class GraphView(QGraphicsView):
 
     def fit(self) -> None:
         self.auto_fit = True
+        self.reset_pan_area()
         rect = self.graph.sceneRect()
         if rect.isEmpty():
             return
