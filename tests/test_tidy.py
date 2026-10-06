@@ -1,11 +1,10 @@
-"""Making a page neat: snapping to the grid and arranging afresh."""
+"""Making a page neat: snapping it to the grid."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cpnpy.gui.tidy import _clean_bends, arrange_page, snap_page
-from cpnpy.io.cpn_reader import read_cpn
+from cpnpy.gui.tidy import _clean_bends, snap_page
 from cpnpy.mining.pnml import read_pnml
 from cpnpy.model.plain import from_petri_net
 
@@ -38,21 +37,3 @@ def test_bends_that_no_longer_turn_are_dropped():
     # Repeated points, a point on the end node, and one on the straight line go.
     assert _clean_bends((0, 0), [(28, 0), (28, 0), (56, 0), (84, 0)], (84, 0)) == []
     assert _clean_bends((0, 0), [(56, 0), (56, 56)], (112, 56)) == [(56, 0), (56, 56)]
-
-
-def test_arranging_lays_out_left_to_right_on_the_grid():
-    for net in (from_petri_net(read_pnml(str(ROOT / "examples" / "petri" /
-                                             "order_handling_unsound.pnml"))),
-                read_cpn(str(ROOT / "tests" / "data" / "plane_boarding.cpn"))):
-        page = net.pages[0]
-        arrange_page(page, STEP)
-        positions = [(n.graphics.x, n.graphics.y) for n in _nodes(page)]
-        assert all(_on_grid(x, y) for x, y in positions)
-        assert len(set(positions)) == len(positions)                  # no two on one spot
-        assert all(_on_grid(x, y) for a in page.arcs for x, y in a.bendpoints)
-    # The flow goes left to right: the start place is left of the end place.
-    net = from_petri_net(read_pnml(str(ROOT / "examples" / "petri" / "order_handling_sound.pnml")))
-    page = net.pages[0]
-    arrange_page(page, STEP)
-    x = {p.name: p.graphics.x for p in page.places}
-    assert x["start"] < x["c1"] < x["c3"] < x["end"]

@@ -6,6 +6,13 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.7
+
+- **Snap All to Grid** replaces the *Tidy* menu: one button that moves every
+  place, transition and arc bend to the nearest dot, keeping your layout.
+  *Arrange Automatically* is gone: on models drawn by hand it made a worse
+  layout than the one you had.
+
 ## 0.3.6
 
 - **Neat nets.** Tick *Snap to grid* in the editors to put new and moved

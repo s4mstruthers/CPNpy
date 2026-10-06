@@ -1818,9 +1818,9 @@ def test_a_log_still_loading_stays_with_its_folder(app, tmp_path):
 
 
 def test_snap_to_grid_and_tidy_make_neat_nets(app, monkeypatch):
-    """Snap to grid puts new and dragged nodes on the dots; Tidy snaps a whole
-    page or arranges it afresh (and undo puts it back); the box is one
-    setting for every editor."""
+    """Snap to grid puts new and dragged nodes on the dots; Snap All to Grid
+    snaps a whole page (and undo puts it back); the box is one setting for
+    every editor."""
     from PySide6.QtCore import QPointF
     from PySide6.QtTest import QTest
     from cpnpy.gui.canvas import GRID_STEP, NetScene
@@ -1867,19 +1867,16 @@ def test_snap_to_grid_and_tidy_make_neat_nets(app, monkeypatch):
     place = next(iter(page.scene.place_items.values()))
     assert on_grid(place) and place.pos().x() > 28
 
-    # Tidy on a net drawn freely: everything to the grid, or arranged afresh.
+    # Snap All to Grid on a net drawn freely (the button), then undo.
     window._select_document(window.documents[0])
     scene = first.scene
     before = {k: (i.pos().x(), i.pos().y()) for k, i in scene.place_items.items()}
-    first.snap_everything()
+    first.tidy_button.click()
     assert all(on_grid(i) for i in [*scene.place_items.values(),
                                     *scene.transition_items.values()])
     first.undo()
     assert {k: (i.pos().x(), i.pos().y()) for k, i in first.scene.place_items.items()} == before
-    first.arrange()
-    items = [*first.scene.place_items.values(), *first.scene.transition_items.values()]
-    assert all(on_grid(i) for i in items)
-    assert len({(i.pos().x(), i.pos().y()) for i in items}) == len(items)
+    first.snap_everything()
     assert window.documents[0].dirty                                  # an edit: autosaved/undoable
     first.grid_box.setChecked(False)
     assert not NetScene.snap_to_grid and not page.grid_box.isChecked()
