@@ -1,8 +1,19 @@
-# Build the standalone CPNpy Studio app for macOS, Windows and Linux.
+# Test CPNpy, and build the standalone CPNpy Studio app for macOS, Windows and
+# Linux.
 #
-# PyInstaller cannot cross-compile, so each app is built on a machine running
-# that system.  Every run smoke-tests the app (packaging/build.py) and keeps
-# the result as a downloadable artifact on the run's page.  Pushing a version
+# When it runs: on a pull request (the code about to be merged), when a
+# version tag is pushed (the release), and with "Run workflow" on the Actions
+# tab.  Not on pushes to main: a merged pull request was built already, and a
+# version bump is built by its tag -- building those again only queued the
+# release behind duplicate runs.  A pull request that only changes
+# documentation is not built, and a newer push to a pull request cancels its
+# unfinished run.
+#
+# First the test suite runs (on Linux, offscreen); only if it passes are the
+# apps built.  PyInstaller cannot cross-compile, so each app is built on a
+# machine running that system.  Every run smoke-tests the app
+# (packaging/build.py) and keeps the result as a downloadable artifact on the
+# run's page.  Pushing a version
 # tag (git tag v0.3.0 && git push origin v0.3.0) also publishes a GitHub
 # Release with the downloads attached, described by the version's section
 # of CHANGELOG.md.  (GitHub shows each download's SHA-256, which the app's
@@ -13,17 +24,52 @@ name: Build apps
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   pull_request:
+    paths-ignore:             # documentation only: nothing to test or build
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:          # the "Run workflow" button on the Actions tab
+
+# One run per pull request at a time: a newer push cancels the older run.
+# (Release tags are never cancelled.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write             # only used by the release job, to attach the apps
 
 jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Qt's system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+
+      - name: Install CPNpy with the app and the test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[gui,dev]"
+
+      - name: Run the test suite (the windows are drawn offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
   build:
     name: ${{ matrix.name }}
+    needs: tests              # no point building apps from code that fails its tests
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false        # one system failing should not cancel the others
