@@ -67,7 +67,7 @@ from ...mining.pnml import read_pnml, write_pnml
 from ...mining.xes import read_xes, write_xes
 from .. import theme
 from . import style
-from ..canvas import NetView
+from ..canvas import NetScene, NetView
 from .compare_page import ComparePage
 from .cpn_page import CpnPage
 from .petri_page import PetriNetPage
@@ -479,6 +479,8 @@ class StudioWindow(QMainWindow):
         self._identities: dict[int, tuple[int, int]] = {}
         #: Documents with a "changed on disk" question open: not autosaved meanwhile.
         self._conflicts: set[int] = set()
+        # One Snap to grid setting for every editor, kept between launches.
+        NetScene.snap_to_grid = self._setting("editor/snap_to_grid", False)
         #: Autosave: one timer per document, restarted on each edit.
         self.autosave_enabled = self._setting("files/autosave", True)
         self._autosave_timers: dict[int, QTimer] = {}
@@ -934,6 +936,7 @@ class StudioWindow(QMainWindow):
                 LogDocument(log), near=source.path))
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
             page.edited.connect(lambda doc=document: self._schedule_autosave(doc))
+            page.snap_changed.connect(self._snap_changed)
             page.inspector_tabs.changed.connect(
                 lambda i, key="petri_inspector" if plain else "cpn_inspector":
                 self.remembered.__setitem__(key, i))
@@ -969,6 +972,16 @@ class StudioWindow(QMainWindow):
         self.holders[document.id] = holder
         self.content.addWidget(holder)
         return page
+
+    def _snap_changed(self, on: bool) -> None:
+        """Snap to grid was ticked in one editor: the same everywhere, and next time."""
+        self._set_setting("editor/snap_to_grid", on)
+        for page in self.pages.values():
+            box = getattr(page, "grid_box", None)
+            if box is not None and box.isChecked() != on:
+                box.blockSignals(True)
+                box.setChecked(on)
+                box.blockSignals(False)
 
     def _select_document(self, document) -> None:
         item = self.items.get(document.id)
