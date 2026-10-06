@@ -12,10 +12,11 @@ notice, not how it was done.
   with a certificate error, so please download this version yourself once.
   From now on CPNpy tells you when a new version is out and can install it
   for you.
-- **CPNpy checks for a new version every time it opens**, and shows what is
-  new in each version you don't have yet. *Later* reminds you next time;
-  *Skip This Version* stays quiet until the one after. Turn it off in
-  *Settings*.
+- **CPNpy checks for a new version every time it opens.** If there is one, a
+  bar at the top of the window says so without interrupting you: *What's
+  New* shows what changed in each version you don't have yet, *Install Now*
+  installs it, *Skip This Version* stays quiet until the one after, and ✕
+  closes the bar until next time. Turn the check off in *Settings*.
 
 ## 0.3.1
 
