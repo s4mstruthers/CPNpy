@@ -810,6 +810,7 @@ class PetriNetPage(CpnPage):
         if not path.lower().endswith((".pnml", ".cpn")):
             path += ".cpn" if "cpn" in chosen.lower() and "pnml" not in chosen.lower() \
                 else ".pnml"
+        self._take_file_name(Path(path))
         return self._write(Path(path))
 
     def _write(self, path: Path) -> bool:

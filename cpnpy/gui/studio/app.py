@@ -62,6 +62,24 @@ from .workers import run_in_background
 
 APPLICATION_NAME = "CPNpy Studio"
 
+
+def _file_suffix(path: Path) -> str:
+    """The whole extension, so ``log.xes.gz`` gives ``.xes.gz`` (not just ``.gz``)."""
+    return ".xes.gz" if path.name.lower().endswith(".xes.gz") else path.suffix
+
+
+def _file_stem(path: Path) -> str:
+    """The file name without :func:`_file_suffix`: what a document opened from it is called."""
+    return path.name[: len(path.name) - len(_file_suffix(path))]
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    """True when two paths name one file (e.g. a case-only change on macOS)."""
+    try:
+        return a.samefile(b)
+    except OSError:
+        return False
+
 EXAMPLES = {
     "Textbook L₁ (α-algorithm example)": "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]",
     "Textbook L₂ (loop)": "[<a,b,c,d>^3, <a,c,b,d>^4, <a,b,c,e,f,b,c,d>^2, "
@@ -412,6 +430,10 @@ class StudioWindow(QMainWindow):
         self.cpn_section = self._section("COLOURED NETS")
         self.compare_section = self._section("COMPARISONS")
         self.tree.currentItemChanged.connect(self._on_select)
+        # Double-click a document in the sidebar to rename it (section headings have no id).
+        self.tree.itemDoubleClicked.connect(
+            lambda item, _column: item.data(0, Qt.UserRole) is not None
+            and self.rename_document(self._document(item.data(0, Qt.UserRole))))
         layout.addWidget(self.tree, 1)
 
         footer = QWidget()
@@ -615,6 +637,10 @@ class StudioWindow(QMainWindow):
             parent, kind = self.models_section, "model"
         page.status.connect(lambda message: self.statusBar().showMessage(message, 8000))
         page.saved.connect(lambda doc=document: self._document_saved(doc))
+        if not isinstance(document, ComparisonDocument):
+            page.header.title_double_clicked.connect(
+                lambda doc=document: self.rename_document(doc))
+            page.header.title.setToolTip("Double-click to rename")
         self.pages[document.id] = page
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
@@ -820,27 +846,68 @@ class StudioWindow(QMainWindow):
     # -- renaming, exporting, revealing ---------------------------------------------
     def rename_selected(self) -> None:
         ids = self.selected_ids()
-        if len(ids) != 1:
-            return
-        document = self._document(ids[0])
+        if len(ids) == 1:
+            self.rename_document(self._document(ids[0]))
+
+    #: Characters macOS, Windows or Linux do not allow in a file name.
+    FILE_NAME_FORBIDDEN = set('/\\:*?"<>|')
+
+    def rename_document(self, document) -> None:
+        """Ask for a new name; if the document is named after its file, rename the file too.
+
+        A net opened from ``order.pnml`` (or saved as it) is called "order", so
+        renaming it to "order v2" also renames the file to ``order v2.pnml``
+        in the same folder.  A document whose name is not its file's name (an
+        event log is named by its ``concept:name``, e.g. "Wilma 50 passengers"
+        in ``PlaneBoarding_Wilma_50.xes``) only gets a new name in the app.
+        """
         if isinstance(document, ComparisonDocument):
             return
-        name, ok = QInputDialog.getText(self, "Rename", "Name:", text=document.name)
+        old_name = document.name
+        name, ok = QInputDialog.getText(self, "Rename", "Name:", text=old_name)
         name = name.strip()
-        if not ok or not name:
+        if not ok or not name or name == old_name:
             return
-        if isinstance(document, CpnDocument):
-            self.pages[document.id]._checkpoint()          # renaming can be undone
+
+        source = Path(document.path) if document.path else None
+        renames_file = (source is not None and source.exists()
+                        and _file_stem(source) == old_name)
+        if renames_file:
+            problem = None
+            if self.FILE_NAME_FORBIDDEN & set(name) or name in (".", ".."):
+                problem = ("A file name cannot contain any of  / \\ : * ? \" < > |")
+                target = None
+            else:
+                target = source.with_name(name + _file_suffix(source))
+            if problem is None and target.exists() and not _same_file(source, target):
+                problem = f"There is already a file called “{target.name}” in that folder."
+            if problem is None:
+                try:
+                    source.rename(target)      # a case-only change works too (same file)
+                except OSError as error:
+                    problem = f"The file could not be renamed: {error.strerror or error}"
+            if problem is not None:
+                QMessageBox.warning(self, "Could not rename", problem)
+                return
+            document.path = str(target)
+            self._forget_recent(str(source))
+            self._remember_recent(str(target))
+            self.statusBar().showMessage(f"Renamed the file to {target.name}", 8000)
+        elif isinstance(document, CpnDocument):
+            # Only the name in the model changes: it is an edit, so it can be undone.
+            self.pages[document.id]._checkpoint()
+
         if isinstance(document, LogDocument):
             document.log.attributes["concept:name"] = name
         else:
             document.net.name = name
-        if isinstance(document, CpnDocument):
+        if isinstance(document, CpnDocument) and not renames_file:
             self.pages[document.id].set_dirty(True)
         self._refresh_item(document)
         self.pages[document.id].refresh_title()
         self.setWindowTitle(f"{name} — {APPLICATION_NAME}")
         self._refresh_log_choices()
+        self._save_session()
 
     def export_selected(self) -> None:
         ids = self.selected_ids()
@@ -850,6 +917,9 @@ class StudioWindow(QMainWindow):
     def _document_saved(self, document) -> None:
         """A page exported its document: it is now backed by that file."""
         self._refresh_item(document)
+        if self.selected_ids() == [document.id]:
+            # Save As may have renamed it after the file (see CpnPage._take_file_name).
+            self.setWindowTitle(f"{document.name} — {APPLICATION_NAME}")
         self.open_options.pop(document.id, None)      # it is XES/PNML now, not CSV
         if document.path and document.path.lower().endswith(".csv"):
             # Reopen the exported CSV with its own (standard) columns, unasked.
@@ -962,6 +1032,11 @@ class StudioWindow(QMainWindow):
         recent = [p for p in self._recent() if Path(p) != Path(path)]
         recent.insert(0, path)
         self.settings.setValue("recent", json.dumps(recent[:self.RECENT_LIMIT]))
+
+    def _forget_recent(self, path: str) -> None:
+        if self.persist and path:
+            recent = [p for p in self._recent() if Path(p) != Path(path)]
+            self.settings.setValue("recent", json.dumps(recent))
 
     def _recent(self) -> list[str]:
         try:

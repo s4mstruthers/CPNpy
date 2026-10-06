@@ -1674,7 +1674,19 @@ class CpnPage(QWidget):
             return False
         if not path.lower().endswith(".cpn"):
             path += ".cpn"
+        self._take_file_name(Path(path))
         return self._write(Path(path))
+
+    def _take_file_name(self, path: Path) -> None:
+        """Save As names the net after its new file ("Untitled 1" → "order").
+
+        Opening a .cpn or .pnml file names the net after the file too, so the
+        name you see stays the same when the file is opened again later.  The
+        name is set before writing, so the file itself carries it as well.
+        """
+        if self.net.name != path.stem:
+            self.net.name = path.stem
+            self.refresh_title()
 
     def _write(self, path: Path) -> bool:
         try:

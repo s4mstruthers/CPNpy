@@ -432,7 +432,13 @@ class ElidedLabel(QLabel):
 
 
 class PageHeader(QWidget):
-    """Large title, muted subtitle, and a right-aligned row of actions."""
+    """Large title, muted subtitle, and a right-aligned row of actions.
+
+    Double-clicking the title emits :attr:`title_double_clicked`; the main
+    window uses it to rename the document.
+    """
+
+    title_double_clicked = Signal()
 
     def __init__(self, title: str = "", subtitle: str = "", parent=None) -> None:
         super().__init__(parent)
@@ -454,6 +460,14 @@ class PageHeader(QWidget):
     def set_text(self, title: str, subtitle: str) -> None:
         self.title.setText(title)
         self.subtitle.setText(subtitle)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        # Labels ignore mouse events, so a double-click on the title lands here.
+        if self.title.geometry().contains(event.position().toPoint()):
+            self.title_double_clicked.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
 
 def scroll(widget: QWidget, horizontal: bool = False) -> "QScrollArea":

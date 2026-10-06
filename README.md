@@ -353,6 +353,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 |---|---|
 | Add a place / transition | Pick **Place** / **Transition**, click the canvas, type the name, press Return (or just click elsewhere: the name box closes and keeps the name) |
 | Rename | Double-click the place or transition, or use the Element tab |
+| Rename a net or log | Double-click its name in the sidebar or the title above the canvas. A net named after its file (as every opened or saved net is) renames the file too, in the same folder. |
 | Connect | Hover near a place or transition and drag the translucent arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |

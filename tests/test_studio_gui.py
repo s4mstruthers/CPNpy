@@ -1017,3 +1017,107 @@ def test_clicking_away_from_the_name_box_keeps_the_name(app):
     assert view.name_editor is None and place.name == "start"
     page.document.dirty = False           # closing would otherwise ask to save
     window.close()
+
+
+def test_save_as_names_the_net_after_its_file(app, tmp_path, monkeypatch):
+    """Regression: Save As wrote the file but the net kept the name
+    "Untitled 1" in the header, the sidebar and the window title."""
+    from cpnpy.gui.studio import cpn_page, petri_page
+    from cpnpy.gui.studio.app import APPLICATION_NAME, StudioWindow
+
+    window = StudioWindow()
+    window.show()
+
+    # A new Petri net, saved as PNML through the (stubbed) save dialog.
+    window.action_new_petri()
+    page, document = window.current_page(), window.documents[-1]
+    assert document.name.startswith("Untitled")
+    target = tmp_path / "Example net week 4.pnml"
+    monkeypatch.setattr(petri_page.QFileDialog, "getSaveFileName",
+                        lambda *args, **kwargs: (str(target), "PNML Petri net (*.pnml)"))
+    assert page.export()
+    assert target.exists()
+    assert document.name == "Example net week 4"
+    assert window.items[document.id].text(0).strip() == "Example net week 4"
+    assert window.windowTitle() == f"Example net week 4 — {APPLICATION_NAME}"
+    # Reopening the file gives the same name.
+    window.open_path(str(target))
+    assert window.documents[-1].name == "Example net week 4"
+
+    # The same for a new coloured net saved as .cpn.
+    window.action_new_cpn()
+    page, document = window.current_page(), window.documents[-1]
+    target = tmp_path / "boarding model.cpn"
+    monkeypatch.setattr(cpn_page.QFileDialog, "getSaveFileName",
+                        lambda *args, **kwargs: (str(target), "CPN Tools model (*.cpn)"))
+    assert page.export()
+    assert document.name == "boarding model"
+    assert window.windowTitle() == f"boarding model — {APPLICATION_NAME}"
+    window.close()
+
+
+def test_renaming_a_net_renames_its_file(app, tmp_path, monkeypatch):
+    """Double-clicking the title (or a sidebar entry) renames the document;
+    a net named after its file takes the file with it."""
+    import shutil
+
+    from PySide6.QtTest import QTest
+    from cpnpy.gui.studio import app as studio_app
+    from cpnpy.gui.studio.app import APPLICATION_NAME, StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.mining import EventLog, parse_simple_log
+
+    root = Path(__file__).resolve().parents[1]
+    source = tmp_path / "order.pnml"
+    shutil.copy(root / "examples" / "petri" / "order_handling_sound.pnml", source)
+    answers, warnings = [], []
+    monkeypatch.setattr(studio_app.QInputDialog, "getText",
+                        lambda *args, **kwargs: (answers.pop(0), True))
+    monkeypatch.setattr(studio_app.QMessageBox, "warning",
+                        lambda *args, **kwargs: warnings.append(args[2]))
+
+    window = StudioWindow()
+    window.show()
+    window.open_path(str(source))
+    document, page = window.documents[-1], window.current_page()
+    assert document.name == "order"
+
+    # Double-click on the page title -> rename -> the file follows.
+    answers.append("order v2")
+    QTest.mouseDClick(page.header.title, Qt.LeftButton)
+    renamed = tmp_path / "order v2.pnml"
+    assert document.name == "order v2" and document.path == str(renamed)
+    assert renamed.exists() and not source.exists()
+    assert window.windowTitle() == f"order v2 — {APPLICATION_NAME}"
+
+    # Double-click in the sidebar does the same.
+    answers.append("final")
+    item = window.items[document.id]
+    window.tree.itemDoubleClicked.emit(item, 0)
+    assert (tmp_path / "final.pnml").exists() and document.name == "final"
+
+    # An existing file is never overwritten, and characters files cannot have are refused.
+    (tmp_path / "taken.pnml").write_text("keep me")
+    answers.append("taken")
+    window.rename_document(document)
+    answers.append("a/b")
+    window.rename_document(document)
+    assert len(warnings) == 2 and document.name == "final"
+    assert (tmp_path / "taken.pnml").read_text() == "keep me"
+
+    # A log is named by its concept:name, not its file: only the name changes.
+    log_file = tmp_path / "events.xes"
+    from cpnpy.mining.xes import write_xes
+    write_xes(EventLog.from_simple_log(parse_simple_log("[<a,b>^2]"), "Boarding"), log_file)
+    window.open_path(str(log_file))
+    for _ in range(300):                       # logs are read in the background
+        logs = [d for d in window.documents if isinstance(d, LogDocument)]
+        if logs:
+            break
+        _pump(app, 0.02)
+    log_doc = logs[0]
+    assert log_doc.name == "Boarding"
+    answers.append("Boarding (week 4)")
+    window.rename_document(log_doc)
+    assert log_doc.name == "Boarding (week 4)" and log_file.exists()
+    window.close()
