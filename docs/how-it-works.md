@@ -7,7 +7,7 @@ see the [README](../README.md).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  cpnpy.gui.studio  CPNpy Studio (process mining workspace)        │
+│  cpnpy.gui.studio  CPNpy Studio (the desktop app)                 │
 │  cpnpy.gui         CPN editor (canvas, panels, menus)             │
 ├──────────────────────────────────┬───────────────────────────────┤
 │  cpnpy.mining                    │  cpnpy.analysis  CPN state     │
@@ -232,6 +232,7 @@ cpnpy/
     theme.py         palette, fonts and stylesheet; light/dark aware
     items.py         Qt graphics items for places, transitions, arcs
     canvas.py        the scene, the editing tools (drag to connect, rename), the view
+    panning.py       middle-button panning, shared by every canvas
     arc_editing.py   CPN IDE's rules for bending, sliding and reconnecting arcs
     app.py           `cpn-ide`: CPNpy Studio opened on a new coloured net
   cli.py             the `cpnpy` command
@@ -258,8 +259,13 @@ examples/models.py   four complete models, also used as test fixtures
     plain.py         plain Petri nets in the editor (black tokens, weights, τ)
     examples.py      example Petri nets (File ▸ Open Example Petri Net)
   gui/studio/
-    app.py           window, sidebar, welcome page, dialogs, file opening
-    workspace.py     workspace folders: which files to list, the hidden .cpnpy state
+    app.py           window, sidebar rows, welcome page, file opening, keeping the
+                     open folder and the app in step (watching, autosave, moving)
+    workspace.py     the open folder: its tree of files, the hidden .cpnpy state,
+                     unique names, safe (atomic) writes
+    sidebar.py       the sidebar tree: dragging files to subfolders, Finder, back in
+    file_dialogs.py  copy/move a file into the folder, name clashes, Settings
+    updates.py       checking GitHub for a newer release and installing it
     petri_page.py    the Petri net editor with the Analysis tab
     cpn_page.py      the coloured-net editor, simulator and state space tool
     tool_icons.py    painted tool icons and cursors

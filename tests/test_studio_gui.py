@@ -26,6 +26,25 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def fake_bin(tmp_path_factory, monkeypatch):
+    """Nothing a test moves "to the Bin" goes to your real Bin: it lands here."""
+    import shutil
+    from cpnpy.gui.studio import app as studio_app
+
+    folder = tmp_path_factory.mktemp("Bin")
+
+    def move_to_trash(path) -> bool:
+        target, number = folder / Path(path).name, 2
+        while target.exists():
+            target = folder / f"{number} {Path(path).name}"
+            number += 1
+        shutil.move(str(path), str(target))
+        return True
+    monkeypatch.setattr(studio_app, "move_to_trash", move_to_trash)
+    return folder
+
+
 def _pump(app, seconds: float) -> None:
     end = time.time() + seconds
     while time.time() < end:
@@ -1160,7 +1179,8 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     window.open_path(str(root / "examples" / "petri" / "order_handling_unsound.pnml"))
     assert window.open_workspace(str(week))
 
-    # The outside file was closed; the folder's files are listed.
+    # The outside file was closed; the folder's files are listed (here grouped by kind).
+    window.set_view_mode("kind")
     assert [d.name for d in window.documents] == []
     assert window.sidebar_title.text() == "Week 2"
     assert not window.workspace_caption.isHidden()
@@ -1233,4 +1253,457 @@ def test_empty_workspace_says_so(app, tmp_path):
     assert not window.empty_hint.isHidden()
     window.close_workspace()
     assert window.empty_hint.isHidden()
+    window.close()
+
+
+def _middle_drag(app, view, start, end, steps=4):
+    """Press the middle button at ``start``, move to ``end`` and release."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    def send(kind, point, button, buttons):
+        event = QMouseEvent(kind, QPointF(point), view.viewport().mapToGlobal(point).toPointF(),
+                            button, buttons, Qt.NoModifier)
+        QApplication.sendEvent(view.viewport(), event)
+
+    from PySide6.QtCore import QEvent, QPoint
+    send(QEvent.MouseButtonPress, QPoint(*start), Qt.MiddleButton, Qt.MiddleButton)
+    for step in range(1, steps + 1):
+        point = QPoint(start[0] + (end[0] - start[0]) * step // steps,
+                       start[1] + (end[1] - start[1]) * step // steps)
+        send(QEvent.MouseMove, point, Qt.NoButton, Qt.MiddleButton)
+    send(QEvent.MouseButtonRelease, QPoint(*end), Qt.MiddleButton, Qt.NoButton)
+    app.processEvents()
+
+
+def test_middle_drag_pans_the_net_editor(app):
+    """Regression (#11): middle-drag panning did nothing (Qt's hand drag only
+    starts on the left button), did nothing while the whole net was in view,
+    and could leave the view stuck in hand-drag mode."""
+    from PySide6.QtWidgets import QGraphicsView
+    from cpnpy.gui.studio.app import StudioWindow
+
+    root = Path(__file__).resolve().parents[1]
+    window = StudioWindow()
+    window.resize(1300, 850)
+    window.show()
+    window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+    page = window.current_page()
+    view = page.view
+    _pump(app, 0.2)
+    view.zoom_to_fit()                    # the whole net in view: nothing to scroll
+    landmark = page.scene.itemsBoundingRect().center()     # a fixed point of the drawing
+
+    def on_screen():
+        point = view.mapFromScene(landmark)
+        return point.x(), point.y()
+
+    start_position = on_screen()
+    for tool in (0, 1):                   # whatever tool is picked (Select, Place)
+        page.tool_switch.set_index(tool)
+        cursor = view.viewport().cursor().shape()
+        before = on_screen()
+        _middle_drag(app, view, (300, 300), (380, 340))
+        # The drawing follows the pointer exactly.
+        assert on_screen() == (before[0] + 80, before[1] + 40)
+        assert view.dragMode() != QGraphicsView.ScrollHandDrag
+        assert view.viewport().cursor().shape() == cursor      # the tool's cursor is back
+    assert on_screen() == (start_position[0] + 160, start_position[1] + 80)
+
+    # Over a node too: the node is not dragged, the view pans.
+    node = next(iter(page.scene.place_items.values()))
+    position = node.pos()
+    start = view.mapFromScene(node.sceneBoundingRect().center())
+    before = on_screen()
+    _middle_drag(app, view, (start.x(), start.y()), (start.x() - 50, start.y() - 30))
+    assert node.pos() == position and on_screen() == (before[0] - 50, before[1] - 30)
+
+    # Zoom to fit brings the whole net back.
+    view.zoom_to_fit()
+    assert view.sceneRect() == page.scene.sceneRect()
+    window.close()
+
+
+# ---------------------------------------------------------------------------
+# Working in a folder: the Folder view, organising, two-way sync, bringing
+# files in (issues #7, #8, #9, #10)
+# ---------------------------------------------------------------------------
+def _wait_for(app, condition, seconds: float = 6.0) -> bool:
+    for _ in range(int(seconds / 0.02)):
+        if condition():
+            return True
+        _pump(app, 0.02)
+    return condition()
+
+
+def _week(tmp_path) -> Path:
+    """A course folder: a net at the top, a log and a net in subfolders, an empty one."""
+    import shutil
+
+    from cpnpy.mining import EventLog, parse_simple_log
+    from cpnpy.mining.xes import write_xes
+
+    root = Path(__file__).resolve().parents[1]
+    week = tmp_path / "Week 2"
+    (week / "logs").mkdir(parents=True)
+    (week / "models").mkdir()
+    (week / "empty").mkdir()
+    shutil.copy(root / "examples" / "petri" / "order_handling_sound.pnml",
+                week / "models" / "order.pnml")
+    shutil.copy(root / "examples" / "simple_transfer.cpn", week / "transfer.cpn")
+    write_xes(EventLog.from_simple_log(parse_simple_log("[<a,b>^2, <a,c>]"), "Boarding"),
+              week / "logs" / "boarding.xes")
+    return week
+
+
+def _layout(window) -> list[str]:
+    """The sidebar as text: one line per visible row, indented by depth."""
+    from PySide6.QtWidgets import QTreeWidgetItemIterator
+    lines = []
+    iterator = QTreeWidgetItemIterator(window.tree)
+    while iterator.value() is not None:
+        item = iterator.value()
+        depth, parent, visible = 0, item.parent(), not item.isHidden()
+        while parent is not None:
+            depth += 1
+            visible = visible and parent.isExpanded() and not parent.isHidden()
+            parent = parent.parent()
+        if visible:
+            lines.append("  " * depth + item.text(0).strip())
+        iterator += 1
+    return lines
+
+
+def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
+    from cpnpy.gui.studio.app import FOLDER_ROLE, StudioWindow
+    from cpnpy.gui.studio.workspace import Workspace
+
+    week = _week(tmp_path)
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    assert window.view_mode == "folder" and not window.view_row.isHidden()
+    # Folders first, then files, as in Finder; subfolders start collapsed.
+    assert _layout(window) == ["empty", "logs", "models", "transfer"]
+    window.folder_items["models"].setExpanded(True)
+    assert _layout(window) == ["empty", "logs", "models", "  order", "transfer"]
+    assert window.folder_items["models"].data(0, FOLDER_ROLE) == str(week.resolve() / "models")
+
+    # Opening a file keeps it in its subfolder; a new net goes into the folder.
+    window._open_placeholder(window.placeholders[window._key(week / "models" / "order.pnml")])
+    assert window.documents[-1].name == "order"
+    assert _layout(window) == ["empty", "logs", "models", "  order", "transfer"]
+    assert window.tree.currentItem() is window.items[window.documents[-1].id]
+
+    # The view and the expanded subfolders are remembered in the folder.
+    window.set_view_mode("kind")
+    assert "PETRI NETS" in _layout(window) and "models" not in _layout(window)
+    assert Workspace(week).settings() == {"view": "kind", "expanded": ["models"]}
+    window.close()
+    again = StudioWindow()
+    again.show()
+    again.open_workspace(str(week))
+    assert again.view_mode == "kind" and again.view_switch.index() == 1
+    again.set_view_mode("folder")
+    assert again.folder_items["models"].isExpanded()
+    again.close()
+
+
+def test_organising_files_from_the_sidebar(app, tmp_path, monkeypatch, fake_bin):
+    """New Folder, drag to move (an open file follows), rename a folder with an
+    open file in it, and Move to Bin (recoverable), with the disk matching."""
+    from cpnpy.gui.studio import app as studio_app
+    from cpnpy.gui.studio.app import StudioWindow
+
+    week = _week(tmp_path)
+    answers = []
+    monkeypatch.setattr(studio_app.QInputDialog, "getText",
+                        lambda *args, **kwargs: (answers.pop(0), True))
+    monkeypatch.setattr(studio_app.QMessageBox, "exec", lambda box: box.setProperty(
+        "clicked", True) or None)
+    # Every "Move to Bin?" is answered yes.
+    monkeypatch.setattr(studio_app.QMessageBox, "clickedButton",
+                        lambda box: next(b for b in box.buttons()
+                                         if box.buttonRole(b) == studio_app.QMessageBox.DestructiveRole))
+
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+
+    # New Folder, inside "models".
+    answers.append("assignment 1")
+    window.new_folder(str(week / "models"))
+    assert (week / "models" / "assignment 1").is_dir()
+    assert "models/assignment 1" in window.folder_items
+    assert window.folder_items["models"].isExpanded()
+
+    # Open order.pnml, then drag it into the new folder: the file moves, the
+    # document stays open with its new path, even with unsaved edits.
+    window.set_autosave(False)
+    window.open_path(str(week / "models" / "order.pnml"))
+    net, page = window.documents[-1], window.current_page()
+    page.set_dirty(True)
+    target = week / "models" / "assignment 1"
+    window.tree.paths_dropped.emit([net.path], str(target), True)
+    assert (target / "order.pnml").exists() and not (week / "models" / "order.pnml").exists()
+    assert Path(net.path) == (target / "order.pnml").resolve() and net.dirty
+    assert window.items[net.id].text(0) == "order  •"
+    assert "order.pnml" in page.header.subtitle.text()
+    assert window.items[net.id].parent() is window.folder_items["models/assignment 1"]
+
+    # A file that is not open moves too, and dropping on a file means its folder.
+    transfer = window.placeholders[window._key(week / "transfer.cpn")]
+    window.tree.paths_dropped.emit([str(week / "transfer.cpn")],
+                                   window._drop_folder(window.items[net.id]), True)
+    assert (target / "transfer.cpn").exists() and not (week / "transfer.cpn").exists()
+    del transfer
+
+    # Renaming the folder takes the open file with it.
+    answers.append("Assignment one")
+    window.rename_path(str(target))
+    renamed = week / "models" / "Assignment one"
+    assert Path(net.path) == (renamed / "order.pnml").resolve()
+    assert "models/Assignment one" in window.folder_items
+
+    # Move to Bin: a file that is not open, then the folder with the open net.
+    window.trash_paths([str(renamed / "transfer.cpn")])
+    assert not (renamed / "transfer.cpn").exists() and (fake_bin / "transfer.cpn").exists()
+    window.trash_paths([str(renamed)])
+    assert not renamed.exists() and (fake_bin / "Assignment one" / "order.pnml").exists()
+    assert net not in window.documents
+    assert "models/Assignment one" not in window.folder_items
+    window.close()
+
+
+def test_changes_on_disk_reach_the_app(app, tmp_path):
+    """Folder → app: an open file changed elsewhere is reloaded (or, with
+    edits here, the user is asked); one deleted is marked missing; a new
+    subfolder with a file in it is listed; the app's own saves are not
+    mistaken for changes made elsewhere."""
+    import shutil
+
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.mining import EventLog, parse_simple_log
+    from cpnpy.mining.pnml import read_pnml, write_pnml
+    from cpnpy.mining.xes import write_xes
+
+    root = Path(__file__).resolve().parents[1]
+    week = _week(tmp_path)
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    path = week / "models" / "order.pnml"
+    window.open_path(str(path))
+    net = window.documents[-1]
+    before = net.net
+
+    def arcs() -> int:
+        return sum(len(page.arcs) for page in net.net.pages)
+    sound_arcs = arcs()
+
+    # Changed in another app (no edits here): reloaded by itself.
+    other = read_pnml(str(root / "examples" / "petri" / "order_handling_unsound.pnml"))
+    write_pnml(other, str(path))
+    assert _wait_for(app, lambda: net.net is not before)
+    assert arcs() == sound_arcs - 1
+    assert "changed on disk — reloaded" in window.statusBar().currentMessage()
+    assert window.current_page().document is net
+
+    # The app's own save: nothing is reloaded.
+    reloaded_page = window.pages[net.id]
+    window.set_autosave(False)
+    reloaded_page.set_dirty(True)
+    assert reloaded_page.save()
+    _pump(app, 1.0)
+    assert window.pages[net.id] is reloaded_page
+
+    # Changed elsewhere while it has edits here: the user is asked.
+    reloaded_page.set_dirty(True)
+    shutil.copy(root / "examples" / "petri" / "order_handling_sound.pnml", path)
+    banner = window.banners[net.id]
+    assert _wait_for(app, lambda: banner.isVisibleTo(window) and banner.kind == "changed")
+    assert "changed on disk" in banner.text.text()
+    reload_button = banner.buttons.itemAt(0).widget()
+    reload_button.click()
+    assert arcs() == sound_arcs and not net.dirty
+
+    # Deleted in Finder: still open, marked missing, not recreated by autosave.
+    window.set_autosave(True)
+    path.unlink()
+    assert _wait_for(app, lambda: net.missing)
+    assert net in window.documents and not path.exists()
+    assert window.items[net.id].font(0).italic()
+    assert window.banners[net.id].kind == "missing"
+    window.pages[net.id].set_dirty(True)
+    _pump(app, 1.5)
+    assert not path.exists()                   # autosave does not bring it back
+
+    # A new subfolder made in Finder, with a log copied straight into it.
+    (week / "week 3").mkdir()
+    write_xes(EventLog.from_simple_log(parse_simple_log("[<x,y>]"), "New"),
+              week / "week 3" / "fresh.xes")
+    assert _wait_for(app, lambda: window._key(week / "week 3" / "fresh.xes")
+                     in window.placeholders)
+    assert "week 3" in window.folder_items
+    net.dirty = False                          # (quitting would ask about the edits)
+    window.close()
+
+
+def test_the_app_keeps_the_folder_up_to_date(app, tmp_path):
+    """App → folder: new nets and logs are files from the start, edits are
+    autosaved, results go next to their source, and Keep saves a model."""
+    from cpnpy.gui.studio.app import AUTOSAVE_DELAY, StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument, ModelDocument
+    from cpnpy.mining import EventLog, parse_simple_log
+    from cpnpy.mining.discovery.alpha import alpha_miner
+    from cpnpy.mining.pnml import read_pnml
+
+    week = _week(tmp_path)
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+
+    # A new Petri net is "Untitled 1.pnml" straight away, autosaved without a dot.
+    window.action_new_petri()
+    net, page = window.documents[-1], window.current_page()
+    assert net.path and Path(net.path).name == "Untitled 1.pnml" and net.autosave
+    from cpnpy.model.net import Place
+    page._checkpoint()
+    net.net.pages[0].places.append(Place(name="start"))
+    page._edited()
+    assert net.dirty and window.items[net.id].text(0) == "Untitled 1"   # no dot
+    assert "edited" not in page.header.subtitle.text()
+    assert _wait_for(app, lambda: not net.dirty, AUTOSAVE_DELAY / 1000 + 2)
+    assert [p.name for p in read_pnml(net.path).places.values()] == ["start"]
+    _pump(app, 0.8)
+    assert window.pages[net.id] is page          # its own save is not reloaded
+
+    # Renaming the net renames the file; a new coloured net is a .cpn.
+    import cpnpy.gui.studio.app as studio_app
+    original = studio_app.QInputDialog.getText
+    studio_app.QInputDialog.getText = lambda *args, **kwargs: ("first net", True)
+    try:
+        window.rename_document(net)
+    finally:
+        studio_app.QInputDialog.getText = original
+    assert (week / "first net.pnml").exists() and not (week / "Untitled 1.pnml").exists()
+    window.action_new_cpn()
+    assert Path(window.documents[-1].path).name == "Untitled 1.cpn"
+
+    # A log typed in notation is saved as <name>.xes; a filtered log goes next to its source.
+    window.add_document(LogDocument(EventLog.from_simple_log(
+        parse_simple_log("[<a,b,c>^2, <a,c>]"), "L1")))
+    assert (week / "L1.xes").exists() and window.documents[-1].path == str(week / "L1.xes")
+    window.open_path(str(week / "logs" / "boarding.xes"))
+    assert _wait_for(app, lambda: any(d.name == "Boarding" for d in window.documents))
+    boarding = next(d for d in window.documents if d.name == "Boarding")
+    filtered_log = EventLog.from_simple_log(parse_simple_log("[<a,b>^2]"), "Boarding (filtered)")
+    window.pages[boarding.id].open_log.emit(LogDocument(filtered_log))
+    assert (week / "logs" / "Boarding (filtered).xes").exists()
+
+    # A discovered model waits for Keep, then goes next to its log.
+    model = ModelDocument(alpha_miner(boarding.simple_log()).net, origin="α",
+                          source_log=boarding)
+    model.net.name = "α · Boarding"
+    window.add_document(model)
+    model_page = window.current_page()
+    assert model.path is None and model_page.keep_button.isVisibleTo(window)
+    assert window.items[model.id].parent() is window.unsaved_section
+    model_page.keep_button.click()
+    kept = week / "logs" / "α · Boarding.pnml"
+    assert kept.exists() and Path(model.path) == kept and read_pnml(str(kept)).transitions
+    assert not model_page.keep_button.isVisibleTo(window)
+
+    # Turning autosave off brings the edited dot back.
+    window.set_autosave(False)
+    page.set_dirty(True)
+    assert window.items[net.id].text(0) == "first net  •"
+    window.set_autosave(True)
+    assert _wait_for(app, lambda: not net.dirty, AUTOSAVE_DELAY / 1000 + 2)
+    window.close()
+
+
+def test_opening_a_file_from_outside_the_folder(app, tmp_path, monkeypatch, fake_bin):
+    """#9: copy (the default), move or open in place; name clashes; the
+    remembered choice; dropping onto a subfolder."""
+    import shutil
+
+    from cpnpy.gui.studio import app as studio_app
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.workspace import Workspace
+
+    root = Path(__file__).resolve().parents[1]
+    week = _week(tmp_path)
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    source = downloads / "unsound.pnml"
+    shutil.copy(root / "examples" / "petri" / "order_handling_unsound.pnml", source)
+
+    asked = []
+
+    class FakeImportDialog:
+        choice_to_make, always = "copy", False
+
+        def __init__(self, names, folder, parent=None, allow_open=True, default="copy"):
+            asked.append((names, allow_open))
+            from PySide6.QtWidgets import QCheckBox
+            self.always = QCheckBox()
+            self.always.setChecked(FakeImportDialog.always)
+
+        def exec(self):
+            return studio_app.QDialog.Accepted
+
+        def choice(self):
+            return FakeImportDialog.choice_to_make
+
+    clash_answers = []
+    monkeypatch.setattr(studio_app, "ImportDialog", FakeImportDialog)
+    monkeypatch.setattr(studio_app, "ask_about_clash", lambda parent, target: clash_answers.pop(0))
+
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+
+    # Copy: the original stays, the copy in the folder is what opens.
+    window.open_files([str(source)])
+    assert source.exists() and (week / "unsound.pnml").exists()
+    assert window.documents[-1].path == str(week / "unsound.pnml")
+    assert asked[-1] == (["unsound.pnml"], True)
+
+    # The same name again: keep both ("unsound 2.pnml"), or replace.
+    clash_answers.append("keep")
+    window.open_files([str(source)])
+    assert (week / "unsound 2.pnml").exists()
+    clash_answers.append("replace")
+    (week / "unsound 2.pnml").write_text("old")
+    window.open_files([str(source)])                 # "unsound.pnml" is open: replaced
+    assert (fake_bin / "unsound.pnml").exists()       # the replaced one is in the Bin
+
+    # Move, remembered for this folder ("Always do this").
+    FakeImportDialog.choice_to_make, FakeImportDialog.always = "move", True
+    other = downloads / "other.pnml"
+    shutil.copy(source, other)
+    window.open_files([str(other)])
+    assert not other.exists() and (week / "other.pnml").exists()
+    assert Workspace(week).settings()["import"] == "move"
+    asked.clear()
+    third = downloads / "third.pnml"
+    shutil.copy(source, third)
+    window.open_files([str(third)])
+    assert asked == [] and (week / "third.pnml").exists() and not third.exists()
+
+    # Open in place (the folder's choice changed back to asking).
+    Workspace(week).update_settings(**{"import": None})
+    FakeImportDialog.choice_to_make, FakeImportDialog.always = "open", False
+    window.open_files([str(source)])
+    assert window.documents[-1].path == str(source)
+    assert window.items[window.documents[-1].id].parent() is window.elsewhere_section
+
+    # Dropped from Finder onto a subfolder: it goes there ("open in place" is not offered).
+    FakeImportDialog.choice_to_make = "copy"
+    log = downloads / "events.xes"
+    shutil.copy(week / "logs" / "boarding.xes", log)
+    window.tree.paths_dropped.emit([str(log)], str(week / "logs"), False)
+    assert (week / "logs" / "events.xes").exists() and asked[-1] == (["events.xes"], False)
     window.close()

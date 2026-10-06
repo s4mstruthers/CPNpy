@@ -479,6 +479,46 @@ class PageHeader(QWidget):
         super().mouseDoubleClickEvent(event)
 
 
+class NoticeBar(QFrame):
+    """A bar above a page about its file: "changed on disk", "missing", …
+
+    Hidden until :meth:`show_notice`; the buttons are (text, slot) pairs.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("noticeBar")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 8, 10, 8)
+        layout.setSpacing(8)
+        self.text = QLabel()
+        self.text.setWordWrap(True)
+        layout.addWidget(self.text, 1)
+        self.buttons = QHBoxLayout()
+        self.buttons.setSpacing(6)
+        layout.addLayout(self.buttons)
+        self.kind: str | None = None
+        self.setVisible(False)
+
+    def show_notice(self, kind: str, text: str, actions: list) -> None:
+        """Show ``text`` with buttons; ``kind`` names the notice ("changed", "missing")."""
+        self.kind = kind
+        self.text.setText(text)
+        while self.buttons.count():
+            widget = self.buttons.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        for index, (caption, slot) in enumerate(actions):
+            self.buttons.addWidget(button(caption, slot, kind="primary" if index == 0 else None))
+        self.setVisible(True)
+
+    def clear(self, kind: str | None = None) -> None:
+        """Hide the bar (only if it shows ``kind``, when given)."""
+        if kind is None or self.kind == kind:
+            self.kind = None
+            self.setVisible(False)
+
+
 # ---------------------------------------------------------------------------
 # Where file dialogs start
 # ---------------------------------------------------------------------------

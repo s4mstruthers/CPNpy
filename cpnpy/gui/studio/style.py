@@ -199,6 +199,9 @@ def stylesheet() -> str:
     #pageHeader {{ background: {t.page}; }}
     #pageTitle {{ font-size: 22px; font-weight: 700; }}
     #pageSubtitle {{ color: {t.text_muted}; }}
+    #noticeBar {{ background: {qc(STATUS["warning"], 0.16).name(QColor.HexArgb)};
+                  border-bottom: 1px solid {qc(STATUS["warning"], 0.45).name(QColor.HexArgb)}; }}
+    #noticeBar QLabel {{ color: {t.text}; }}
     #card {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: {RADIUS}px; }}
     #cardTitle {{ font-weight: 600; font-size: 13px; }}
     #cardCaption, #muted {{ color: {t.text_muted}; }}

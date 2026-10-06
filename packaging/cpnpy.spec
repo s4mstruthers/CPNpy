@@ -23,9 +23,9 @@ PACKAGING = Path(SPECPATH)
 ROOT = PACKAGING.parent
 ICONS = PACKAGING / "icons"
 
-# One version number for everything: the one in pyproject.toml.
-VERSION = re.search(r'^version\s*=\s*"([^"]+)"',
-                    (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M).group(1)
+# One version number for everything: __version__ in cpnpy/__init__.py.
+VERSION = re.search(r'^__version__\s*=\s*"([^"]+)"',
+                    (ROOT / "cpnpy" / "__init__.py").read_text(encoding="utf-8"), re.M).group(1)
 
 if sys.platform == "darwin":
     ICON = str(ICONS / "CPNpy.icns")

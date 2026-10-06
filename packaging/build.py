@@ -72,8 +72,9 @@ def run(command: list[str], title: str, attempts: int = 1, **options) -> None:
 
 
 def version() -> str:
-    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    return re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)
+    """The version number, from its one home: ``__version__`` in cpnpy/__init__.py."""
+    text = (ROOT / "cpnpy" / "__init__.py").read_text(encoding="utf-8")
+    return re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.M).group(1)
 
 
 def system_name() -> str:

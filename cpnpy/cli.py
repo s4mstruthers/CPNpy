@@ -13,7 +13,7 @@ Commands
 ``statespace``  generate the reachability graph and print the report
 ``example``     write a built-in example model to a ``.cpn`` file
 ``gui``         launch the CPN editor
-``studio``      launch CPNpy Studio (process mining workspace)
+``studio``      launch CPNpy Studio (the desktop app)
 ``mine``        process mining from the command line:
                 ``stats``, ``filter``, ``discover``, ``conform``,
                 ``soundness``, ``invariants``

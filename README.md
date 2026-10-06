@@ -21,7 +21,7 @@
 | **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
 | **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
-| **Workspaces** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, new nets are saved there, and what you had open comes back next time. | Finder windows and *File ▸ Open* every time |
+| **Folders** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, with its subfolders. The folder and the app stay in step both ways: new nets and edits are saved into it as you go, and changes made in Finder show up by themselves. | Finder windows and *File ▸ Open* every time |
 
 ---
 
@@ -29,7 +29,7 @@
 
 - [Install](#install)
 - [Quick start](#quick-start)
-- [Workspaces: a folder per week](#workspaces-a-folder-per-week)
+- [Folders: one per week](#folders-one-per-week)
 - [Petri nets and WF-nets](#petri-nets-and-wf-nets)
 - [Process mining](#process-mining)
 - [Coloured Petri nets](#coloured-petri-nets)
@@ -65,6 +65,9 @@ once, the first time you start one:
   in Terminal: `xattr -dr com.apple.quarantine /Applications/CPNpy.app`.)
 - **Windows** shows *Windows protected your PC*. Click *More info*, then
   *Run anyway*.
+
+Later versions install themselves: the app says when one is out, or ask with
+**Help ▸ Check for Updates…**.
 
 ### From source
 
@@ -142,9 +145,9 @@ and Linux (see [Keyboard shortcuts](#keyboard-shortcuts)).
 
 ## Quick start
 
-**Work in a folder** (recommended): **File ▸ Open Workspace Folder…**
+**Work in a folder** (recommended): **File ▸ Open Folder…**
 (⌥⌘O / Ctrl+Alt+O) and pick a folder such as *Week 2*, or drop the folder
-onto the window. See [Workspaces](#workspaces-a-folder-per-week).
+onto the window. See [Folders](#folders-one-per-week).
 
 **Check whether a WF-net is sound**
 
@@ -173,7 +176,8 @@ handling (unsound — try Analysis)**.
    *Process map*, *Footprint*. **Filter…** keeps part of the log as a new
    log.
 3. On the *Discover* tab, pick an algorithm and press **Discover**. **Open as
-   model →** adds the result to the sidebar under **MODELS**.
+   model →** adds the result to the sidebar (under **MODELS**, or
+   **UNSAVED** in a folder until you press **Keep** to save it there).
 4. On the model's *Conformance* tab, choose a log and press **Check
    conformance**.
 
@@ -184,36 +188,95 @@ handling (unsound — try Analysis)**.
 
 ---
 
-## Workspaces: a folder per week
+## Folders: one per week
 
 Keep each week's material in a folder (the logs from the course, the nets
-you draw) and open the folder as a **workspace**: **File ▸ Open Workspace
-Folder…** (⌥⌘O / Ctrl+Alt+O), or drag the folder onto the window.
+you draw) and open it: **File ▸ Open Folder…** (⌥⌘O / Ctrl+Alt+O), or drag
+the folder onto the window. **The sidebar and the folder always match**:
+what you see in CPNpy is what is in Finder (or Explorer), and the other way
+round.
 
-![A workspace: the folder Week 2, with one net open and the others listed](docs/screenshots/workspace.png)
+![The folder Week 2 in the sidebar, with its subfolders, one net open and the others listed](docs/screenshots/workspace.png)
 
-- The sidebar lists **every event log and net in the folder**, under the
-  folder's name. Files that are not open yet are shown lighter: **click one
-  to open it**. Closing a file (✕ or ⌘W) puts it back in that state, so
-  nothing disappears from the list.
-- **New nets are saved into the folder**: the Save dialog starts there.
-  Exported logs and pictures go there too unless you pick another place.
-- Files you add, rename or delete in Finder (or Explorer) **appear by
-  themselves**. Subfolders are included (up to three levels deep and 500
-  files), with hidden files and folders skipped, as Finder does. A file in a
-  subfolder is listed by its name; hover over it to see where it is.
-- **What you had open comes back** the next time you open the workspace, and
-  the app reopens the last workspace at launch. This is kept in a small
-  hidden file, `.cpnpy`, in the folder. It stores paths relative to the
-  folder, so it keeps working if you move or sync the folder. Delete it to
-  start fresh.
-- Switch with **File ▸ Open Recent Workspace**, the buttons on the welcome
+**In the sidebar**
+
+- **Every event log and net in the folder** is listed, open or not. Files
+  that are not open yet are lighter: **click one to open it**. Closing a file
+  (✕ or ⌘W) puts it back in that state; it stays in the folder.
+- **Folders** shows the folder as it is on disk, with collapsible subfolders
+  (folders first, then files, by name). **By kind** groups the files into
+  event logs, Petri nets and coloured nets instead. The choice, and which
+  subfolders are open, is remembered for each folder.
+- **Organise from the app**: right-click for **New Folder…**, **Rename…**,
+  **Show in Finder** and **Move to Bin** (recoverable from the Bin; never a
+  hard delete). **Drag files onto a subfolder** to move them on disk. An open
+  file that is moved or renamed stays open, unsaved edits included. Drag a
+  file out of the sidebar to Finder to copy it there.
+- Subfolders are listed up to three levels deep and 500 files (a row says
+  so when there are more), with hidden files and tools' folders
+  (`__pycache__`, `.git`, …) skipped, as Finder does.
+
+**From the app to the folder**
+
+- **New nets are files from the start**: *New Petri Net* creates
+  `Untitled 1.pnml` (a coloured net, `Untitled 1.cpn`) in the folder. Rename
+  the net (double-click its name) and the file is renamed with it.
+- **Edits are saved as you go** (autosave): a second after you stop editing,
+  and when you switch to another file or quit. There is no "edited" dot, and
+  undo still works. Turn it off with **File ▸ Autosave**. **File ▸ Revert to
+  Saved…** goes back to the file as it was when you opened it.
+  A `.cpn` model made in CPN Tools is not autosaved (CPNpy would rewrite it
+  in its own writer) until you save it once yourself with ⌘S.
+- **Logs you make are files too**: a log typed in notation is saved as
+  `<name>.xes`, a filtered log as `<log> (filtered).xes` next to the log it
+  came from, and a CPN simulation's log as `<model> simulation.xes`.
+- **A discovered model** stays in the **UNSAVED** group until you press
+  **Keep**, so trying algorithms does not fill the folder. Keep saves it as
+  PNML next to its log.
+- Saving writes a temporary file and then swaps it in, so a crash never
+  leaves a half-written file.
+
+**From the folder to the app**
+
+- Files **added, renamed or deleted in Finder** (or by any other app, a
+  `git pull`, iCloud) appear and disappear by themselves, in about half a
+  second on macOS.
+- **An open file changed on disk** (a `.xes` exported again from ProM, a
+  `.pnml` edited in WoPeD) is **reloaded** by itself. If it also has edits in
+  CPNpy that are not saved yet, a bar above the page asks: *Reload (lose my
+  edits)* or *Keep Mine*. CPNpy's own saves are recognised and never reload.
+- **An open file deleted or moved away** stays open, shown in italics with a
+  *missing* bar: *Save As…* to keep it. It is not quietly recreated.
+- A file still being copied in is not read half-way.
+- With iCloud Drive's *Optimise Mac Storage*, files that are only in iCloud
+  are listed with a ☁: click one to download and open it.
+
+**Files from elsewhere**
+
+Opening a file from outside the folder (*File ▸ Open…*, *Open Recent*, or
+dropping it on the window) asks whether to **copy it into the folder** (the
+default: the original stays where it is), **move it in**, or **open it from
+where it is**. Tick *Always do this* to stop asking for that folder, or set
+the default in **Settings**. A file with the same name already in the folder
+is never overwritten silently: *Keep Both* (`Wilma 50 2.xes`) or *Replace*
+(the old one goes to the Bin). Dropping a file onto a subfolder in the
+sidebar puts it there. Files opened where they are appear under **OTHER
+FILES**.
+
+**Coming back**
+
+- **What you had open comes back** the next time you open the folder, and
+  the app reopens the last folder at launch. This is kept in a small hidden
+  file, `.cpnpy`, in the folder, with paths relative to the folder, so it
+  keeps working if you move or sync the folder. Delete it to start fresh.
+- Switch with **File ▸ Open Recent Folder**, the buttons on the welcome
   page, or the **⋯** menu next to the folder's name, which also has *Show in
-  Finder* and *Close Workspace*.
+  Finder*, *New Folder…* and *Close Folder*.
 
-Opening a workspace closes the files that are not in it (it asks first about
-unsaved changes). Without a workspace, the app works with loose files, and
-reopens the files you had open at launch (*File ▸ Reopen Files at Launch*
+Opening a folder closes the files that are not in it (it asks first about
+unsaved changes). Without a folder, the app works with loose files as
+before: nothing is autosaved or created on disk until you save it, and the
+files you had open come back at launch (*File ▸ Reopen Files at Launch*
 turns that off).
 
 A tip for the course: one folder per week inside your course folder, e.g.
@@ -293,8 +356,10 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Generate event log…:** plays the net out many times and opens the
   traces as a log.
 - **Saving:** nets are saved as **PNML** (ProM, WoPeD and PM4Py read it), or
-  as `.cpn`. A new net is called *Untitled 1* until you save it; *Save As*
-  names it after the file.
+  as `.cpn`. *Save As* names the net after its file. With a folder open, a
+  new net is `Untitled 1.pnml` in the folder from the start and is saved as
+  you edit ([Folders](#folders-one-per-week)); without one, it is called
+  *Untitled 1* until you save it.
 - **Renaming:** double-click the net's name in the sidebar, or its title
   above the canvas. The file is renamed with it, in the same folder (an
   existing file is never overwritten).
@@ -407,6 +472,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 | Rename | Double-click the place or transition, or use the Element tab |
 | Rename a net or log | Double-click its name in the sidebar or the title above the canvas. A net named after its file (as every opened or saved net is) renames the file too, in the same folder. |
 | Connect | Hover near a place or transition and drag the translucent arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
+| Pan | Scroll, or drag with the middle mouse button (also past the edge of the net; *Fit* brings it back) |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |
 | Remove a bend | Drag it back into line with its neighbours |
@@ -431,7 +497,7 @@ The app shows each shortcut the way your system writes it.
 | New Petri net | ⌘N | Ctrl+N |
 | New coloured Petri net | ⇧⌘N | Ctrl+Shift+N |
 | Open… | ⌘O | Ctrl+O |
-| Open workspace folder… | ⌥⌘O | Ctrl+Alt+O |
+| Open folder… | ⌥⌘O | Ctrl+Alt+O |
 | Open coloured Petri net… | ⇧⌘O | Ctrl+Shift+O |
 | Log from notation… | ⌘L | Ctrl+L |
 | Compare logs… | ⇧⌘C | Ctrl+Shift+C |
@@ -441,7 +507,9 @@ The app shows each shortcut the way your system writes it.
 | Step (fire one random enabled transition) | ⌘. | Ctrl+. |
 | Zoom in / out / fit / 100 % | ⌘+ / ⌘− / ⌘0 / ⌥⌘0 | Ctrl++ / Ctrl+− / Ctrl+0 / Ctrl+Alt+0 |
 | Zoom with the mouse | ⌘-scroll or pinch | Ctrl+scroll or pinch |
+| Pan | scroll, or middle-drag | scroll, or middle-drag |
 | Toggle sidebar | ⌥⌘S | Ctrl+Alt+S |
+| Settings… | ⌘, | Ctrl+, |
 | Welcome page | ⌘1 | Ctrl+1 |
 | Export selected… | ⌘E | Ctrl+E |
 | Close / close all | ⌘W / ⇧⌘W | Ctrl+W / Ctrl+Shift+W |
@@ -457,7 +525,7 @@ The app shows each shortcut the way your system writes it.
 | Petri nets: `.pnml` (with positions, weights, τ, arc bends) | ✓ | ✓ |
 | CPN Tools models: `.cpn` | ✓ | ✓ |
 | Pictures of nets and charts | | `.png`, `.svg` |
-| Workspace state: `.cpnpy` (hidden, in the folder) | ✓ | ✓ |
+| Folder state: `.cpnpy` (hidden, in the folder) | ✓ | ✓ |
 
 Example files: `examples/petri/*.pnml` (Petri nets), `examples/*.cpn`
 (coloured nets) and `tests/data/` (a plane-boarding model and log from the
@@ -509,19 +577,32 @@ run's page, under *Artifacts*).
 
 **Publishing a release:**
 
-1. Set `version` in `pyproject.toml` (e.g. `0.2.0`) and merge that into `main`.
-   The download files are named after it.
+1. Set `__version__` in `cpnpy/__init__.py` (e.g. `0.3.0`) and merge that
+   into `main`. It is the only place the version is written:
+   `pyproject.toml`, the download names and the app's update check all read
+   it from there.
 2. Tag that commit with the same version and push the tag:
 
    ```bash
    git pull
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.3.0
+   git push origin v0.3.0
    ```
 
 About five minutes later the
 [Releases page](https://github.com/s4mstruthers/CPNpy/releases) has the
-macOS (Apple silicon and Intel), Windows and Linux apps.
+macOS (Apple silicon and Intel), Windows and Linux apps, each with a
+`.sha256` checksum. (The build refuses a tag that does not match
+`__version__`.)
+
+**Updates.** The app checks the latest release on GitHub at launch (at most
+once a day; *Settings* turns that off) and with **Help ▸ Check for
+Updates…**. If it is newer than the running version, it shows the release
+notes and offers *Download & Install*: the app downloads the file for its
+system, checks it against its checksum, unpacks it next to itself, and
+restarts into the new version (the old one is kept until the new one is in
+place). Run from source, it does not change itself and says to `git pull`
+instead. See `cpnpy/gui/studio/updates.py`.
 
 ---
 

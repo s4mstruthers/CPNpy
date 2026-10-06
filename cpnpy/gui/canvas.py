@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 from ..model.net import Arc, CPNet, Page, Place, Transition
 from . import arc_editing as edit
 from . import theme
+from .panning import MiddleButtonPan
 from .items import (
     PLAIN_PLACE, ArcItem, PlaceItem, TransitionItem, to_model,
 )
@@ -965,9 +966,9 @@ class _ClickAway(QObject):
         return False
 
 
-class NetView(QGraphicsView):
+class NetView(MiddleButtonPan, QGraphicsView):
     """A viewport with zooming (floating − % + Fit bar, ⌘-scroll, pinch)
-    and panning (scroll, or drag with the middle button)."""
+    and panning (scroll, or drag with the middle button; see :mod:`.panning`)."""
 
     zoom_changed = Signal(float)
     MIN_ZOOM, MAX_ZOOM = 0.1, 5.0
@@ -1108,6 +1109,7 @@ class NetView(QGraphicsView):
     def zoom_to_fit(self) -> None:
         """Frame the whole page, within sensible magnification limits."""
         self.auto_fit = True
+        self.reset_pan_area()
         items_rect = self.scene().itemsBoundingRect()
         if items_rect.isEmpty():
             return
@@ -1179,13 +1181,3 @@ class NetView(QGraphicsView):
             scene.hide_connect_handle()
         super().leaveEvent(event)
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MiddleButton:
-            self.setDragMode(QGraphicsView.ScrollHandDrag)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        super().mouseReleaseEvent(event)
-        if self.dragMode() == QGraphicsView.ScrollHandDrag and self.scene() is not None \
-                and getattr(self.scene(), "tool", "select") == "select":
-            self.setDragMode(QGraphicsView.RubberBandDrag)

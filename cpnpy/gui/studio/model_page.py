@@ -96,6 +96,8 @@ class ModelPage(QWidget):
     saved = Signal()
     #: "Edit" was pressed: open this net (a copy) in the Petri net editor.
     edit_requested = Signal(object)
+    #: "Keep" was pressed: save this discovered model into the open folder.
+    keep_requested = Signal()
 
     def __init__(self, document: ModelDocument, open_logs, parent=None) -> None:
         """``open_logs`` is a callable returning the currently open LogDocuments."""
@@ -111,6 +113,11 @@ class ModelPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.header = PageHeader(self.net.name, self._subtitle())
+        # Shown by the window while a discovered model is not in the open folder yet.
+        self.keep_button = button("Keep", self.keep_requested.emit, kind="primary",
+                                  tooltip="Save this model into the folder as a PNML file")
+        self.keep_button.setVisible(False)
+        self.header.actions.addWidget(self.keep_button)
         self.header.actions.addWidget(button("✎ Edit a copy", lambda: self.edit_requested.emit(
             self.net), tooltip="Open this net in the Petri net editor to change it"))
         self.header.actions.addWidget(button("Export PNML…", self.export))
@@ -715,12 +722,20 @@ class ModelPage(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "Export Petri net", suggested_path(f"{self.net.name}.pnml"),
                                               "PNML (*.pnml)")
         if path:
-            positions = {node_id: (item.pos().x(), item.pos().y())
-                         for node_id, item in self.view.graph.nodes.items()}
-            write_pnml(self.net, path, positions)
-            self.document.path = path
+            self.write_to(path)
+
+    def write_to(self, path: str, quiet: bool = False) -> None:
+        """Save as PNML at ``path``, with the current layout; it is then that file."""
+        from .workspace import atomic_write
+        positions = {node_id: (item.pos().x(), item.pos().y())
+                     for node_id, item in self.view.graph.nodes.items()}
+        atomic_write(path, lambda temporary: write_pnml(self.net, temporary, positions))
+        self.document.path = path
+        self.document.missing = False
+        self.keep_button.setVisible(False)
+        if not quiet:
             self.status.emit(f"Saved {path}")
-            self.saved.emit()
+        self.saved.emit()
 
     def _export_image(self) -> None:
         path, chosen = QFileDialog.getSaveFileName(self, "Export image", suggested_path(f"{self.net.name}.png"),
