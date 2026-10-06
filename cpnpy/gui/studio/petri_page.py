@@ -48,6 +48,7 @@ from ...model.net import Arc, Place, Transition
 from ...model.plain import to_petri_net, token_count, tokens_text, weight_of
 from .cpn_page import CpnPage
 from .documents import ModelDocument
+from .workspace import atomic_write
 from .widgets import (
     suggested_path,
     Card, Verdict, button, flow, footprint_table, hbox, label, status_for,
@@ -795,7 +796,7 @@ class PetriNetPage(CpnPage):
         places = sum(1 for _ in self.net.all_places())
         transitions = sum(1 for _ in self.net.all_transitions())
         where = Path(self.document.path).name if self.document.path else "not saved yet"
-        state = " · edited" if self.document.dirty else ""
+        state = " · edited" if self.document.dirty and not self.document.autosave else ""
         return (f"Petri net · {places} places · {transitions} transitions · "
                 f"{where}{state}")
 
@@ -814,16 +815,14 @@ class PetriNetPage(CpnPage):
         self._take_file_name(Path(path))
         return self._write(Path(path))
 
-    def _write(self, path: Path) -> bool:
+    def _write(self, path: Path, quiet: bool = False) -> bool:
         if path.suffix.lower() == ".cpn":
-            return super()._write(path)
+            return super()._write(path, quiet)
         try:
-            write_pnml(self.petri_net(), path)
+            net = self.petri_net()
+            atomic_write(path, lambda temporary: write_pnml(net, temporary))
         except Exception as error:  # noqa: BLE001
             QMessageBox.critical(self, "Could not save the net", str(error))
             return False
-        self.document.path = str(path)
-        self.set_dirty(False)
-        self.status.emit(f"Saved {path.name}")
-        self.saved.emit()
+        self._written(path, quiet)
         return True

@@ -51,6 +51,7 @@ from . import style
 from .derivation_view import HtmlDelegate
 from .documents import CpnDocument
 from .graph_view import EdgeSpec, GraphView, NodeSpec
+from .workspace import atomic_write
 from .ml_highlighter import MlHighlighter
 from .widgets import (
     suggested_path,
@@ -167,6 +168,8 @@ class CpnPage(QWidget):
     saved = Signal()
     #: The model was edited (True) or saved (False).
     dirty_changed = Signal(bool)
+    #: Any edit at all (the window's autosave timer restarts on each one).
+    edited = Signal()
     #: A simulation run was exported as an event log.
     log_generated = Signal(object)
 
@@ -700,7 +703,7 @@ class CpnPage(QWidget):
         transitions = sum(1 for _ in self.net.all_transitions())
         pages = len(self.net.pages)
         where = Path(self.document.path).name if self.document.path else "not saved yet"
-        state = " · edited" if self.document.dirty else ""
+        state = " · edited" if self.document.dirty and not self.document.autosave else ""
         return (f"Coloured Petri net · {pages} page{'s' * (pages != 1)} · {places} places · "
                 f"{transitions} transitions · {where}{state}")
 
@@ -1355,6 +1358,8 @@ class CpnPage(QWidget):
         if self.document.dirty != dirty:
             self.document.dirty = dirty
             self.dirty_changed.emit(dirty)
+        if dirty:
+            self.edited.emit()
         self.refresh_title()
 
     # -- pages --------------------------------------------------------------------------
@@ -1689,17 +1694,29 @@ class CpnPage(QWidget):
             self.net.name = path.stem
             self.refresh_title()
 
-    def _write(self, path: Path) -> bool:
+    def _write(self, path: Path, quiet: bool = False) -> bool:
+        """Save to ``path``.  ``quiet``: an autosave (no status message)."""
         try:
-            write_cpn(self.net, path)
+            atomic_write(path, lambda temporary: write_cpn(self.net, temporary))
         except Exception as error:  # noqa: BLE001
             QMessageBox.critical(self, "Could not save model", str(error))
             return False
-        self.document.path = str(path)
-        self.set_dirty(False)
-        self.status.emit(f"Saved {path.name}")
-        self.saved.emit()
+        self._written(path, quiet)
         return True
+
+    def _written(self, path: Path, quiet: bool) -> None:
+        self.document.path = str(path)
+        self.document.missing = False
+        self.set_dirty(False)
+        if not quiet:
+            self.status.emit(f"Saved {path.name}")
+        self.saved.emit()
+
+    def autosave(self) -> bool:
+        """Save to the document's file without a word (the window decides when)."""
+        if not self.document.path or not self.document.dirty:
+            return True
+        return self._write(Path(self.document.path), quiet=True)
 
     def _export_image(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Export image",
@@ -1811,6 +1828,6 @@ def simulation_to_log(net: CPNet, records, case_variable: str, unit: str = "minu
             if name != case_variable:
                 event.attributes[f"cpn:{name}"] = format_value(value)
         trace.events.append(event)
-    log = EventLog(attributes={KEY_NAME: f"Simulation · {net.name}"})
+    log = EventLog(attributes={KEY_NAME: f"{net.name} simulation"})
     log.traces.extend(traces.values())
     return log

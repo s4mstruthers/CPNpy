@@ -11,7 +11,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cpnpy"
-version = "0.2.0"
+# The version number lives in one place, cpnpy/__init__.py (__version__): the
+# package, the app's update check and the build script all read it from there.
+dynamic = ["version"]
 description = "A modern ProM and CPN IDE in one app: process mining, Petri nets and coloured Petri nets"
 readme = "README.md"
 # 3.10 is the floor: we use PEP 604 unions and structural pattern matching.
@@ -41,6 +43,9 @@ cpnpy = "cpnpy.cli:main"
 [project.gui-scripts]
 cpn-ide = "cpnpy.gui.app:main"
 cpnpy-studio = "cpnpy.gui.studio.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "cpnpy.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["cpnpy*"]

@@ -1,12 +1,19 @@
-"""Workspace folders: a folder such as "Week 2" as the unit you work in.
+"""Working in a folder such as "Week 2".
 
-Opening a folder as a workspace (File ▸ Open Workspace Folder…) makes the
-sidebar list every event log and Petri net in it, opened or not, and makes
-save dialogs start in it.  This module is the part that does not need Qt:
+Opening a folder (File ▸ Open Folder…) makes the sidebar list every event
+log and Petri net in it, opened or not, and keeps the folder and the app in
+step.  Internally the open folder is a :class:`Workspace`; the app only ever
+calls it a folder.  This module is the part that does not need Qt:
 
-* :meth:`Workspace.files` -- which files in the folder the app can open;
+* :meth:`Workspace.tree` / :meth:`Workspace.files` -- the subfolders and the
+  files in the folder the app can open;
 * :meth:`Workspace.load_state` / :meth:`Workspace.save_state` -- which of
-  them were open, so the workspace comes back as you left it.
+  them were open, so the folder comes back as you left it;
+* :meth:`Workspace.settings` / :meth:`Workspace.update_settings` -- choices
+  made for this folder (the sidebar's view, expanded subfolders, what to do
+  with files opened from elsewhere);
+* :func:`unique_path` and :func:`atomic_write` -- naming and writing the
+  files the app creates in the folder.
 
 The state lives in a small hidden JSON file, ``.cpnpy``, inside the folder.
 Paths in it are relative to the folder, so the workspace still works after
@@ -18,9 +25,9 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 #: What the app can open, by extension, and the sidebar section it goes in.
 KINDS = {
@@ -41,8 +48,18 @@ MAX_DEPTH = 3
 #: (your home folder, say) does not freeze the window.
 MAX_FILES = 500
 
+#: At most this many subfolders are listed (and watched for changes).
+MAX_FOLDERS = 200
+
 #: Folders never looked into: tools' caches and the like.
 SKIPPED_FOLDERS = {"__pycache__", "node_modules", "build", "dist", "venv", ".venv"}
+
+#: iCloud Drive's "Optimise Mac Storage" replaces a file that is only in
+#: iCloud by a hidden placeholder: ``Week 2.xes`` becomes ``.Week 2.xes.icloud``.
+ICLOUD_SUFFIX = ".icloud"
+
+#: Characters macOS, Windows or Linux do not allow in a file name.
+FORBIDDEN_CHARACTERS = set('/\\:*?"<>|')
 
 
 def file_kind(path: Path) -> str | None:
@@ -51,6 +68,72 @@ def file_kind(path: Path) -> str | None:
     if name.endswith(".xes.gz"):
         return KINDS[".xes.gz"]
     return KINDS.get(path.suffix.lower())
+
+
+def file_suffix(name: str) -> str:
+    """The whole extension: ``log.xes.gz`` gives ``.xes.gz`` (not just ``.gz``)."""
+    return name[-7:] if name.lower().endswith(".xes.gz") else os.path.splitext(name)[1]
+
+
+def file_stem(name: str) -> str:
+    """The file name without :func:`file_suffix`."""
+    return name[: len(name) - len(file_suffix(name))]
+
+
+def safe_file_name(name: str) -> str:
+    """``name`` usable as a file name: forbidden characters become "-"."""
+    cleaned = "".join("-" if c in FORBIDDEN_CHARACTERS or ord(c) < 32 else c for c in name)
+    cleaned = cleaned.strip().strip(".")
+    return cleaned or "Untitled"
+
+
+def unique_path(folder: str | Path, file_name: str) -> Path:
+    """``folder/file_name``, or the first free ``"name 2.ext"``, ``"name 3.ext"``, …
+
+    The numbering is Finder's ("Keep both"), so ``Wilma 50.xes`` becomes
+    ``Wilma 50 2.xes``.  An iCloud placeholder counts as taken.
+    """
+    folder = Path(folder)
+    stem, suffix = file_stem(file_name), file_suffix(file_name)
+
+    def taken(name: str) -> bool:
+        return (folder / name).exists() or (folder / f".{name}{ICLOUD_SUFFIX}").exists()
+
+    candidate, number = file_name, 2
+    while taken(candidate):
+        candidate = f"{stem} {number}{suffix}"
+        number += 1
+    return folder / candidate
+
+
+def atomic_write(path: str | Path, write: Callable[[Path], Any]) -> None:
+    """Write a file so that a crash never leaves it half-written.
+
+    ``write`` writes to a hidden temporary file next to ``path`` (with the
+    same extension, so writers that look at it still work), which then
+    replaces ``path`` in one step.
+    """
+    path = Path(path)
+    temporary = path.with_name(f".~{path.name}")
+    try:
+        write(temporary)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def made_by_cpnpy(path: str | Path) -> bool:
+    """True when a ``.cpn`` file was written by CPNpy (not by CPN Tools, say)."""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(4096)
+    except OSError:
+        return False
+    return b'tool="CPNpy"' in head
 
 
 def display_name(relative: str) -> str:
@@ -73,10 +156,40 @@ class WorkspaceFile:
     path: Path          # absolute
     relative: str       # inside the folder, with "/" separators
     kind: str           # "log", "petri" or "cpn"
+    #: Only in iCloud for now ("Optimise Mac Storage"): ``path`` does not exist
+    #: yet, a placeholder (:attr:`cloud_placeholder`) stands in for it.
+    in_cloud: bool = False
 
     @property
     def name(self) -> str:
         return display_name(self.relative)
+
+    @property
+    def cloud_placeholder(self) -> Path:
+        return self.path.with_name(f".{self.path.name}{ICLOUD_SUFFIX}")
+
+
+@dataclass
+class WorkspaceFolder:
+    """A folder in the workspace (the workspace's own folder too), with its contents."""
+
+    path: Path
+    relative: str                       # "" for the workspace's own folder
+    folders: list["WorkspaceFolder"] = field(default_factory=list)
+    files: list[WorkspaceFile] = field(default_factory=list)
+    #: True (on the top folder) when :data:`MAX_FILES` or :data:`MAX_FOLDERS`
+    #: cut the listing short.
+    truncated: bool = False
+
+    @property
+    def name(self) -> str:
+        return self.path.name
+
+    def walk(self) -> Iterator["WorkspaceFolder"]:
+        """This folder, then every subfolder (depth first, in order)."""
+        yield self
+        for folder in self.folders:
+            yield from folder.walk()
 
 
 class Workspace:
@@ -93,44 +206,81 @@ class Workspace:
         return self.folder.is_dir()
 
     # -- the files ---------------------------------------------------------------
-    def files(self) -> list[WorkspaceFile]:
-        """Every file the app can open, sorted by path (subfolders after files).
+    def tree(self) -> WorkspaceFolder:
+        """The folder's subfolders and the files the app can open in them.
 
-        Hidden files and folders (starting with ".") are skipped, as Finder
-        does, and so are the folders in :data:`SKIPPED_FOLDERS`.
+        Folders come before files, both sorted by name (as Finder's list
+        view does), and empty folders are included, so a folder just made
+        shows up before anything is put in it.  Hidden files and folders
+        (starting with ".") are skipped, as Finder does, and so are the folders
+        in :data:`SKIPPED_FOLDERS` and anything deeper than :data:`MAX_DEPTH`.
+        Files that are only in iCloud are listed with ``in_cloud=True``.
         """
-        found: list[WorkspaceFile] = []
-        for directory, folders, names in os.walk(self.folder):
-            here = Path(directory)
-            depth = len(here.relative_to(self.folder).parts)
-            # Prune in place: os.walk then does not descend into these.
-            folders[:] = sorted(f for f in folders if not f.startswith(".")
-                                and f not in SKIPPED_FOLDERS and depth < MAX_DEPTH)
-            for name in sorted(names, key=str.lower):
-                if name.startswith("."):
+        root = WorkspaceFolder(self.folder, "")
+        budget = {"files": MAX_FILES, "folders": MAX_FOLDERS}
+
+        def fill(folder: WorkspaceFolder, depth: int) -> None:
+            try:
+                entries = sorted(os.scandir(folder.path), key=lambda e: e.name.casefold())
+            except OSError:
+                return
+            names = {entry.name for entry in entries}
+            subfolders = []
+            for entry in entries:
+                name = entry.name
+                try:
+                    is_folder = entry.is_dir()
+                except OSError:
                     continue
-                path = here / name
+                if is_folder:
+                    if not name.startswith(".") and name not in SKIPPED_FOLDERS \
+                            and depth < MAX_DEPTH:
+                        subfolders.append(entry)
+                    continue
+                in_cloud = False
+                if name.startswith("."):
+                    # ".Week 2.xes.icloud" stands for "Week 2.xes", still in iCloud.
+                    if not name.endswith(ICLOUD_SUFFIX) or name[1:-len(ICLOUD_SUFFIX)] in names:
+                        continue
+                    name, in_cloud = name[1:-len(ICLOUD_SUFFIX)], True
+                    if not name or name.startswith("."):
+                        continue
+                path = folder.path / name
                 kind = file_kind(path)
                 if kind is None:
                     continue
+                if budget["files"] <= 0:
+                    root.truncated = True
+                    return
+                budget["files"] -= 1
                 relative = path.relative_to(self.folder).as_posix()
-                found.append(WorkspaceFile(path, relative, kind))
-                if len(found) >= MAX_FILES:
-                    return found
-        return found
+                folder.files.append(WorkspaceFile(path, relative, kind, in_cloud))
+            # A placeholder's own name (".Week 2.xes.icloud") sorted it first.
+            folder.files.sort(key=lambda f: f.path.name.casefold())
+            for entry in subfolders:
+                if budget["folders"] <= 0:
+                    root.truncated = True
+                    return
+                budget["folders"] -= 1
+                path = Path(entry.path)
+                child = WorkspaceFolder(path, path.relative_to(self.folder).as_posix())
+                folder.folders.append(child)
+                fill(child, depth + 1)
 
-    def directories(self) -> list[Path]:
+        fill(root, 0)
+        return root
+
+    def files(self, tree: WorkspaceFolder | None = None) -> list[WorkspaceFile]:
+        """Every file the app can open, by path (a folder's files before its subfolders).
+
+        iCloud placeholders are left out; see :meth:`tree` for those.
+        """
+        tree = tree or self.tree()
+        return [f for folder in tree.walk() for f in folder.files if not f.in_cloud]
+
+    def directories(self, tree: WorkspaceFolder | None = None) -> list[Path]:
         """The folders whose changes matter (for a file system watcher)."""
-        result = [self.folder]
-        for directory, folders, _names in os.walk(self.folder):
-            here = Path(directory)
-            depth = len(here.relative_to(self.folder).parts)
-            folders[:] = [f for f in folders if not f.startswith(".")
-                          and f not in SKIPPED_FOLDERS and depth < MAX_DEPTH]
-            result += [here / f for f in folders]
-            if len(result) > 200:
-                break
-        return result
+        return [folder.path for folder in (tree or self.tree()).walk()]
 
     def contains(self, path: str | Path) -> bool:
         try:
@@ -157,12 +307,31 @@ class Workspace:
     def state_path(self) -> Path:
         return self.folder / STATE_FILE
 
-    def load_state(self) -> dict[str, Any]:
-        """``{"open": [{"path": …, …options}], "selected": path | None}``; empty if none."""
+    def _read(self) -> dict[str, Any]:
         try:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {"open": [], "selected": None}
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write(self, data: dict[str, Any], create: bool = True) -> None:
+        """Write the state file, unless it would not change.  Never fails."""
+        data = {"about": "CPNpy: the files that were open in this folder. Safe to delete.",
+                "version": 1, **{k: v for k, v in data.items() if k not in ("about", "version")}}
+        text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        try:
+            if self.state_path.exists():
+                if self.state_path.read_text(encoding="utf-8") == text:
+                    return                  # unchanged: do not touch the file (or its sync)
+            elif not create:
+                return                      # nothing worth a file yet
+            self.state_path.write_text(text, encoding="utf-8")
+        except OSError:
+            pass                            # a read-only folder is just not written
+
+    def load_state(self) -> dict[str, Any]:
+        """``{"open": [{"path": …, …options}], "selected": path | None}``; empty if none."""
+        data = self._read()
         entries = [e for e in data.get("open", []) if isinstance(e, dict) and e.get("path")]
         for entry in entries:
             entry["path"] = str(self.absolute(entry["path"]))
@@ -172,18 +341,29 @@ class Workspace:
 
     def save_state(self, entries: list[dict[str, Any]], selected: str | None) -> None:
         """Remember the open files.  Never fails: a read-only folder just is not written."""
-        data = {
-            "about": "CPNpy workspace: the files that were open. Safe to delete.",
-            "version": 1,
-            "open": [dict(entry, path=self.relative(entry["path"])) for entry in entries],
-            "selected": self.relative(selected) if selected else None,
-        }
-        text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-        try:
-            if self.state_path.exists() and self.state_path.read_text(encoding="utf-8") == text:
-                return                      # unchanged: do not touch the file (or its sync)
-            if not entries and not self.state_path.exists():
-                return                      # nothing worth a file yet
-            self.state_path.write_text(text, encoding="utf-8")
-        except OSError:
-            pass
+        data = self._read()
+        data["open"] = [dict(entry, path=self.relative(entry["path"])) for entry in entries]
+        data["selected"] = self.relative(selected) if selected else None
+        self._write(data, create=bool(entries))
+
+    # -- choices made for this folder ----------------------------------------------
+    def settings(self) -> dict[str, Any]:
+        """``{"view": "folder" | "kind", "expanded": [relative, …], "import": …}``."""
+        settings = self._read().get("settings", {})
+        return settings if isinstance(settings, dict) else {}
+
+    def update_settings(self, **changes: Any) -> None:
+        """Change some settings (``None`` removes one)."""
+        data = self._read()
+        settings = dict(data.get("settings") or {})
+        for key, value in changes.items():
+            if value is None:
+                settings.pop(key, None)
+            else:
+                settings[key] = value
+        if settings == data.get("settings"):
+            return
+        data["settings"] = settings
+        data.setdefault("open", [])
+        data.setdefault("selected", None)
+        self._write(data)

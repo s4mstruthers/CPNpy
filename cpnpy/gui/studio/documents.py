@@ -23,6 +23,8 @@ class LogDocument:
     log: EventLog
     path: str | None = None
     id: int = field(default_factory=lambda: next(_ids))
+    #: Its file was deleted or moved away while it was open.
+    missing: bool = False
 
     def __post_init__(self) -> None:
         self.classifier: Classifier = self.log.default_classifier()
@@ -32,6 +34,15 @@ class LogDocument:
     @property
     def name(self) -> str:
         return self.log.name
+
+    def replace_log(self, log: EventLog) -> None:
+        """The file was read again: show the new log (same classifier if it still applies)."""
+        classifier = self.classifier
+        self.log = log
+        self.classifier = (classifier if classifier in log.available_classifiers()
+                           else log.default_classifier())
+        self._summary = None
+        self._colours = None
 
     def set_classifier(self, classifier: Classifier) -> None:
         self.classifier = classifier
@@ -64,6 +75,8 @@ class ModelDocument:
     derivation: object | None = None
     source_log: LogDocument | None = None
     id: int = field(default_factory=lambda: next(_ids))
+    #: Its file was deleted or moved away while it was open.
+    missing: bool = False
 
     @property
     def name(self) -> str:
@@ -79,6 +92,10 @@ class CpnDocument:
     id: int = field(default_factory=lambda: next(_ids))
     #: Edited since it was opened or last saved.
     dirty: bool = False
+    #: Edits are saved by themselves (a file in the open folder): no "edited" mark.
+    autosave: bool = False
+    #: Its file was deleted or moved away while it was open.
+    missing: bool = False
 
     @property
     def name(self) -> str:

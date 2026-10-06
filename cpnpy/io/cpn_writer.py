@@ -329,9 +329,10 @@ def _write_preserved(cpnet: ElementTree.Element, net: CPNet) -> None:
 # ---------------------------------------------------------------------------
 def to_xml_string(net: CPNet, pretty: bool = True) -> str:
     """Serialise a model to ``.cpn`` XML text (including the DOCTYPE)."""
+    from .. import __version__
     root = ElementTree.Element("workspaceElements")
     ElementTree.SubElement(
-        root, "generator", tool="CPNpy", version="0.1.0", format="6"
+        root, "generator", tool="CPNpy", version=__version__, format="6"
     )
     cpnet = ElementTree.SubElement(root, "cpnet")
 

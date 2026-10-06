@@ -168,14 +168,21 @@ class LogPage(QWidget):
             return
         if chosen.startswith("CSV") and not path.lower().endswith(".csv"):
             path += ".csv"
+        self.write_to(path)
+
+    def write_to(self, path: str, quiet: bool = False) -> None:
+        """Save the log to ``path`` (XES, or CSV by its extension); it is then that file."""
+        from .workspace import atomic_write
         if path.lower().endswith(".csv"):
             from ...mining.csv_import import write_csv
-            write_csv(self.document.log, path)
+            atomic_write(path, lambda temporary: write_csv(self.document.log, temporary))
         else:
-            write_xes(self.document.log, path)
+            atomic_write(path, lambda temporary: write_xes(self.document.log, temporary))
         self.document.path = path
+        self.document.missing = False
         self._refresh_header()
-        self.status.emit(f"Saved {path}")
+        if not quiet:
+            self.status.emit(f"Saved {path}")
         self.saved.emit()
 
     def filter_log(self) -> None:

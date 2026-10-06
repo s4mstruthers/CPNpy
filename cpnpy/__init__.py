@@ -45,7 +45,10 @@ from .model.net import Arc, CPNet, Marking, Page, Place, Transition
 from .sim.binding import BindingElement
 from .sim.simulator import Simulator
 
-__version__ = "0.1.0"
+#: The one place the version number is written (pyproject.toml, the update
+#: check and packaging/build.py read it from here).  A release is tagged
+#: "v" + this, e.g. v0.2.0.
+__version__ = "0.2.0"
 
 __all__ = [
     "Arc", "BindingElement", "CPNet", "Marking", "Multiset", "Page", "Place",

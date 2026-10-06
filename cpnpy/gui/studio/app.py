@@ -18,25 +18,38 @@ Layout
     +------------+-------------------------------------------------+
 
 The sidebar lists every open *document*: an event log, a Petri net, or a
-coloured Petri net (CPN Tools model).  With a *workspace folder* open
-(File ▸ Open Workspace Folder…, e.g. "Week 2"), it also lists every log and
-net in that folder that is not open yet, in a lighter colour; clicking one
-opens it.  See :mod:`.workspace`.  Selecting one shows its page.
+coloured Petri net (CPN Tools model).  Selecting one shows its page.
 Discovering a model from a log adds the model to the sidebar, and exporting
 a CPN simulation adds its event log, so a whole analysis lives side by side
 in one window.
+
+With a folder open (File ▸ Open Folder…, e.g. "Week 2"; internally a
+:class:`.workspace.Workspace`), the folder and the sidebar always match:
+
+* the sidebar lists every log and net in the folder, open or not (lighter),
+  with its subfolders (the Folder view) or grouped by kind;
+* folder → app: files added, renamed or deleted in Finder show up by
+  themselves, an open file changed on disk is reloaded, and one deleted on
+  disk is marked as missing;
+* app → folder: new nets and logs are files in the folder from the start,
+  edits are saved as you go (autosave), and files can be moved between
+  subfolders, renamed or moved to the Bin from the sidebar;
+* files opened from elsewhere can be copied or moved into the folder.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QEvent, QFileSystemWatcher, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal,
+    QEvent, QFile, QFileSystemWatcher, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal,
 )
 from PySide6.QtGui import (
     QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut,
@@ -45,7 +58,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QSizePolicy, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
-    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QToolButton, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget,
 )
 
 from ...mining.csv_import import ColumnMapping, guess_mapping, read_csv, sniff
@@ -59,29 +72,41 @@ from .compare_page import ComparePage
 from .cpn_page import CpnPage
 from .petri_page import PetriNetPage
 from .documents import ComparisonDocument, CpnDocument, LogDocument, ModelDocument
+from .file_dialogs import IMPORT_CHOICES, ImportDialog, SettingsDialog, ask_about_clash
 from .graph_view import GraphView, ZoomControls
 from .log_page import LogPage
 from .model_page import ModelPage
+from .sidebar import FILE_ROLE, FOLDER_ROLE, SidebarTree
 from .widgets import (
-    Card, ElidedLabel, button, dialog_folder, hbox, label, scroll, set_dialog_folder, vbox,
+    Card, ElidedLabel, NoticeBar, SegmentedControl, button, dialog_folder, hbox, label, scroll,
+    set_dialog_folder, vbox,
 )
-from .workspace import Workspace, display_name
+from .workspace import (
+    FORBIDDEN_CHARACTERS, Workspace, WorkspaceFolder, display_name, file_stem, file_suffix,
+    made_by_cpnpy, safe_file_name, unique_path,
+)
 from .workers import run_in_background
 
 APPLICATION_NAME = "CPNpy Studio"
 
-#: Sidebar item data: the path of a workspace file that is not open yet.
-FILE_ROLE = Qt.UserRole + 1
+#: Sidebar item data: the iCloud placeholder of a file that is only in iCloud.
+CLOUD_ROLE = Qt.UserRole + 3
+
+#: How long after the last edit a net in the folder is saved (milliseconds).
+AUTOSAVE_DELAY = 1000
+
+#: Name of the Bin on this system (macOS says Bin in British English, as here).
+BIN = "Recycle Bin" if sys.platform == "win32" else "Bin"
 
 
 def _file_suffix(path: Path) -> str:
     """The whole extension, so ``log.xes.gz`` gives ``.xes.gz`` (not just ``.gz``)."""
-    return ".xes.gz" if path.name.lower().endswith(".xes.gz") else path.suffix
+    return file_suffix(path.name)
 
 
 def _file_stem(path: Path) -> str:
     """The file name without :func:`_file_suffix`: what a document opened from it is called."""
-    return path.name[: len(path.name) - len(_file_suffix(path))]
+    return file_stem(path.name)
 
 
 def _same_file(a: Path, b: Path) -> bool:
@@ -90,6 +115,25 @@ def _same_file(a: Path, b: Path) -> bool:
         return a.samefile(b)
     except OSError:
         return False
+
+
+def _signature(path: str | Path) -> tuple[int, int] | None:
+    """(modification time, size) of a file, or None when it is not there."""
+    try:
+        status = os.stat(path)
+    except OSError:
+        return None
+    return status.st_mtime_ns, status.st_size
+
+
+def move_to_trash(path: str | Path) -> bool:
+    """Move a file or folder to the Bin (recoverable).  Tests replace this."""
+    return bool(QFile.moveToTrash(str(path)))
+
+
+def reveal_label() -> str:
+    return {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(
+        sys.platform, "Open Containing Folder")
 
 EXAMPLES = {
     "Textbook L₁ (α-algorithm example)": "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]",
@@ -142,7 +186,13 @@ def _icon_pixmap(kind: str, ink: QColor | None) -> QPixmap:
     pen = QPen(colour, 3)
     pen.setCapStyle(Qt.RoundCap)
     painter.setPen(pen)
-    if kind == "compare":
+    if kind == "folder":
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(ink if ink is not None else QColor(style.tokens().accent))
+        tab = QRectF(3, 7, 11, 6)
+        painter.drawRoundedRect(tab, 2, 2)
+        painter.drawRoundedRect(QRectF(3, 10, 26, 16), 2.5, 2.5)
+    elif kind == "compare":
         painter.setPen(Qt.NoPen)
         for index, (x, height) in enumerate(((5, 12), (12, 20), (19, 8), (26, 16))):
             painter.setBrush(ink if ink is not None else QColor(style.categorical(index % 2)))
@@ -380,23 +430,65 @@ class StudioWindow(QMainWindow):
         #: keyed by document id, so the session can reopen it the same way.
         self.open_options: dict[int, dict] = {}
         self._restoring = False
-        #: The open workspace folder (None: just loose files, as before).
+        #: The open folder (None: just loose files, as before).
         self.workspace: Workspace | None = None
-        #: Sidebar rows for workspace files that are not open, by path key.
-        self.placeholders: dict[str, QTreeWidgetItem] = {}
-        #: Reopening a workspace: files still loading, and the one that was selected.
+        #: Its subfolders and files, as last listed (see _rescan_workspace).
+        self._tree: WorkspaceFolder | None = None
+        self._tree_signature: tuple = ()
+        #: In a folder: the sidebar shows its subfolders ("folder") or groups by kind ("kind").
+        self.view_mode = "folder"
+        #: Expanded subfolders (relative paths), remembered in the folder's .cpnpy.
+        self._expanded: set[str] = set()
+        #: Sidebar rows by what they stand for (rebuilt by _rebuild_sidebar).
+        self.placeholders: dict[str, QTreeWidgetItem] = {}       # files not open, by path key
+        self.folder_items: dict[str, QTreeWidgetItem] = {}       # subfolders, by relative path
+        #: Reopening a folder: files still loading, and the one that was selected.
         self._restore_paths: dict[str, dict] = {}
         self._restore_selected: str | None = None
-        #: When a click last opened a workspace file (see _on_double_click).
+        #: When a click last opened a file of the folder (see _on_double_click).
         self._clicked_open_at = 0.0
+        #: Files being opened by a click (shown with "…"), and iCloud downloads to open.
+        self._opening: set[str] = set()
+        self._pending_downloads: set[str] = set()
         # Files added, removed or renamed in the folder (in Finder, say) show
         # up by themselves; the timer folds a burst of changes into one rescan.
         self.watcher = QFileSystemWatcher(self)
         self._rescan_timer = QTimer(self)
         self._rescan_timer.setSingleShot(True)
-        self._rescan_timer.setInterval(250)
+        # macOS reports a change about half a second after it happens; this
+        # only folds a burst of events (a whole folder copied in) into one.
+        self._rescan_timer.setInterval(100)
         self._rescan_timer.timeout.connect(self._rescan_workspace)
         self.watcher.directoryChanged.connect(lambda _path: self._rescan_timer.start())
+        # Open files are watched too: one changed on disk is reloaded.
+        self._changed_files: set[str] = set()
+        self._file_timer = QTimer(self)
+        self._file_timer.setSingleShot(True)
+        self._file_timer.setInterval(150)       # also: how long a file must stay unchanged
+        self._file_timer.timeout.connect(self._check_changed_files)
+        self.watcher.fileChanged.connect(self._file_changed)
+        #: (mtime, size) of files the app wrote itself, so its own saves are not
+        #: mistaken for changes made elsewhere; and of changes not settled yet.
+        self._own_writes: dict[str, tuple] = {}
+        self._unsettled: dict[str, tuple] = {}
+        self._gone_checks: dict[str, int] = {}
+        self._reload_attempts: dict[str, int] = {}
+        #: Documents with a "changed on disk" question open: not autosaved meanwhile.
+        self._conflicts: set[int] = set()
+        #: Autosave: one timer per document, restarted on each edit.
+        self.autosave_enabled = self._setting("files/autosave", True)
+        self._autosave_timers: dict[int, QTimer] = {}
+        #: .cpn documents whose file CPNpy wrote (only those are autosaved).
+        self._cpnpy_files: set[int] = set()
+        #: Files the app created by itself this session (a new net's "Untitled 1.pnml").
+        self._created: set[str] = set()
+        #: The bytes of each net's file as it was opened (File ▸ Revert to Saved).
+        self._originals: dict[int, bytes] = {}
+        #: Each page's notice bar ("changed on disk", "missing").
+        self.banners: dict[int, NoticeBar] = {}
+        #: Software updates: a check is running; the installer to run on quitting.
+        self._checking_updates = False
+        self._installer: list[str] | None = None
         #: The tab you were last on, per kind of page.  Selecting another
         #: document opens the same tab, so e.g. flicking between logs in the
         #: dotted chart keeps showing dotted charts.
@@ -434,6 +526,16 @@ class StudioWindow(QMainWindow):
         self.resize(width, height)
         self.move(area.x() + (area.width() - width) // 2, area.y() + (area.height() - height) // 2)
 
+    def _setting(self, key: str, default):
+        """A setting of the app (the default in tests, which must not see yours)."""
+        if not self.persist:
+            return default
+        return self.settings.value(key, default, type=type(default))
+
+    def _set_setting(self, key: str, value) -> None:
+        if self.persist:
+            self.settings.setValue(key, value)
+
     # ---------------------------------------------------------------- sidebar
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
@@ -446,14 +548,27 @@ class StudioWindow(QMainWindow):
         layout.setSpacing(8)
         layout.addWidget(self._build_sidebar_header())
 
-        self.tree = QTreeWidget()
+        # In a folder: its subfolders, or grouped by kind as without one.
+        self.view_switch = SegmentedControl(["Folders", "By kind"], compact=True)
+        self.view_switch.setToolTip("Show the folder's subfolders, or group the files by kind")
+        self.view_switch.changed.connect(
+            lambda index: self.set_view_mode(("folder", "kind")[index]))
+        self.view_row = QWidget()
+        self.view_row.setLayout(hbox(self.view_switch, None, margins=(10, 0, 0, 2)))
+        self.view_row.setHidden(True)
+        layout.addWidget(self.view_row)
+
+        self.tree = SidebarTree()
         self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(10)
+        self.tree.setIndentation(14)
         self.tree.setIconSize(QSize(16, 16))
         self.tree.setRootIsDecorated(False)
         self.tree.setMouseTracking(True)                  # hover state for the ✕ button
         self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)   # ⌘/⇧-click
         self.tree.setTextElideMode(Qt.ElideRight)
+        self.tree.path_for = self._row_path
+        self.tree.drop_folder = self._drop_folder
+        self.tree.paths_dropped.connect(self._sidebar_drop)
         self.delegate = SidebarDelegate(self.tree)
         self.delegate.remove_clicked.connect(lambda doc_id: self.remove_documents([doc_id]))
         self.tree.setItemDelegate(self.delegate)
@@ -464,23 +579,36 @@ class StudioWindow(QMainWindow):
             shortcut = QShortcut(key, self.tree)
             shortcut.setContext(Qt.WidgetShortcut)
             shortcut.activated.connect(self.remove_selected)
+        # The Folder view: documents with no file (a model just discovered)
+        # on top, then the folder's subfolders and files, then open files
+        # from elsewhere and comparisons.
+        self.unsaved_section = self._section("UNSAVED")
         self.logs_section = self._section("EVENT LOGS")
         self.petri_section = self._section("PETRI NETS")
         self.models_section = self._section("MODELS")
         self.cpn_section = self._section("COLOURED NETS")
+        self.elsewhere_section = self._section("OTHER FILES")
+        self.elsewhere_section.setToolTip(0, "Open files that are not in the folder")
         self.compare_section = self._section("COMPARISONS")
-        # Shown in an empty workspace, so an empty sidebar is not a mystery.
+        # Shown in an empty folder, so an empty sidebar is not a mystery.
         self.empty_hint = QTreeWidgetItem(self.tree, ["No logs or nets yet"])
         self.empty_hint.setFlags(Qt.NoItemFlags)
         self.empty_hint.setToolTip(0, "Save a net or export a log into the folder, or add "
                                       "files to it in Finder: they appear here.")
         self.empty_hint.setHidden(True)
+        # Shown when a huge folder was only partly listed.
+        self.more_row = QTreeWidgetItem(["… more files not shown"])
+        self.more_row.setFlags(Qt.NoItemFlags)
+        self.more_row.setToolTip(0, "The sidebar lists up to 500 files, three subfolders deep. "
+                                    "Open a smaller folder to see everything.")
         self.tree.currentItemChanged.connect(self._on_select)
-        # A workspace file that is not open yet opens with one click (or Return).
+        # A file that is not open yet opens with one click (or Return).
         self.tree.itemClicked.connect(lambda item, _column: self._open_placeholder(item))
         self.tree.itemActivated.connect(lambda item, _column: self._open_placeholder(item))
         # Double-click an open document to rename it (section headings have no id).
         self.tree.itemDoubleClicked.connect(self._on_double_click)
+        self.tree.itemExpanded.connect(lambda item: self._folder_toggled(item, True))
+        self.tree.itemCollapsed.connect(lambda item: self._folder_toggled(item, False))
         layout.addWidget(self.tree, 1)
 
         footer = QWidget()
@@ -500,7 +628,7 @@ class StudioWindow(QMainWindow):
         row.setSpacing(4)
         text = QVBoxLayout()
         text.setSpacing(1)
-        self.workspace_caption = label("WORKSPACE", "sidebarCaption")
+        self.workspace_caption = label("FOLDER", "sidebarCaption")
         self.workspace_caption.setHidden(True)
         self.sidebar_title = ElidedLabel(APPLICATION_NAME, "sidebarTitle")
         text.addWidget(self.workspace_caption)
@@ -509,15 +637,17 @@ class StudioWindow(QMainWindow):
         self.workspace_button = QToolButton()
         self.workspace_button.setObjectName("sidebarMenuButton")
         self.workspace_button.setText("⋯")
-        self.workspace_button.setToolTip("Workspace")
+        self.workspace_button.setToolTip("Folder")
         self.workspace_button.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self.workspace_button)
         reveal = {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(
             sys.platform, "Open Folder")
         menu.addAction(reveal, lambda: self.workspace and self.reveal(str(self.workspace.folder)))
-        menu.addAction("Open Another Workspace…", self.action_open_workspace)
+        menu.addAction("New Folder…", lambda: self.new_folder())
         menu.addSeparator()
-        menu.addAction("Close Workspace", self.close_workspace)
+        menu.addAction("Open Another Folder…", self.action_open_workspace)
+        menu.addSeparator()
+        menu.addAction("Close Folder", self.close_workspace)
         self.workspace_button.setMenu(menu)
         self.workspace_button.setHidden(True)
         row.addWidget(self.workspace_button, 0, Qt.AlignVCenter)
@@ -526,6 +656,7 @@ class StudioWindow(QMainWindow):
     def _section(self, title: str) -> QTreeWidgetItem:
         item = QTreeWidgetItem(self.tree, [title])
         item.setFlags(Qt.ItemIsEnabled)
+        item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
         font = theme.ui_font(10, theme.QFont.Bold)
         item.setFont(0, font)
         item.setForeground(0, QColor(style.tokens().text_muted))
@@ -556,19 +687,19 @@ class StudioWindow(QMainWindow):
         # A whole-width card on top: working in a folder is the main way in.
         workspace_card = Card("Work in a folder")
         workspace_card.add(label(
-            "Open a folder such as “Week 2” as your workspace: its event logs and Petri "
-            "nets are listed in the sidebar, and the nets you draw are saved there. "
+            "Open a folder such as “Week 2”: its event logs and Petri nets are listed in "
+            "the sidebar, and the nets you draw are saved there. "
             "Next time, everything you had open comes back.", "muted", wrap=True))
         self.welcome_recent = QWidget()
         self.welcome_recent.setObjectName("plain")
         self.welcome_recent.setStyleSheet("#plain { background: transparent; border: none; }")
         self.welcome_recent.setLayout(hbox(spacing=8))
-        workspace_card.add(hbox(button("Open workspace folder…", self.action_open_workspace,
+        workspace_card.add(hbox(button("Open folder…", self.action_open_workspace,
                                        kind="primary"), self.welcome_recent, None))
         self.welcome_folder_card = workspace_card
         grid.addWidget(workspace_card, 0, 0, 1, 2)
         # Inside a workspace the top card is about that folder instead.
-        inside = Card("Workspace")
+        inside = Card("Folder")
         self.welcome_inside_title = inside.title_label
         self.welcome_inside_text = label("", "muted", wrap=True)
         inside.add(self.welcome_inside_text)
@@ -579,7 +710,7 @@ class StudioWindow(QMainWindow):
                         button(reveal, lambda: self.workspace and
                                self.reveal(str(self.workspace.folder))),
                         None,
-                        button("Close workspace", self.close_workspace)))
+                        button("Close folder", self.close_workspace)))
         inside.setHidden(True)
         self.welcome_inside_card = inside
         grid.addWidget(inside, 0, 0, 1, 2)
@@ -609,7 +740,7 @@ class StudioWindow(QMainWindow):
         # widget is sized by its sizeHint and its wrapped labels get clipped.
         outer.addLayout(hbox(None, holder, None))
         outer.addSpacing(20)
-        tip = label("Tip: drop files (or a folder, to use it as the workspace) anywhere on this "
+        tip = label("Tip: drop files (or a folder, to work in it) anywhere on this "
                     "window. Hover a file in the sidebar and click ✕ (or press ⌫) to close "
                     "it; double-click a name to rename it.", "muted", wrap=True)
         tip.setAlignment(Qt.AlignHCenter)
@@ -624,10 +755,10 @@ class StudioWindow(QMainWindow):
     def _build_menus(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self._action(file_menu, "Open…", QKeySequence.Open, self.action_open)
-        self._action(file_menu, "Open Workspace Folder…", "Ctrl+Alt+O", self.action_open_workspace)
-        self.recent_workspaces_menu = file_menu.addMenu("Open Recent Workspace")
+        self._action(file_menu, "Open Folder…", "Ctrl+Alt+O", self.action_open_workspace)
+        self.recent_workspaces_menu = file_menu.addMenu("Open Recent Folder")
         self.recent_workspaces_menu.aboutToShow.connect(self._fill_recent_workspaces_menu)
-        self.close_workspace_action = self._action(file_menu, "Close Workspace", None,
+        self.close_workspace_action = self._action(file_menu, "Close Folder", None,
                                                    self.close_workspace)
         self.close_workspace_action.setEnabled(False)
         file_menu.addSeparator()
@@ -652,16 +783,26 @@ class StudioWindow(QMainWindow):
         self._action(file_menu, "Save As / Export…", "Ctrl+Shift+S", self.export_selected)
         self._action(file_menu, "Export Selected…", "Ctrl+E", self.export_selected)
         self._action(file_menu, "Rename…", None, self.rename_selected)
+        self._action(file_menu, "Revert to Saved…", None, self.revert_selected)
+        self.autosave_action = QAction("Autosave", self)
+        self.autosave_action.setCheckable(True)
+        self.autosave_action.setChecked(self.autosave_enabled)
+        self.autosave_action.setToolTip("Save edits to nets in the open folder as you go")
+        self.autosave_action.toggled.connect(self.set_autosave)
+        file_menu.addAction(self.autosave_action)
         file_menu.addSeparator()
+        self._action(file_menu, f"Move to {BIN}", None, self.trash_selected)
         self._action(file_menu, "Close", QKeySequence.Close, self.remove_selected)
         self._action(file_menu, "Close All", "Ctrl+Shift+W", self.remove_all)
         file_menu.addSeparator()
         self.restore_action = QAction("Reopen Files at Launch", self)
         self.restore_action.setCheckable(True)
-        self.restore_action.setChecked(self.settings.value("session/restore", True, type=bool))
-        self.restore_action.toggled.connect(
-            lambda on: self.settings.setValue("session/restore", on))
+        self.restore_action.setChecked(self._setting("session/restore", True))
+        self.restore_action.toggled.connect(lambda on: self._set_setting("session/restore", on))
         file_menu.addAction(self.restore_action)
+        settings = self._action(file_menu, "Settings…", QKeySequence.Preferences,
+                                self.show_settings)
+        settings.setMenuRole(QAction.PreferencesRole)      # the app menu, on macOS
 
         view_menu = self.menuBar().addMenu("&View")
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
@@ -678,6 +819,8 @@ class StudioWindow(QMainWindow):
 
         help_menu = self.menuBar().addMenu("&Help")
         self._action(help_menu, "Definitions", None, self._definitions)
+        self._action(help_menu, "Check for Updates…", None,
+                     lambda: self.check_for_updates(manual=True))
         self._action(help_menu, f"About {APPLICATION_NAME}", None, self._about)
 
     def _action(self, menu, text, shortcut, slot) -> QAction:
@@ -694,8 +837,10 @@ class StudioWindow(QMainWindow):
         show_reference(None, self)
 
     def _about(self) -> None:
+        from ... import __version__
         QMessageBox.about(self, APPLICATION_NAME,
-                          f"<b>{APPLICATION_NAME}</b><p>Process mining and Petri nets in pure "
+                          f"<b>{APPLICATION_NAME}</b> {__version__}"
+                          "<p>Process mining and Petri nets in pure "
                           "Python. Algorithms follow the TU/e course readings; see the "
                           "docstrings in <code>cpnpy.mining</code>.</p>")
 
@@ -703,54 +848,83 @@ class StudioWindow(QMainWindow):
     def logs(self) -> list[LogDocument]:
         return [d for d in self.documents if isinstance(d, LogDocument)]
 
-    def add_document(self, document, options: dict | None = None) -> None:
-        """Add a document to the workspace and show it.
+    def add_document(self, document, options: dict | None = None,
+                     near: str | None = None) -> None:
+        """Add a document to the window and show it.
 
         Opening a file that is already open just selects it, so the sidebar
-        never fills up with duplicates.
+        never fills up with duplicates.  With a folder open, a new log or net
+        (one with no file yet) is saved into the folder straight away, next
+        to ``near`` (the file it was made from) when that is in the folder.
         """
         if document.path:
             for existing in self.documents:
-                if existing.path and Path(existing.path) == Path(document.path) and \
-                        type(existing) is type(document):
-                    self.tree.setCurrentItem(self.items[existing.id])
+                if existing.path and self._key(existing.path) == self._key(document.path) \
+                        and type(existing) is type(document):
+                    self._select_document(existing)
                     self.statusBar().showMessage(f"{Path(document.path).name} is already open", 5000)
                     return
         self.documents.append(document)
         if options:
             self.open_options[document.id] = options
+        self._make_page(document)
+        self._materialise(document, near)
+        if document.path:
+            key = self._key(document.path)
+            self._opening.discard(key)
+            if isinstance(document, CpnDocument):
+                if not document.path.lower().endswith(".cpn") or made_by_cpnpy(document.path):
+                    self._cpnpy_files.add(document.id)
+                self._keep_original(document)
+        self._update_autosave(document)
+        # Reopening a folder loads logs in the background, in any order: of
+        # those files, only the one that was selected last time takes the
+        # selection.  Anything you open yourself is always selected.
+        key = self._key(document.path) if document.path else None
+        restored = key is not None and key in self._restore_paths
+        self._restore_paths.pop(key, None)
+        self._rebuild_sidebar()
+        if not restored or self._restore_selected in (None, key):
+            self._select_document(document)
+        self._refresh_log_choices()
+        if document.path:
+            self._remember_recent(document.path)
+        self._save_session()
+
+    def _make_page(self, document) -> QWidget:
+        """Build the page showing ``document`` (and its holder in the stack)."""
         if isinstance(document, LogDocument):
             page = LogPage(document)
             page.open_model.connect(self.add_document)
-            page.open_log.connect(self.add_document)
+            page.open_log.connect(lambda log, source=document: self.add_document(
+                log, near=source.path))
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("log_tab", i))
-            parent, kind = self.logs_section, "log"
         elif isinstance(document, ComparisonDocument):
             page = ComparePage(document)
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("compare_tab", i))
-            parent, kind = self.compare_section, "compare"
         elif isinstance(document, CpnDocument):
             plain = getattr(document.net, "plain", False)
             page = PetriNetPage(document) if plain else CpnPage(document)
-            page.log_generated.connect(lambda log: self.add_document(LogDocument(log)))
+            page.log_generated.connect(lambda log, source=document: self.add_document(
+                LogDocument(log), near=source.path))
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
+            page.edited.connect(lambda doc=document: self._schedule_autosave(doc))
             page.inspector_tabs.changed.connect(
                 lambda i, key="petri_inspector" if plain else "cpn_inspector":
                 self.remembered.__setitem__(key, i))
             if plain:
                 page.open_model.connect(self.add_document)
-                parent, kind = self.petri_section, "model"
-            else:
-                parent, kind = self.cpn_section, "cpn"
         else:
             page = ModelPage(document, self.logs)
             page.inspector_tabs.changed.connect(
                 lambda i: self.remembered.__setitem__("model_inspector", i))
             page.view_switch.changed.connect(
                 lambda i: self.remembered.__setitem__("model_view", i))
-            page.log_generated.connect(lambda log: self.add_document(LogDocument(log)))
+            page.log_generated.connect(lambda log, source=document: self.add_document(
+                LogDocument(log), near=source.path or (source.source_log.path
+                                                       if source.source_log else None)))
             page.edit_requested.connect(self.edit_petri_net)
-            parent, kind = self.models_section, "model"
+            page.keep_requested.connect(lambda doc=document: self.keep_model(doc))
         page.status.connect(lambda message: self.statusBar().showMessage(message, 8000))
         page.saved.connect(lambda doc=document: self._document_saved(doc))
         if not isinstance(document, ComparisonDocument):
@@ -761,50 +935,53 @@ class StudioWindow(QMainWindow):
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
         # refusing to shrink (which is what pushed it off the screen).
-        holder = scroll(page, horizontal=True)
+        # Above it, a bar for news about its file ("changed on disk", …).
+        banner = NoticeBar()
+        holder = QWidget()
+        holder.setLayout(vbox(banner, scroll(page, horizontal=True), spacing=0))
+        holder.layout().setStretch(1, 1)
+        self.banners[document.id] = banner
         self.holders[document.id] = holder
         self.content.addWidget(holder)
-        # A workspace file being opened replaces its "not open" row.
-        if document.path:
-            placeholder = self.placeholders.pop(self._key(document.path), None)
-            if placeholder is not None:
-                placeholder.parent().removeChild(placeholder)
-        parent.setHidden(False)
-        item = QTreeWidgetItem([document.name])
-        item.setIcon(0, _icon(kind))
-        item.setData(0, Qt.UserRole, document.id)
-        self._set_item_tooltip(item, document)
-        self.items[document.id] = item
-        if self.workspace is not None:
-            self._insert_sorted(parent, item)      # rows in a workspace are alphabetical
-        else:
-            parent.addChild(item)
-        self._update_sections()
-        # Reopening a workspace loads logs in the background, in any order:
-        # of those files, only the one that was selected last time takes the
-        # selection.  Anything you open yourself is always selected.
-        key = self._key(document.path) if document.path else None
-        restored = key is not None and key in self._restore_paths
-        self._restore_paths.pop(key, None)
-        if not restored or self._restore_selected in (None, key):
-            self.tree.clearSelection()
-            self.tree.setCurrentItem(item)
-        self._refresh_log_choices()
-        if document.path:
-            self._remember_recent(document.path)
-        self._save_session()
+        return page
+
+    def _select_document(self, document) -> None:
+        item = self.items.get(document.id)
+        if item is None:
+            return
+        parent = item.parent()
+        while parent is not None:                  # inside a collapsed subfolder
+            parent.setExpanded(True)
+            parent = parent.parent()
+        self.tree.clearSelection()
+        self.tree.setCurrentItem(item)
 
     def _refresh_item(self, document) -> None:
         """Sidebar text: the name, plus a dot while a model has unsaved edits."""
         item = self.items.get(document.id)
-        if item is not None:
-            item.setText(0, document.name + ("  •" if getattr(document, "dirty", False) else ""))
-            self._set_item_tooltip(item, document)
-            if self.workspace is not None:
-                self._reposition(item)            # a new name: keep the rows alphabetical
+        if item is None:
+            return
+        if item.text(0) != self._row_text(document) and self.workspace is not None:
+            self._rebuild_sidebar()               # a new name: keep the rows in order
+        else:
+            self._style_document_row(item, document)
+
+    def _row_text(self, document) -> str:
+        dirty = getattr(document, "dirty", False) and not getattr(document, "autosave", False)
+        return document.name + ("  •" if dirty else "")
+
+    def _style_document_row(self, item: QTreeWidgetItem, document) -> None:
+        item.setText(0, self._row_text(document))
+        font = item.font(0)
+        font.setItalic(bool(getattr(document, "missing", False)))
+        item.setFont(0, font)
+        self._set_item_tooltip(item, document)
 
     def _set_item_tooltip(self, item: QTreeWidgetItem, document) -> None:
-        where = document.path or "Not saved to a file — export it to keep it"
+        if getattr(document, "missing", False):
+            where = f"{document.path}\nThe file is missing (moved or deleted) — Save As… to keep it"
+        else:
+            where = document.path or "Not saved to a file — export it to keep it"
         item.setToolTip(0, f"{document.name}\n{where}")
 
     def _refresh_log_choices(self) -> None:
@@ -812,7 +989,14 @@ class StudioWindow(QMainWindow):
             if isinstance(page, ModelPage):
                 page.refresh_logs()
 
-    def _on_select(self, current, _previous=None) -> None:
+    def _on_select(self, current, previous=None) -> None:
+        # Switching to another file saves the one you were editing.
+        try:
+            left = previous.data(0, Qt.UserRole) if previous is not None else None
+        except RuntimeError:                      # a row the sidebar has just rebuilt
+            left = None
+        if left is not None:
+            self._flush_autosaves([left])
         if current is None or current.data(0, Qt.UserRole) is None:
             return
         holder = self.holders.get(current.data(0, Qt.UserRole))
@@ -899,19 +1083,22 @@ class StudioWindow(QMainWindow):
         if self.documents:
             self.remove_documents([d.id for d in self.documents])
 
-    def remove_documents(self, ids: list[int]) -> bool:
-        """Close documents.  Files on disk are never touched.
+    def remove_documents(self, ids: list[int], confirm: bool = True) -> bool:
+        """Close documents.  Files on disk are never touched (edits are saved
+        first where autosave applies).
 
-        Returns False when the user cancelled.  In a workspace, a closed file
+        Returns False when the user cancelled.  In a folder, a closed file
         stays listed (lighter) so it can be opened again with one click.
 
         Only documents that exist nowhere else (a log typed in notation, a
         model just discovered) need a confirmation, because removing them
         loses them; anything opened from a file can simply be opened again.
+        ``confirm=False`` skips that question (the caller asked already).
         """
         documents = [d for d in self.documents if d.id in set(ids)]
         if not documents:
             return True
+        self._flush_autosaves([d.id for d in documents])
         # Comparisons of removed logs go too (they cannot outlive their logs).
         removed_logs = {d.id for d in documents if isinstance(d, LogDocument)}
         for other in self.documents:
@@ -920,8 +1107,8 @@ class StudioWindow(QMainWindow):
                 documents.append(other)
         # A comparison is recreated in a moment, so it needs no confirmation.
         unsaved = [d for d in documents if not isinstance(d, ComparisonDocument) and
-                   (not d.path or getattr(d, "dirty", False))]
-        if unsaved:
+                   (not d.path or d.missing or getattr(d, "dirty", False))]
+        if unsaved and confirm:
             names = "\n".join(f"• {d.name}" for d in unsaved[:8])
             more = f"\n… and {len(unsaved) - 8} more" if len(unsaved) > 8 else ""
             box = QMessageBox(self)
@@ -946,24 +1133,19 @@ class StudioWindow(QMainWindow):
         target = after[0] if after else (before[-1] if before else None)
 
         for document in documents:
-            page = self.pages.pop(document.id)
-            if hasattr(page, "shutdown"):
-                page.shutdown()
-            holder = self.holders.pop(document.id)
-            self.content.removeWidget(holder)
-            holder.deleteLater()
-            item = self.items.pop(document.id)
-            item.parent().removeChild(item)
+            self._drop_page(document)
             self.open_options.pop(document.id, None)
+            for store in (self._originals, self._autosave_timers):
+                store.pop(document.id, None)
+            self._cpnpy_files.discard(document.id)
+            self._conflicts.discard(document.id)
         self.documents = [d for d in self.documents if d.id not in removed]
-        self._rescan_workspace()            # closed workspace files are listed again
-        self._update_sections()
+        self._rebuild_sidebar()             # closed files of the folder are listed again
         self._refresh_log_choices()
         self._save_session()
 
         if target is not None:
-            self.tree.clearSelection()
-            self.tree.setCurrentItem(self.items[target])
+            self._select_document(self._document(target))
         else:
             self.tree.clearSelection()
             self.tree.setCurrentItem(None)
@@ -976,13 +1158,27 @@ class StudioWindow(QMainWindow):
     # Kept for the ⌘W binding in older code paths.
     close_current = remove_selected
 
+    def _drop_page(self, document) -> None:
+        page = self.pages.pop(document.id)
+        if hasattr(page, "shutdown"):
+            page.shutdown()
+        holder = self.holders.pop(document.id)
+        self.content.removeWidget(holder)
+        holder.deleteLater()
+        self.banners.pop(document.id, None)
+        timer = self._autosave_timers.get(document.id)
+        if timer is not None:
+            timer.stop()
+
     def _document_items(self) -> list[QTreeWidgetItem]:
+        """The open documents' rows, top to bottom (not the "not open" ones)."""
         items = []
-        for section in (self.logs_section, self.petri_section, self.models_section,
-                        self.cpn_section, self.compare_section):
-            # Open documents only, not a workspace's "not open" rows.
-            items += [section.child(i) for i in range(section.childCount())
-                      if section.child(i).data(0, Qt.UserRole) is not None]
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value() is not None:
+            item = iterator.value()
+            if item.data(0, Qt.UserRole) is not None:
+                items.append(item)
+            iterator += 1
         return items
 
     # -- renaming, exporting, revealing ---------------------------------------------
@@ -992,7 +1188,29 @@ class StudioWindow(QMainWindow):
             self.rename_document(self._document(ids[0]))
 
     #: Characters macOS, Windows or Linux do not allow in a file name.
-    FILE_NAME_FORBIDDEN = set('/\\:*?"<>|')
+    FILE_NAME_FORBIDDEN = FORBIDDEN_CHARACTERS
+
+    def _rename_on_disk(self, source: Path, target: Path) -> bool:
+        """Rename a file or folder, explaining why not if it cannot be done."""
+        problem = None
+        name = target.name if source.is_dir() else _file_stem(target)
+        if self.FILE_NAME_FORBIDDEN & set(name) or name in (".", "..") \
+                or name.startswith("."):
+            problem = ("A name cannot start with a dot or contain any of  "
+                       "/ \\ : * ? \" < > |")
+        elif target.exists() and not _same_file(source, target):
+            problem = f"There is already something called “{target.name}” in that folder."
+        else:
+            self._flush_autosaves()
+            try:
+                source.rename(target)          # a case-only change works too (same file)
+            except OSError as error:
+                problem = f"It could not be renamed: {error.strerror or error}"
+        if problem is not None:
+            QMessageBox.warning(self, "Could not rename", problem)
+            return False
+        self._paths_moved(source, target)
+        return True
 
     def rename_document(self, document) -> None:
         """Ask for a new name; if the document is named after its file, rename the file too.
@@ -1015,25 +1233,13 @@ class StudioWindow(QMainWindow):
         renames_file = (source is not None and source.exists()
                         and _file_stem(source) == old_name)
         if renames_file:
-            problem = None
             if self.FILE_NAME_FORBIDDEN & set(name) or name in (".", ".."):
-                problem = ("A file name cannot contain any of  / \\ : * ? \" < > |")
-                target = None
-            else:
-                target = source.with_name(name + _file_suffix(source))
-            if problem is None and target.exists() and not _same_file(source, target):
-                problem = f"There is already a file called “{target.name}” in that folder."
-            if problem is None:
-                try:
-                    source.rename(target)      # a case-only change works too (same file)
-                except OSError as error:
-                    problem = f"The file could not be renamed: {error.strerror or error}"
-            if problem is not None:
-                QMessageBox.warning(self, "Could not rename", problem)
+                QMessageBox.warning(self, "Could not rename", "A file name cannot contain any "
+                                    "of  / \\ : * ? \" < > |")
                 return
-            document.path = str(target)
-            self._forget_recent(str(source))
-            self._remember_recent(str(target))
+            target = source.with_name(name + _file_suffix(source))
+            if not self._rename_on_disk(source, target):
+                return
             self.statusBar().showMessage(f"Renamed the file to {target.name}", 8000)
         elif isinstance(document, CpnDocument):
             # Only the name in the model changes: it is an edit, so it can be undone.
@@ -1045,10 +1251,66 @@ class StudioWindow(QMainWindow):
             document.net.name = name
         if isinstance(document, CpnDocument) and not renames_file:
             self.pages[document.id].set_dirty(True)
-        self._refresh_item(document)
+        self._rebuild_sidebar()
         self.pages[document.id].refresh_title()
         self._set_title(document)
         self._refresh_log_choices()
+        self._save_session()
+
+    def rename_path(self, path: str) -> None:
+        """Rename a file that is not open, or a subfolder (the sidebar's Rename…)."""
+        source = Path(path)
+        folder = source.is_dir()
+        old_name = source.name if folder else _file_stem(source)
+        name, ok = QInputDialog.getText(self, "Rename", "Name:", text=old_name)
+        name = name.strip()
+        if not ok or not name or name == old_name:
+            return
+        target = source.with_name(name if folder else name + _file_suffix(source))
+        if self._rename_on_disk(source, target):
+            self.statusBar().showMessage(f"Renamed to {target.name}", 6000)
+            self._rescan_workspace()
+
+    def _paths_moved(self, old: Path, new: Path) -> None:
+        """A file or folder was moved or renamed (by the app): follow it.
+
+        Open documents in it get their new path (unsaved edits stay, with
+        their dot), and so do the remembered recent files and expanded folders.
+        """
+        old, new = Path(old), Path(new)
+
+        base = old.resolve()
+
+        def moved(path: str) -> Path | None:
+            candidate = Path(path).resolve()
+            if candidate == base:
+                return new
+            try:
+                return new / candidate.relative_to(base)
+            except ValueError:
+                return None
+
+        for document in self.documents:
+            if document.path and (target := moved(document.path)) is not None:
+                self._forget_recent(document.path)
+                previous_key = self._key(document.path)
+                document.path = str(target)
+                if previous_key in self._own_writes:
+                    self._own_writes[self._key(target)] = self._own_writes.pop(previous_key)
+                self._remember_recent(document.path)
+                self.pages[document.id].refresh_title()
+                self._update_autosave(document)
+        if self.workspace is not None:
+            old_relative, new_relative = self.workspace.relative(old), self.workspace.relative(new)
+            renamed = set()
+            for relative in self._expanded:
+                if relative == old_relative or relative.startswith(old_relative + "/"):
+                    renamed.add(new_relative + relative[len(old_relative):])
+                else:
+                    renamed.add(relative)
+            if renamed != self._expanded:
+                self._expanded = renamed
+                self.workspace.update_settings(expanded=sorted(self._expanded))
         self._save_session()
 
     def export_selected(self) -> None:
@@ -1057,11 +1319,29 @@ class StudioWindow(QMainWindow):
             self.pages[ids[0]].export()
 
     def _document_saved(self, document) -> None:
-        """A page exported its document: it is now backed by that file."""
-        self._refresh_item(document)
-        if self.selected_ids() == [document.id]:
-            # Save As may have renamed it after the file (see CpnPage._take_file_name).
-            self._set_title(document)
+        """A page saved or exported its document: it is now backed by that file."""
+        previous = getattr(document, "_last_path", None)
+        document._last_path = document.path
+        signature = _signature(document.path) if document.path else None
+        if signature is not None:
+            self._own_writes[self._key(document.path)] = signature
+        if previous and self._key(previous) != self._key(document.path) \
+                and self._key(previous) in self._created and Path(previous).exists():
+            # Save As of a net the app created ("Untitled 1.pnml"): the old file
+            # was only ever the app's, so it does not stay behind as a duplicate.
+            self._created.discard(self._key(previous))
+            move_to_trash(previous)
+        if isinstance(document, CpnDocument):
+            self._cpnpy_files.add(document.id)      # CPNpy wrote it: autosaving is safe
+        self._update_autosave(document)
+        banner = self.banners.get(document.id)
+        if banner is not None:
+            banner.clear("missing")
+        if document.id in self.items:
+            self._refresh_item(document)
+            if self.selected_ids() == [document.id]:
+                # Save As may have renamed it after the file (see CpnPage._take_file_name).
+                self._set_title(document)
         self.open_options.pop(document.id, None)      # it is XES/PNML now, not CSV
         if document.path and document.path.lower().endswith(".csv"):
             # Reopen the exported CSV with its own (standard) columns, unasked.
@@ -1083,12 +1363,26 @@ class StudioWindow(QMainWindow):
     def _sidebar_menu(self, position) -> None:
         item = self.tree.itemAt(position)
         menu = QMenu(self)
+        in_folder = self.workspace is not None
+        if item is not None and item.data(0, FOLDER_ROLE):
+            path = item.data(0, FOLDER_ROLE)
+            menu.addAction("New Folder…", lambda: self.new_folder(path))
+            menu.addAction("Rename…", lambda: self.rename_path(path))
+            menu.addAction(reveal_label(), lambda: self.reveal(path))
+            menu.addSeparator()
+            menu.addAction(f"Move to {BIN}", lambda: self.trash_paths([path]))
+            menu.exec(self.tree.viewport().mapToGlobal(position))
+            return
         if item is not None and item.data(0, FILE_ROLE):
             path = item.data(0, FILE_ROLE)
-            menu.addAction("Open", lambda: self._open_placeholder(item))
-            reveal = {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(
-                sys.platform, "Open Containing Folder")
-            menu.addAction(reveal, lambda: self.reveal(path))
+            if item.data(0, CLOUD_ROLE):
+                menu.addAction("Download from iCloud", lambda: self._open_placeholder(item))
+            else:
+                menu.addAction("Open", lambda: self._open_placeholder(item))
+                menu.addAction("Rename…", lambda: self.rename_path(path))
+            menu.addAction(reveal_label(), lambda: self.reveal(path))
+            menu.addSeparator()
+            menu.addAction(f"Move to {BIN}", lambda: self.trash_paths([path]))
             menu.exec(self.tree.viewport().mapToGlobal(position))
             return
         if item is not None and item.data(0, Qt.UserRole) is None:
@@ -1096,7 +1390,8 @@ class StudioWindow(QMainWindow):
             section = item
             ids = [section.child(i).data(0, Qt.UserRole) for i in range(section.childCount())]
             kind = {id(self.logs_section): "Logs", id(self.petri_section): "Petri Nets",
-                    id(self.models_section): "Models",
+                    id(self.models_section): "Models", id(self.unsaved_section): "Unsaved",
+                    id(self.elsewhere_section): "Other Files",
                     id(self.compare_section): "Comparisons"}.get(id(section), "Coloured Nets")
             ids = [i for i in ids if i is not None]          # not the "not open" rows
             if ids:
@@ -1105,8 +1400,11 @@ class StudioWindow(QMainWindow):
             if item is not None and not item.isSelected():
                 self.tree.clearSelection()
                 self.tree.setCurrentItem(item)
-            ids = self.selected_ids()
+            ids = self.selected_ids() if item is not None else []
             if not ids:
+                if in_folder:
+                    menu.addAction("New Folder…", lambda: self.new_folder())
+                    menu.addSeparator()
                 menu.addAction("Open File…", self.action_open)
                 menu.addAction("New Log from Notation…", self.action_notation)
             elif len(ids) == 1 and isinstance(self._document(ids[0]), ComparisonDocument):
@@ -1125,20 +1423,24 @@ class StudioWindow(QMainWindow):
                     menu.addAction("Filter…", self.pages[document.id].filter_log)
                     label_text = "Export Log (XES or CSV)…"
                 else:
+                    if in_folder and not document.path:
+                        menu.addAction("Keep in Folder", lambda d=document: self.keep_model(d))
                     label_text = "Export Model as PNML…"
                 menu.addAction(label_text, self.export_selected)
-                if document.path:
-                    reveal = {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(
-                        sys.platform, "Open Containing Folder")
-                    menu.addAction(reveal, lambda p=document.path: self.reveal(p))
+                if document.path and not document.missing:
+                    menu.addAction(reveal_label(), lambda p=document.path: self.reveal(p))
                 menu.addSeparator()
                 menu.addAction("Close", self.remove_selected)
+                if document.path and not document.missing:
+                    menu.addAction(f"Move to {BIN}", self.trash_selected)
             else:
                 chosen = [self._document(i) for i in ids]
                 if all(isinstance(d, LogDocument) for d in chosen):
                     menu.addAction(f"Compare {len(ids)} Logs", lambda: self.compare(chosen))
                     menu.addSeparator()
                 menu.addAction(f"Close {len(ids)} Items", self.remove_selected)
+                if all(d.path and not d.missing for d in chosen):
+                    menu.addAction(f"Move {len(ids)} Items to {BIN}", self.trash_selected)
         menu.exec(self.tree.viewport().mapToGlobal(position))
 
     # -- session and recent files -----------------------------------------------------
@@ -1225,7 +1527,7 @@ class StudioWindow(QMainWindow):
             action.setEnabled(False)
             return
         for path in recent:
-            self.recent_menu.addAction(Path(path).name, lambda p=path: self.open_path(p)) \
+            self.recent_menu.addAction(Path(path).name, lambda p=path: self.open_files([p])) \
                 .setToolTip(path)
         self.recent_menu.addSeparator()
         self.recent_menu.addAction("Clear Menu", lambda: self.settings.setValue("recent", "[]"))
@@ -1236,36 +1538,120 @@ class StudioWindow(QMainWindow):
             self, "Open", dialog_folder(),
             "Supported files (*.xes *.gz *.csv *.pnml *.cpn);;Event logs (*.xes *.gz *.csv);;"
             "Petri nets (*.pnml);;CPN Tools models (*.cpn);;All files (*)")
-        for path in paths:
-            self.open_path(path)
+        self.open_files(paths)
 
     def action_open_cpn(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open coloured Petri net", dialog_folder(),
                                               "CPN Tools models (*.cpn)")
         if path:
-            self.open_path(path)
+            self.open_files([path])
 
     def action_notation(self) -> None:
         dialog = NotationDialog(self)
         if dialog.exec() == QDialog.Accepted:
             self.add_document(LogDocument(dialog.log()))
 
+    def open_files(self, paths: list[str], folder: str | None = None) -> None:
+        """Open files the user chose (Open…, Open Recent, a drop, the command line).
+
+        With a folder open, files from elsewhere are first copied or moved
+        into it (or ``folder``, a subfolder), or opened where they are, as the
+        user says (once, or always for this folder): see :meth:`_bring_in`.
+        """
+        outside = [p for p in paths if self.workspace is not None and Path(p).is_file()
+                   and not self.workspace.contains(p)]
+        for path in paths:
+            if path not in outside:
+                self.open_path(path)
+        if outside:
+            for path in self._bring_in(outside, folder):
+                self.open_path(path)
+
+    def _import_choice(self, names: list[str], allow_open: bool) -> str | None:
+        """Copy, move or open in place?  The folder's choice, the app's, or the user's."""
+        remembered = self.workspace.settings().get("import")
+        if remembered not in IMPORT_CHOICES:
+            remembered = self._setting("files/import", "ask")
+        if remembered in ("copy", "move"):
+            return remembered
+        if remembered == "open":
+            return "open" if allow_open else "copy"
+        dialog = ImportDialog(names, self.workspace.name, self, allow_open=allow_open)
+        if dialog.exec() != QDialog.Accepted:
+            return None
+        choice = dialog.choice()
+        if dialog.always.isChecked():
+            self.workspace.update_settings(**{"import": choice})
+        return choice
+
+    def _bring_in(self, paths: list[str], folder: str | None = None) -> list[str]:
+        """Copy or move files from elsewhere into the open folder; the paths to open.
+
+        ``folder``: the subfolder they were dropped on (then "open where it
+        is" is not on offer: the drop says where they go).  A file with the
+        same name already there is never overwritten silently: the user
+        keeps both (``"name 2.xes"``) or replaces it (the old one goes to the Bin).
+        """
+        target_folder = Path(folder) if folder else self.workspace.folder
+        choice = self._import_choice([Path(p).name for p in paths],
+                                     allow_open=folder is None
+                                     or Path(folder).resolve() == self.workspace.folder)
+        if choice is None:
+            return []
+        if choice == "open":
+            return list(paths)
+        result = []
+        for source in map(Path, paths):
+            target = target_folder / source.name
+            if target.exists():
+                if _same_file(source, target):
+                    result.append(str(target))
+                    continue
+                answer = ask_about_clash(self, target)
+                if answer is None:
+                    continue
+                if answer == "keep":
+                    target = unique_path(target_folder, source.name)
+                elif not move_to_trash(target):
+                    QMessageBox.warning(self, "Could not replace", f"“{target.name}” could not "
+                                        f"be moved to the {BIN}, so it was left as it is.")
+                    continue
+            try:
+                if choice == "move":
+                    shutil.move(str(source), str(target))
+                    self._forget_recent(str(source))
+                else:
+                    shutil.copy2(source, target)          # keeps the file's dates
+            except OSError as error:
+                QMessageBox.warning(self, "Could not add the file",
+                                    f"{source.name}\n\n{error.strerror or error}")
+                continue
+            result.append(str(target))
+        if result:
+            verb = "Moved" if choice == "move" else "Copied"
+            where = target_folder.name
+            self.statusBar().showMessage(
+                f"{verb} {Path(result[0]).name if len(result) == 1 else f'{len(result)} files'} "
+                f"into {where}", 8000)
+        self._rescan_workspace()
+        return result
+
     def open_path(self, path: str, csv_mapping: dict | None = None) -> None:
         lower = path.lower()
         name = Path(path).name
+        if lower.endswith(".icloud") and Path(path).name.startswith("."):
+            self._download_from_icloud(Path(path).with_name(name[1:-len(".icloud")]), Path(path))
+            return
+        size = _signature(path)
         try:
             if lower.endswith(".pnml"):
-                from ...model.plain import from_petri_net
-                petri = read_pnml(path)
-                petri.name = Path(path).stem
-                self.add_document(CpnDocument(from_petri_net(petri), path=path))
+                self.add_document(CpnDocument(self._read_net(path), path=path))
                 self.statusBar().showMessage(f"Opened {name} — edit it, play the token game, "
                                              "or see the Analysis tab for soundness and more",
                                              10000)
             elif lower.endswith(".cpn"):
-                from ...io.cpn_reader import read_cpn
                 self.statusBar().showMessage(f"Reading {name}…")
-                net = read_cpn(path)
+                net = self._read_net(path)
                 self.add_document(CpnDocument(net, path=path))
                 problems = len(net.errors)
                 self.statusBar().showMessage(
@@ -1277,6 +1663,8 @@ class StudioWindow(QMainWindow):
                 else:
                     dialog = CsvDialog(path, self)
                     if dialog.exec() != QDialog.Accepted:
+                        self._opening.discard(self._key(path))
+                        self._rebuild_sidebar()
                         return
                     mapping = dialog.mapping()
                 log = read_csv(path, mapping)
@@ -1289,13 +1677,35 @@ class StudioWindow(QMainWindow):
                     lambda log: (self.add_document(LogDocument(log, path=path)),
                                  self.statusBar().showMessage(
                                      f"Opened {name}: {len(log):,} cases", 6000)),
-                    lambda message: QMessageBox.warning(self, "Could not open log",
-                                                        f"{name}\n\n{message}"))
+                    lambda message: self._could_not_open(path, message, size))
             else:
                 QMessageBox.information(self, "Unsupported file",
                                         f"{name}: open .xes, .csv, .pnml or .cpn files.")
         except Exception as error:  # noqa: BLE001 - surface any import problem
-            QMessageBox.warning(self, "Could not open file", f"{name}\n\n{error}")
+            self._could_not_open(path, str(error), size)
+
+    def _could_not_open(self, path: str, message: str, before: tuple | None) -> None:
+        self._opening.discard(self._key(path))
+        self._rebuild_sidebar()
+        name = Path(path).name
+        if before is not None and _signature(path) != before:
+            # A big file still being copied in (from Finder, a download, iCloud):
+            # what was read was only part of it.
+            self.statusBar().showMessage(f"{name} is still being copied — open it again when "
+                                         "it has finished", 10000)
+            return
+        QMessageBox.warning(self, "Could not open file", f"{name}\n\n{message}")
+
+    @staticmethod
+    def _read_net(path: str):
+        """The net in a .pnml or .cpn file, as the editor edits it."""
+        if path.lower().endswith(".pnml"):
+            from ...model.plain import from_petri_net
+            petri = read_pnml(path)
+            petri.name = _file_stem(Path(path))
+            return from_petri_net(petri)
+        from ...io.cpn_reader import read_cpn
+        return read_cpn(path)
 
     # ---------------------------------------------------------------- comparing
     def action_compare(self, preselected: list | None = None) -> None:
@@ -1368,6 +1778,7 @@ class StudioWindow(QMainWindow):
             page.export()
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._flush_autosaves()
         dirty = [d for d in self.documents if isinstance(d, CpnDocument) and d.dirty]
         if dirty:
             box = QMessageBox(self)
@@ -1389,11 +1800,123 @@ class StudioWindow(QMainWindow):
                 return
         self._save_session()
         event.accept()
+        if self._installer is not None:         # an update is ready: swap the apps now
+            from . import updates
+            updates.run_detached(self._installer)
 
-    # ---------------------------------------------------------------- workspaces
+    # ---------------------------------------------------------------- updates
+    def check_automatically(self) -> None:
+        """At launch: look for a newer version, at most once a day, quietly."""
+        if not self.persist or not self._setting("updates/automatic", True):
+            return
+        if time.time() - self._setting("updates/last_check", 0.0) < 24 * 3600:
+            return
+        self.check_for_updates(manual=False)
+
+    def check_for_updates(self, manual: bool = True) -> None:
+        """Help ▸ Check for Updates…: compare with the latest release on GitHub.
+
+        ``manual=False`` (the check at launch) says nothing unless there is a
+        new version the user has not skipped, and nothing at all when offline.
+        """
+        from . import updates
+        if self._checking_updates:
+            return
+        self._checking_updates = True
+        if manual:
+            self.statusBar().showMessage("Checking for updates…")
+        self._set_setting("updates/last_check", time.time())
+
+        def failed(message: str) -> None:
+            self._checking_updates = False
+            if manual:
+                self.statusBar().clearMessage()
+                QMessageBox.warning(self, "Software Update", "Could not check for updates "
+                                    f"(are you online?).\n\n{message}")
+
+        run_in_background(updates.fetch_latest,
+                          lambda release: self._update_found(release, manual), failed)
+
+    def _update_found(self, release, manual: bool) -> None:
+        from ... import __version__
+        from . import updates
+        self._checking_updates = False
+        if manual:
+            self.statusBar().clearMessage()
+        if release.prerelease or not updates.is_newer(release.version):
+            if manual:
+                QMessageBox.information(self, "Software Update", "You have the latest version "
+                                        f"of CPNpy ({__version__}).")
+            return
+        if not manual and self._setting("updates/skipped", "") == release.version:
+            return
+        can_install = updates.installed_app() is not None and \
+            release.download_for() is not None
+        dialog = updates.UpdateDialog(release, can_install, self)
+        dialog.exec()
+        if dialog.outcome == dialog.SKIP:
+            self._set_setting("updates/skipped", release.version)
+        elif dialog.outcome == dialog.PAGE:
+            QDesktopServices.openUrl(QUrl(release.page))
+        elif dialog.outcome == dialog.INSTALL:
+            self._install_update(release)
+
+    def _install_update(self, release) -> None:
+        """Download and unpack the update in the background, then restart into it."""
+        from PySide6.QtWidgets import QProgressDialog
+        from . import updates
+        progress = QProgressDialog(f"Downloading CPNpy {release.version}…", "Cancel", 0, 100,
+                                   self)
+        progress.setWindowTitle("Software Update")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        state = {"done": 0, "total": 0, "cancelled": False}
+        progress.canceled.connect(lambda: state.__setitem__("cancelled", True))
+        poll = QTimer(self)
+        poll.timeout.connect(lambda: progress.setValue(
+            int(100 * state["done"] / state["total"]) if state["total"] else 0))
+        poll.start(100)
+
+        def finish() -> None:
+            poll.stop()
+            progress.close()
+
+        def failed(message: str) -> None:
+            finish()
+            if not state["cancelled"]:
+                QMessageBox.warning(self, "Software Update", "The update could not be "
+                                    f"installed.\n\n{message}\n\nYou can download it from "
+                                    f"{release.page}")
+
+        def ready(command: list[str]) -> None:
+            finish()
+            box = QMessageBox(self)
+            box.setWindowTitle("Software Update")
+            box.setText(f"CPNpy {release.version} is ready.")
+            box.setInformativeText("CPNpy quits and starts again to finish updating. Your "
+                                   "open files come back.")
+            restart = box.addButton("Restart Now", QMessageBox.AcceptRole)
+            box.addButton(QMessageBox.Cancel)
+            box.exec()
+            if box.clickedButton() is restart:
+                self._installer = command
+                if self.close():
+                    QApplication.quit()
+                    return
+                self._installer = None         # quitting was cancelled
+            # Not installed: tidy up the unpacked copy.
+            work = Path(command[-1]).parent
+            if work.name.startswith(".cpnpy-update-"):
+                shutil.rmtree(work, ignore_errors=True)
+
+        run_in_background(lambda: updates.prepare(
+            release, progress=lambda done, total: state.update(done=done, total=total),
+            cancelled=lambda: state["cancelled"]), ready, failed)
+
+    # ---------------------------------------------------------------- folders
     def action_open_workspace(self) -> None:
         start = str(self.workspace.folder.parent) if self.workspace else dialog_folder()
-        folder = QFileDialog.getExistingDirectory(self, "Open workspace folder",
+        folder = QFileDialog.getExistingDirectory(self, "Open folder",
                                                   start or str(Path.home()))
         if folder:
             self.open_workspace(folder)
@@ -1407,13 +1930,13 @@ class StudioWindow(QMainWindow):
         """
         workspace = Workspace(folder)
         if not workspace.exists():
-            QMessageBox.warning(self, "Open workspace", f"{folder}\n\nThis folder no longer "
+            QMessageBox.warning(self, "Open folder", f"{folder}\n\nThis folder no longer "
                                 "exists.")
             self._forget_workspace(folder)
             return False
         if self.workspace is not None and self.workspace.folder == workspace.folder:
             return True
-        self._save_session()                    # the old workspace, as it was
+        self._save_session()                    # the old folder, as it was
         outside = [d.id for d in self.documents
                    if not (d.path and workspace.contains(d.path))]
         self._restoring = True                  # closing is not a change to remember
@@ -1422,18 +1945,21 @@ class StudioWindow(QMainWindow):
                 return False
         finally:
             self._restoring = False
-        self._clear_placeholders()
+        self._stop_watching()
 
         self.workspace = workspace
+        settings = workspace.settings()
+        self.view_mode = "kind" if settings.get("view") == "kind" else "folder"
+        self._expanded = {e for e in settings.get("expanded", []) if isinstance(e, str)}
+        self.view_switch.blockSignals(True)
+        self.view_switch.set_index(0 if self.view_mode == "folder" else 1)
+        self.view_switch.blockSignals(False)
         set_dialog_folder(str(workspace.folder))
         self._remember_workspace(str(workspace.folder))
         self._show_workspace_header()
-        self._rescan_workspace()
         for document in self.documents:        # files of this folder that stayed open
-            if document.id in self.items:
-                parent = self.items[document.id].parent()
-                parent.removeChild(self.items[document.id])
-                self._insert_sorted(parent, self.items[document.id])
+            self._update_autosave(document)
+        self._rescan_workspace(force=True)
 
         state = workspace.load_state()
         entries = [e for e in state["open"] if Path(e["path"]).exists()]
@@ -1453,7 +1979,7 @@ class StudioWindow(QMainWindow):
         self._set_title(self._current_document())
         count = len(self.placeholders) + sum(1 for d in self.documents if d.path)
         self.statusBar().showMessage(
-            f"Opened the workspace {workspace.name}: "
+            f"Opened {workspace.name}: "
             f"{count} file{'s' if count != 1 else ''} to work with", 6000)
         return True
 
@@ -1468,74 +1994,301 @@ class StudioWindow(QMainWindow):
                 return False
         finally:
             self._restoring = False
-        self._clear_placeholders()
+        self._stop_watching()
         name, self.workspace = self.workspace.name, None
+        self._tree, self._tree_signature = None, ()
         set_dialog_folder(None)
-        self.statusBar().showMessage(f"Closed the workspace {name}", 5000)
+        self.statusBar().showMessage(f"Closed {name}", 5000)
         if self.persist:
             self.settings.remove("workspace/current")
         self._show_workspace_header()
-        self._update_sections()
+        self._rebuild_sidebar()
         self.content.setCurrentIndex(0)
         self._set_title(None)
         self._save_session()
         return True
 
-    def _rescan_workspace(self) -> None:
-        """Bring the "not open" rows in line with the folder's files."""
+    def set_view_mode(self, mode: str) -> None:
+        """In a folder: show its subfolders ("folder") or group files by kind ("kind")."""
+        if mode == self.view_mode:
+            return
+        self.view_mode = mode
+        self.view_switch.blockSignals(True)
+        self.view_switch.set_index(0 if mode == "folder" else 1)
+        self.view_switch.blockSignals(False)
+        if self.workspace is not None:
+            self.workspace.update_settings(view=mode)
+        self._rebuild_sidebar()
+
+    def _rescan_workspace(self, force: bool = False) -> None:
+        """Bring the sidebar in line with the folder's files (and watch its subfolders)."""
         if self.workspace is None:
             return
         if not self.workspace.exists():
-            self.statusBar().showMessage(f"The workspace folder {self.workspace.folder} is "
+            self.statusBar().showMessage(f"The folder {self.workspace.folder} is "
                                          "gone (moved or deleted?)", 10000)
             return
-        open_paths = {self._key(d.path) for d in self.documents if d.path}
-        wanted = {self._key(f.path): f for f in self.workspace.files()}
-        wanted = {key: f for key, f in wanted.items() if key not in open_paths}
-        for key in [k for k in self.placeholders if k not in wanted]:
-            item = self.placeholders.pop(key)
-            item.parent().removeChild(item)
-        sections = {"log": self.logs_section, "petri": self.petri_section,
-                    "cpn": self.cpn_section}
-        muted = QColor(style.tokens().text_muted)
-        # Rows show the file's name; the subfolder ("logs/…") only when two
-        # files would otherwise look the same.  The tooltip has the full path.
-        short = {key: display_name(Path(f.relative).name) for key, f in wanted.items()}
-        clashes = {name for name in short.values() if list(short.values()).count(name) > 1}
-        for key, file in wanted.items():
-            text = file.name if short[key] in clashes else short[key]
-            if key in self.placeholders:
-                if self.placeholders[key].text(0) != text:
-                    self.placeholders[key].setText(0, text)
-                continue
-            item = QTreeWidgetItem([text])
-            item.setIcon(0, _faded_icon({"log": "log", "cpn": "cpn"}.get(file.kind, "model")))
-            item.setData(0, FILE_ROLE, str(file.path))
-            item.setForeground(0, muted)
-            item.setToolTip(0, f"{file.relative}\nNot open — click to open")
-            self._insert_sorted(sections[file.kind], item)
-            self.placeholders[key] = item
-        self._update_sections()
+        self._tree = self.workspace.tree()
+        signature = tuple((f.relative, tuple((x.relative, x.in_cloud) for x in f.files))
+                          for f in self._tree.walk())
+        missing_changed = self._check_missing()
+        self._open_downloaded()
+        if force or signature != self._tree_signature or missing_changed:
+            self._tree_signature = signature
+            self._rebuild_sidebar()
         # Watch the folder and its subfolders (new subfolders included).
         watched = set(self.watcher.directories())
-        current = {str(d) for d in self.workspace.directories()}
+        current = {str(d) for d in self.workspace.directories(self._tree)}
         if watched - current:
             self.watcher.removePaths(list(watched - current))
         if current - watched:
             self.watcher.addPaths(sorted(current - watched))
+            if watched:
+                # A file copied into a brand-new subfolder before it was watched
+                # would be missed: look once more.
+                self._rescan_timer.start()
 
-    def _clear_placeholders(self) -> None:
-        for item in self.placeholders.values():
-            item.parent().removeChild(item)
-        self.placeholders.clear()
+    def _stop_watching(self) -> None:
         if self.watcher.directories():
             self.watcher.removePaths(self.watcher.directories())
+        self._tree, self._tree_signature = None, ()
+
+    # -- the sidebar's rows ---------------------------------------------------------
+    def _sections(self) -> list[QTreeWidgetItem]:
+        return [self.unsaved_section, self.logs_section, self.petri_section,
+                self.models_section, self.cpn_section, self.elsewhere_section,
+                self.compare_section]
+
+    def _row_id(self, item: QTreeWidgetItem | None):
+        """What a row stands for, so the same row can be found after a rebuild."""
+        if item is None:
+            return None
+        try:
+            if item.data(0, Qt.UserRole) is not None:
+                return ("document", item.data(0, Qt.UserRole))
+            if item.data(0, FILE_ROLE):
+                return ("file", self._key(item.data(0, FILE_ROLE)))
+            if item.data(0, FOLDER_ROLE):
+                return ("folder", self._key(item.data(0, FOLDER_ROLE)))
+        except RuntimeError:
+            return None
+        return None
+
+    def _row_path(self, item: QTreeWidgetItem) -> str | None:
+        """The file or folder a row stands for (for dragging it, trashing it, …)."""
+        if item.data(0, Qt.UserRole) is not None:
+            document = self._document(item.data(0, Qt.UserRole))
+            return document.path if document.path and not document.missing else None
+        return item.data(0, FOLDER_ROLE) or (item.data(0, FILE_ROLE)
+                                              if not item.data(0, CLOUD_ROLE) else None)
+
+    def _listed_files(self) -> list:
+        """The folder's files that are not open (iCloud-only ones included)."""
+        if self._tree is None:
+            return []
+        open_paths = {self._key(d.path) for d in self.documents if d.path}
+        return [f for folder in self._tree.walk() for f in folder.files
+                if self._key(f.path) not in open_paths]
+
+    def _rebuild_sidebar(self) -> None:
+        """Lay out the sidebar from the open documents and the folder's files.
+
+        Called after anything that changes them.  The current row, the
+        selection, the expanded subfolders and the scroll position stay as
+        they were, and the page shown does not change.
+        """
+        tree = self.tree
+        current = self._row_id(tree.currentItem())
+        selected = {self._row_id(item) for item in tree.selectedItems()}
+        scroll_position = tree.verticalScrollBar().value()
+        tree.blockSignals(True)
+        tree._target = None
+        try:
+            while tree.topLevelItemCount():
+                tree.takeTopLevelItem(0)
+            for section in self._sections():
+                section.takeChildren()
+            self.items, self.placeholders, self.folder_items = {}, {}, {}
+            folder_view = self.workspace is not None and self.view_mode == "folder"
+            tree.setRootIsDecorated(folder_view)
+            if folder_view:
+                self._fill_folder_view()
+            else:
+                self._fill_kind_view()
+            for section in self._sections():
+                section.setExpanded(True)
+                section.setHidden(section.childCount() == 0)
+            self.more_row.setHidden(not (self._tree is not None and self._tree.truncated))
+            empty = self.workspace is not None and not self.items and not self.placeholders \
+                and not self.folder_items
+            self.empty_hint.setHidden(not empty)
+            for relative, item in self.folder_items.items():
+                item.setExpanded(relative in self._expanded)
+            # Put back the current row and the selection.
+            rows = {self._row_id(item): item for item in self._all_rows()}
+            if current in rows:
+                item = rows[current]
+                parent = item.parent()
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                tree.setCurrentItem(item)
+            for key in selected:
+                if key in rows:
+                    rows[key].setSelected(True)
+            tree.verticalScrollBar().setValue(scroll_position)
+        finally:
+            tree.blockSignals(False)
+        self._watch_open_files()
+        self._update_welcome()
+
+    def _all_rows(self) -> list[QTreeWidgetItem]:
+        rows = []
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value() is not None:
+            rows.append(iterator.value())
+            iterator += 1
+        return rows
+
+    def _document_row(self, document) -> QTreeWidgetItem:
+        kind = ("compare" if isinstance(document, ComparisonDocument) else
+                "log" if isinstance(document, LogDocument) else
+                "cpn" if isinstance(document, CpnDocument)
+                and not getattr(document.net, "plain", False) else "model")
+        item = QTreeWidgetItem([""])
+        item.setIcon(0, _icon(kind))
+        item.setData(0, Qt.UserRole, document.id)
+        self._style_document_row(item, document)
+        self.items[document.id] = item
+        return item
+
+    def _file_row(self, file, text: str) -> QTreeWidgetItem:
+        """A file of the folder that is not open: lighter, opens with a click."""
+        kind = {"log": "log", "cpn": "cpn"}.get(file.kind, "model")
+        key = self._key(file.path)
+        if file.in_cloud:
+            text += "  ☁"
+        if key in self._opening or key in self._pending_downloads:
+            text += "  …"
+        item = QTreeWidgetItem([text])
+        item.setIcon(0, _faded_icon(kind))
+        item.setData(0, FILE_ROLE, str(file.path))
+        item.setForeground(0, QColor(style.tokens().text_muted))
+        if file.in_cloud:
+            item.setData(0, CLOUD_ROLE, str(file.cloud_placeholder))
+            item.setToolTip(0, f"{file.relative}\nIn iCloud — click to download and open it")
+        else:
+            item.setToolTip(0, f"{file.relative}\nNot open — click to open")
+        self.placeholders[key] = item
+        return item
+
+    def _fill_kind_view(self) -> None:
+        """Rows grouped by kind: logs, Petri nets, models, coloured nets, comparisons."""
+        tree = self.tree
+        for section in (self.logs_section, self.petri_section, self.models_section,
+                        self.cpn_section, self.compare_section):
+            tree.addTopLevelItem(section)
+        for document in self.documents:
+            if isinstance(document, LogDocument):
+                section = self.logs_section
+            elif isinstance(document, ComparisonDocument):
+                section = self.compare_section
+            elif isinstance(document, CpnDocument):
+                section = self.petri_section if getattr(document.net, "plain", False) \
+                    else self.cpn_section
+            else:
+                section = self.models_section
+            section.addChild(self._document_row(document))
+        files = self._listed_files()
+        # Rows show the file's name; the subfolder ("logs/…") only when two
+        # files would otherwise look the same.  The tooltip has the full path.
+        short = [display_name(f.path.name) for f in files]
+        clashes = {name for name in short if short.count(name) > 1}
+        sections = {"log": self.logs_section, "petri": self.petri_section,
+                    "cpn": self.cpn_section}
+        for file, name in zip(files, short):
+            sections[file.kind].addChild(self._file_row(file, file.name if name in clashes
+                                                        else name))
+        if self.workspace is not None:              # rows in a folder are alphabetical
+            for section in self._sections():
+                self._sort_rows(section)
+        tree.addTopLevelItem(self.more_row)
+        tree.addTopLevelItem(self.empty_hint)
+
+    def _fill_folder_view(self) -> None:
+        """Rows as in the folder: subfolders (expandable) and files, as in Finder."""
+        tree = self.tree
+        root = tree.invisibleRootItem()
+        tree.addTopLevelItem(self.unsaved_section)
+        tops: list[QTreeWidgetItem] = []
+        if self._tree is not None:
+            for folder in list(self._tree.walk())[1:]:
+                item = QTreeWidgetItem([folder.name])
+                item.setIcon(0, _icon("folder"))
+                item.setData(0, FOLDER_ROLE, str(folder.path))
+                item.setToolTip(0, folder.relative)
+                parent = self.folder_items.get(folder.relative.rpartition("/")[0])
+                (parent.addChild(item) if parent is not None else tops.append(item))
+                self.folder_items[folder.relative] = item
+
+        def parent_row(relative: str):
+            folder = relative.rpartition("/")[0]
+            while folder and folder not in self.folder_items:
+                folder = folder.rpartition("/")[0]
+            return self.folder_items.get(folder)
+
+        for file in self._listed_files():
+            item = self._file_row(file, display_name(file.path.name))
+            parent = parent_row(file.relative)
+            (parent.addChild(item) if parent is not None else tops.append(item))
+        for document in self.documents:
+            item = self._document_row(document)
+            if isinstance(document, ComparisonDocument):
+                self.compare_section.addChild(item)
+            elif not document.path:
+                self.unsaved_section.addChild(item)
+            elif not self.workspace.contains(document.path):
+                self.elsewhere_section.addChild(item)
+            else:
+                parent = parent_row(self.workspace.relative(document.path))
+                (parent.addChild(item) if parent is not None else tops.append(item))
+        for item in sorted(tops, key=self._sort_key):
+            root.addChild(item)
+        for item in self.folder_items.values():
+            self._sort_rows(item)
+        tree.addTopLevelItem(self.more_row)
+        for section in (self.elsewhere_section, self.compare_section):
+            self._sort_rows(section)
+            tree.addTopLevelItem(section)
+        tree.addTopLevelItem(self.empty_hint)
+
+    @staticmethod
+    def _sort_key(item: QTreeWidgetItem):
+        """Folders first, then by name, ignoring case (as Finder sorts)."""
+        return (0 if item.data(0, FOLDER_ROLE) else 1, item.text(0).casefold())
+
+    def _sort_rows(self, parent: QTreeWidgetItem) -> None:
+        children = parent.takeChildren()
+        parent.addChildren(sorted(children, key=self._sort_key))
+
+    def _folder_toggled(self, item: QTreeWidgetItem, expanded: bool) -> None:
+        """A subfolder was expanded or collapsed: remember it in the folder."""
+        path = item.data(0, FOLDER_ROLE)
+        if not path or self.workspace is None:
+            return
+        relative = self.workspace.relative(path)
+        changed = (relative not in self._expanded) if expanded else (relative in self._expanded)
+        if changed:
+            (self._expanded.add if expanded else self._expanded.discard)(relative)
+            self.workspace.update_settings(expanded=sorted(self._expanded))
 
     def _open_placeholder(self, item) -> None:
-        path = item.data(0, FILE_ROLE) if item is not None else None
+        try:
+            path = item.data(0, FILE_ROLE) if item is not None else None
+        except RuntimeError:                         # a row rebuilt meanwhile
+            return
         if not path:
             return
-        import time
         now = time.monotonic()
         # One click and a double-click (which also "activates") must not open
         # the file twice: a log loading in the background is not open yet.
@@ -1545,14 +2298,17 @@ class StudioWindow(QMainWindow):
         self._last_click_key = self._key(path)
         self._clicked_open_at = now
         self._restore_paths.pop(self._key(path), None)    # the user chose: it gets selected
+        if item.data(0, CLOUD_ROLE):
+            self._download_from_icloud(Path(path), Path(item.data(0, CLOUD_ROLE)))
+            return
         if path.lower().endswith((".xes", ".gz")):
+            self._opening.add(self._key(path))
             item.setText(0, item.text(0) + "  …")
             item.setToolTip(0, "Opening…")
         self.open_path(path)
 
     def _on_double_click(self, item, _column) -> None:
         """Rename an open document, but not the one a click has just opened."""
-        import time
         recently = time.monotonic() - self._clicked_open_at
         if recently < QApplication.doubleClickInterval() / 1000 * 2:
             return
@@ -1566,45 +2322,7 @@ class StudioWindow(QMainWindow):
     @staticmethod
     def _key(path: str | Path) -> str:
         """One spelling per file, for comparing paths."""
-        import os
         return os.path.normcase(str(Path(path).resolve()))
-
-    def _insert_sorted(self, parent: QTreeWidgetItem, item: QTreeWidgetItem) -> None:
-        """Insert ``item`` among ``parent``'s rows in alphabetical order."""
-        key = item.text(0).casefold()
-        index = 0
-        while index < parent.childCount() and parent.child(index).text(0).casefold() <= key:
-            index += 1
-        parent.insertChild(index, item)
-
-    def _reposition(self, item: QTreeWidgetItem) -> None:
-        """Move ``item`` to its alphabetical place without changing the selection."""
-        parent = item.parent()
-        index = parent.indexOfChild(item)
-        others = [parent.child(i).text(0).casefold() for i in range(parent.childCount())
-                  if i != index]
-        wanted = sum(1 for text in others if text <= item.text(0).casefold())
-        if wanted == index:
-            return
-        current, selected = self.tree.currentItem(), item.isSelected()
-        self.tree.blockSignals(True)            # the page shown must not flicker
-        try:
-            parent.takeChild(index)
-            parent.insertChild(wanted, item)
-            if current is item:
-                self.tree.setCurrentItem(item)
-            item.setSelected(selected)
-        finally:
-            self.tree.blockSignals(False)
-
-    def _update_sections(self) -> None:
-        sections = (self.logs_section, self.petri_section, self.models_section,
-                    self.cpn_section, self.compare_section)
-        for section in sections:
-            section.setHidden(section.childCount() == 0)
-        empty = self.workspace is not None and all(s.childCount() == 0 for s in sections)
-        self.empty_hint.setHidden(not empty)
-        self._update_welcome()
 
     def _update_welcome(self) -> None:
         """The welcome page's top card: "Work in a folder", or about the open one."""
@@ -1615,15 +2333,16 @@ class StudioWindow(QMainWindow):
         self.welcome_inside_card.setHidden(not inside)
         if inside:
             files = len(self.placeholders) + sum(
-                1 for d in self.documents if d.path and self.workspace.contains(d.path))
+                1 for d in self.documents if d.path and self.workspace.contains(d.path)
+                and not d.missing)
             self.welcome_inside_title.setText(self.workspace.name)
             if files:
                 what = f"{files} logs and nets" if files != 1 \
                     else "1 file"
                 self.welcome_inside_text.setText(
                     f"{what} in this folder: click one in the sidebar to open it. "
-                    "New nets you save go into this folder, and what you have open is "
-                    "remembered for next time.")
+                    "New nets and logs are saved into this folder, edits are saved as you "
+                    "go, and what you have open is remembered for next time.")
             else:
                 self.welcome_inside_text.setText(
                     "This folder has no event logs or nets yet. Start a new net (it is saved "
@@ -1634,6 +2353,7 @@ class StudioWindow(QMainWindow):
         active = self.workspace is not None
         self.workspace_caption.setHidden(not active)
         self.workspace_button.setHidden(not active)
+        self.view_row.setHidden(not active)
         self.sidebar_title.setText(self.workspace.name if active else APPLICATION_NAME)
         self.sidebar_title.setToolTip(str(self.workspace.folder) if active else "")
         self.close_workspace_action.setEnabled(active)
@@ -1672,7 +2392,7 @@ class StudioWindow(QMainWindow):
         menu.clear()
         recent = [p for p in self._recent_workspaces() if Path(p).is_dir()]
         if not recent:
-            menu.addAction("No Recent Workspaces").setEnabled(False)
+            menu.addAction("No Recent Folders").setEnabled(False)
             return
         for folder in recent:
             menu.addAction(Path(folder).name, lambda f=folder: self.open_workspace(f)) \
@@ -1696,8 +2416,576 @@ class StudioWindow(QMainWindow):
             layout.addWidget(label("Recent:", "muted"))
         for folder in recent:
             shortcut = button(Path(folder).name, lambda f=folder: self.open_workspace(f))
-            shortcut.setToolTip(f"Open the workspace {folder}")
+            shortcut.setToolTip(f"Open the folder {folder}")
             layout.addWidget(shortcut)
+
+    # ---------------------------------------------------------------- app → folder
+    def _materialise(self, document, near: str | None = None) -> None:
+        """In a folder, a new log or net becomes a file in it straight away.
+
+        A net is named after its file, so "Untitled 1" is ``Untitled 1.pnml``
+        (or ``Untitled 2`` when that name is taken).  It goes next to ``near``
+        (the log a filtered log came from, the net a simulation ran on) when
+        that is in the folder, else at the top of the folder.  A discovered
+        model waits for Keep, so trying algorithms does not fill the folder.
+        """
+        if self.workspace is None or document.path or self._restoring:
+            return
+        page = self.pages[document.id]
+        if isinstance(document, ModelDocument):
+            page.keep_button.setVisible(True)
+            return
+        if not isinstance(document, (LogDocument, CpnDocument)):
+            return
+        folder = self.workspace.folder
+        if near and self.workspace.contains(near) and Path(near).parent.is_dir():
+            folder = Path(near).resolve().parent
+        try:
+            if isinstance(document, LogDocument):
+                target = unique_path(folder, safe_file_name(document.name) + ".xes")
+                page.write_to(str(target), quiet=True)
+            else:
+                plain = getattr(document.net, "plain", False)
+                target = unique_path(folder, safe_file_name(document.name)
+                                     + (".pnml" if plain else ".cpn"))
+                if document.net.name != _file_stem(target):
+                    document.net.name = _file_stem(target)     # named after its file
+                    page.refresh_title()
+                if not page._write(target, quiet=True):
+                    return
+        except Exception as error:  # noqa: BLE001 - the document stays, unsaved
+            self.statusBar().showMessage(f"Could not save {document.name} into the folder: "
+                                         f"{error}", 10000)
+            return
+        self._created.add(self._key(target))
+
+    def keep_model(self, document) -> None:
+        """Save a discovered model into the folder (the Keep button)."""
+        if self.workspace is None or document.path:
+            self.pages[document.id].export()
+            return
+        source = document.source_log.path if document.source_log else None
+        folder = Path(source).resolve().parent if source and self.workspace.contains(source) \
+            else self.workspace.folder
+        target = unique_path(folder, safe_file_name(document.name) + ".pnml")
+        try:
+            self.pages[document.id].write_to(str(target), quiet=True)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Could not keep the model", str(error))
+            return
+        self.statusBar().showMessage(f"Kept as {target.name}", 8000)
+        self._rebuild_sidebar()
+
+    # -- autosave
+    def _autosaves(self, document) -> bool:
+        """Edits to this document are saved by themselves.
+
+        Only nets, only in the open folder, and a ``.cpn`` only if CPNpy wrote
+        it: a model made in CPN Tools is saved (in CPNpy's writer) only when you
+        press ⌘S, after which it is CPNpy's too.
+        """
+        return (self.autosave_enabled and self.workspace is not None
+                and isinstance(document, CpnDocument) and bool(document.path)
+                and self.workspace.contains(document.path) and not document.missing
+                and (not document.path.lower().endswith(".cpn")
+                     or document.id in self._cpnpy_files))
+
+    def _update_autosave(self, document) -> None:
+        if not isinstance(document, CpnDocument):
+            return
+        autosave = self._autosaves(document)
+        if autosave != document.autosave:
+            document.autosave = autosave
+            page = self.pages.get(document.id)
+            if page is not None:
+                page.refresh_title()
+            if document.id in self.items:
+                self._refresh_item(document)
+        if autosave and document.dirty:
+            self._schedule_autosave(document)
+
+    def _schedule_autosave(self, document) -> None:
+        """An edit: save a moment after the last one."""
+        if not document.autosave or document.id in self._conflicts:
+            return
+        timer = self._autosave_timers.get(document.id)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(AUTOSAVE_DELAY)
+            timer.timeout.connect(lambda doc=document: self._autosave(doc))
+            self._autosave_timers[document.id] = timer
+        timer.start()
+
+    def _autosave(self, document) -> None:
+        page = self.pages.get(document.id)
+        if page is None or not document.autosave or document.id in self._conflicts:
+            return
+        if not Path(document.path).exists():
+            self._set_missing(document, True)      # do not quietly bring a deleted file back
+            return
+        page.autosave()
+
+    def _flush_autosaves(self, ids: list[int] | None = None) -> None:
+        """Save now what autosave would save in a moment (switching, closing, quitting)."""
+        for document in list(self.documents):
+            if (ids is None or document.id in ids) and getattr(document, "autosave", False) \
+                    and document.dirty:
+                timer = self._autosave_timers.get(document.id)
+                if timer is not None:
+                    timer.stop()
+                self._autosave(document)
+
+    def set_autosave(self, on: bool) -> None:
+        """File ▸ Autosave."""
+        if on == self.autosave_enabled:
+            return
+        self.autosave_enabled = on
+        self._set_setting("files/autosave", on)
+        if self.autosave_action.isChecked() != on:
+            self.autosave_action.setChecked(on)
+        for document in self.documents:
+            self._update_autosave(document)
+        self.statusBar().showMessage("Edits to nets in the folder are saved as you go" if on
+                                     else "Autosave is off: save with ⌘S", 6000)
+
+    # -- revert
+    def _keep_original(self, document) -> None:
+        """Remember a net's file as it was opened, for Revert to Saved."""
+        try:
+            if os.path.getsize(document.path) <= 50_000_000:
+                self._originals[document.id] = Path(document.path).read_bytes()
+        except OSError:
+            pass
+
+    def revert_selected(self) -> None:
+        """File ▸ Revert to Saved: back to the file as it was when it was opened."""
+        document = self._current_document()
+        original = self._originals.get(document.id) if document is not None else None
+        if document is None or original is None or not document.path:
+            QMessageBox.information(self, "Revert to Saved", "Select a net opened from a file "
+                                    "to go back to how it was when you opened it.")
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Revert to Saved")
+        box.setText(f"Revert “{document.name}” to how it was when you opened it?")
+        box.setInformativeText("The changes made since then are lost, and undo cannot bring "
+                               "them back.")
+        revert = box.addButton("Revert", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() is not revert:
+            return
+        from .workspace import atomic_write
+        timer = self._autosave_timers.get(document.id)
+        if timer is not None:
+            timer.stop()
+        try:
+            atomic_write(document.path, lambda temporary: temporary.write_bytes(original))
+        except OSError as error:
+            QMessageBox.warning(self, "Revert to Saved", str(error))
+            return
+        self._own_writes[self._key(document.path)] = _signature(document.path)
+        self._reload_document(document, f"Reverted {Path(document.path).name}")
+
+    # ---------------------------------------------------------------- folder → app
+    def _watch_open_files(self) -> None:
+        """Watch the open documents' files, so a change made elsewhere is noticed."""
+        wanted = {str(Path(d.path)) for d in self.documents
+                  if d.path and not d.missing and os.path.exists(d.path)}
+        current = set(self.watcher.files())
+        if current - wanted:
+            self.watcher.removePaths(sorted(current - wanted))
+        if wanted - current:
+            self.watcher.addPaths(sorted(wanted - current))
+
+    def _file_changed(self, path: str) -> None:
+        self._changed_files.add(path)
+        self._file_timer.start()
+
+    def _check_changed_files(self) -> None:
+        """Open files changed (or vanished) on disk: reload, ask, or mark them missing.
+
+        A change is acted on once the file has stopped changing (a big file
+        being copied in is not read half-way), and the app's own saves are
+        recognised and ignored.
+        """
+        pending, self._changed_files = self._changed_files, set()
+        again: set[str] = set()
+        for path in pending:
+            key = self._key(path)
+            documents = [d for d in self.documents if d.path and self._key(d.path) == key]
+            if not documents:
+                continue
+            signature = _signature(path)
+            if signature is None:
+                # Gone, or being replaced by a safe save (write elsewhere, then
+                # rename): look again a few times before calling it missing.
+                tries = self._gone_checks.get(key, 0)
+                if tries < 3:
+                    self._gone_checks[key] = tries + 1
+                    again.add(path)
+                else:
+                    self._gone_checks.pop(key, None)
+                    for document in documents:
+                        self._set_missing(document, True)
+                continue
+            self._gone_checks.pop(key, None)
+            if path not in self.watcher.files():
+                self.watcher.addPath(path)          # a safe save replaced the watched file
+            if self._own_writes.get(key) == signature:
+                continue
+            if self._unsettled.get(key) != signature:
+                self._unsettled[key] = signature    # still being written? look again
+                again.add(path)
+                continue
+            self._unsettled.pop(key, None)
+            self._own_writes[key] = signature       # handled: not again for the same version
+            for document in documents:
+                if document.missing:
+                    self._set_missing(document, False)
+                self._changed_on_disk(document)
+        if again:
+            self._changed_files |= again
+            self._file_timer.start()
+
+    def _changed_on_disk(self, document) -> None:
+        name = Path(document.path).name
+        if not getattr(document, "dirty", False):
+            self._reload_document(document, f"{name} changed on disk — reloaded")
+            return
+        # Edits here too: the user decides whose version wins.
+        self._conflicts.add(document.id)
+        timer = self._autosave_timers.get(document.id)
+        if timer is not None:
+            timer.stop()
+
+        def reload() -> None:
+            self._conflicts.discard(document.id)
+            self._reload_document(document, f"Reloaded {name}")
+
+        def keep_mine() -> None:
+            self._conflicts.discard(document.id)
+            self.banners[document.id].clear("changed")
+            if document.autosave:
+                self._autosave(document)            # ours replaces theirs now
+            self.statusBar().showMessage(f"Kept your version of {name}", 6000)
+
+        self.banners[document.id].show_notice(
+            "changed", f"<b>{name} changed on disk</b> (in another app?), and it has edits "
+            "here that are not saved.",
+            [("Reload (lose my edits)", reload), ("Keep Mine", keep_mine)])
+
+    def _reload_document(self, document, message: str) -> None:
+        """Read the document's file again and show it afresh."""
+        path = document.path
+        key = self._key(path)
+
+        def failed(error) -> None:
+            tries = self._reload_attempts.get(key, 0)
+            if tries < 5:                           # half-written still? try again soon
+                self._reload_attempts[key] = tries + 1
+                self._unsettled.pop(key, None)
+                self._own_writes.pop(key, None)
+                QTimer.singleShot(1000, lambda: self._file_changed(path))
+                return
+            self._reload_attempts.pop(key, None)
+            banner = self.banners.get(document.id)
+            if banner is not None:
+                banner.show_notice("changed", f"<b>{Path(path).name} changed on disk</b> but "
+                                   f"could not be read: {error}", [])
+
+        def done(content) -> None:
+            if document not in self.documents:
+                return
+            self._reload_attempts.pop(key, None)
+            if isinstance(document, LogDocument):
+                document.replace_log(content)
+            else:
+                document.net = content
+                if isinstance(document, CpnDocument):
+                    document.dirty = False
+            self._replace_page(document)
+            for other in self.documents:            # comparisons show the new log too
+                if isinstance(other, ComparisonDocument) and document in other.logs:
+                    self._replace_page(other)
+            self.statusBar().showMessage(message, 8000)
+
+        try:
+            if isinstance(document, LogDocument):
+                lower = path.lower()
+                if lower.endswith(".csv"):
+                    mapping = self.open_options.get(document.id, {}).get("csv_mapping")
+                    done(read_csv(path, ColumnMapping(**mapping) if mapping
+                                  else guess_mapping(sniff(path)[1])))
+                else:
+                    run_in_background(lambda: read_xes(path), done, failed)
+            elif isinstance(document, CpnDocument):
+                done(self._read_net(path))
+            elif isinstance(document, ModelDocument):
+                net = read_pnml(path)
+                net.name = document.net.name
+                done(net)
+        except Exception as error:  # noqa: BLE001
+            failed(error)
+
+    def _replace_page(self, document) -> None:
+        """Rebuild a document's page (after reloading it), keeping it in view."""
+        shown = self.content.currentWidget() is self.holders.get(document.id)
+        self._drop_page(document)
+        self._make_page(document)
+        self._update_autosave(document)
+        if document.missing:
+            self._show_missing(document)
+        if shown:
+            self._restore_tab(self.pages[document.id])
+            self.content.setCurrentWidget(self.holders[document.id])
+        self._refresh_item(document)
+        self._refresh_log_choices()
+
+    def _set_missing(self, document, missing: bool) -> None:
+        """An open document's file was deleted or moved away (or came back)."""
+        if document.missing == missing:
+            return
+        document.missing = missing
+        self._update_autosave(document)
+        if missing:
+            self._show_missing(document)
+            self.statusBar().showMessage(f"{Path(document.path).name} is no longer on disk — "
+                                         "it is still open here", 10000)
+        else:
+            self.banners[document.id].clear("missing")
+        if document.id in self.items:
+            self._style_document_row(self.items[document.id], document)
+
+    def _show_missing(self, document) -> None:
+        name = Path(document.path).name
+        self.banners[document.id].show_notice(
+            "missing", f"<b>{name} is missing</b>: it was moved or deleted outside the app. "
+            "It is still open here — save it to keep it.",
+            [("Save As…", self.pages[document.id].export),
+             ("Close", lambda: self.remove_documents([document.id]))])
+
+    def _check_missing(self) -> bool:
+        """Mark open documents whose files are gone, or back.  True if any changed."""
+        changed = False
+        for document in self.documents:
+            if not document.path or isinstance(document, ComparisonDocument):
+                continue
+            there = os.path.exists(document.path)
+            if there == document.missing:
+                self._set_missing(document, not there)
+                if there:
+                    self._file_changed(document.path)    # back, perhaps changed
+                changed = True
+        return changed
+
+    # -- iCloud
+    def _download_from_icloud(self, path: Path, placeholder: Path) -> None:
+        """Ask iCloud Drive for a file that is only in the cloud; open it when it is here."""
+        key = self._key(path)
+        try:
+            subprocess.run(["brctl", "download", str(placeholder)], check=True,
+                           capture_output=True, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            self.statusBar().showMessage(f"{path.name} is in iCloud: open it in Finder to "
+                                         "download it", 10000)
+            self.reveal(str(placeholder.parent))
+            return
+        self._pending_downloads.add(key)
+        self.statusBar().showMessage(f"Downloading {path.name} from iCloud…", 10000)
+        self._rebuild_sidebar()
+
+    def _open_downloaded(self) -> None:
+        for key in list(self._pending_downloads):
+            path = next((f.path for f in self.workspace.files(self._tree)
+                         if self._key(f.path) == key), None) if self._tree else None
+            if path is not None:
+                self._pending_downloads.discard(key)
+                QTimer.singleShot(0, lambda p=str(path): self.open_path(p))
+
+    # ---------------------------------------------------------------- organising
+    def _selected_paths(self) -> list[str]:
+        paths = [self._row_path(item) for item in self.tree.selectedItems()]
+        if not paths and self.tree.currentItem() is not None:
+            paths = [self._row_path(self.tree.currentItem())]
+        return [p for p in paths if p]
+
+    def trash_selected(self) -> None:
+        self.trash_paths(self._selected_paths())
+
+    def trash_paths(self, paths: list[str]) -> None:
+        """Move files or folders to the Bin (after asking); open documents in them close."""
+        paths = [p for p in paths if os.path.exists(p)]
+        if not paths:
+            return
+        what = f"“{Path(paths[0]).name}”" if len(paths) == 1 else f"{len(paths)} items"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(f"Move to {BIN}")
+        box.setText(f"Move {what} to the {BIN}?")
+        inside = [d for d in self.documents if d.path and any(
+            self._key(d.path) == self._key(p) or self._key(d.path).startswith(
+                self._key(p) + os.sep) for p in paths)]
+        unsaved = [d for d in inside if getattr(d, "dirty", False)]
+        box.setInformativeText(
+            f"You can put it back from the {BIN}." if not unsaved else
+            f"You can put it back from the {BIN}, but the edits to "
+            + ", ".join(f"“{d.name}”" for d in unsaved) + " that are not saved are lost.")
+        trash = box.addButton(f"Move to {BIN}", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() is not trash:
+            return
+        for document in inside:
+            timer = self._autosave_timers.get(document.id)
+            if timer is not None:
+                timer.stop()
+            if isinstance(document, CpnDocument):
+                document.dirty = False          # gone to the Bin: nothing to save
+        self.remove_documents([d.id for d in inside], confirm=False)
+        failed = []
+        for path in paths:
+            if move_to_trash(path):
+                self._forget_recent(path)
+                self._created.discard(self._key(path))
+            else:
+                failed.append(Path(path).name)
+        if failed:
+            QMessageBox.warning(self, f"Move to {BIN}", "Could not move to the "
+                                f"{BIN}: " + ", ".join(failed))
+        else:
+            self.statusBar().showMessage(f"Moved {what} to the {BIN}", 6000)
+        self._rescan_workspace()
+
+    def new_folder(self, inside: str | None = None) -> None:
+        """Make a subfolder (in ``inside``, else at the top of the open folder)."""
+        if self.workspace is None:
+            return
+        parent = Path(inside) if inside else self.workspace.folder
+        name, ok = QInputDialog.getText(self, "New Folder", "Name:", text="untitled folder")
+        name = name.strip()
+        if not ok or not name:
+            return
+        if FORBIDDEN_CHARACTERS & set(name) or name.startswith("."):
+            QMessageBox.warning(self, "New Folder", "A folder name cannot start with a dot or "
+                                "contain any of  / \\ : * ? \" < > |")
+            return
+        target = parent / name
+        try:
+            target.mkdir()
+        except FileExistsError:
+            QMessageBox.warning(self, "New Folder", f"There is already something called "
+                                f"“{name}” in {parent.name}.")
+            return
+        except OSError as error:
+            QMessageBox.warning(self, "New Folder", str(error.strerror or error))
+            return
+        if parent.resolve() != self.workspace.folder:
+            self._expanded.add(self.workspace.relative(parent))
+            self.workspace.update_settings(expanded=sorted(self._expanded))
+        if self.view_mode != "folder":
+            self.set_view_mode("folder")
+        self._rescan_workspace()
+        item = self.folder_items.get(self.workspace.relative(target))
+        if item is not None:
+            self.tree.blockSignals(True)
+            self.tree.setCurrentItem(item)
+            self.tree.blockSignals(False)
+        self.statusBar().showMessage(f"Made the folder {name}", 5000)
+
+    def move_paths(self, paths: list[str], folder: str | Path) -> None:
+        """Move files or folders of the open folder into ``folder`` (dragging in the sidebar)."""
+        target_folder = Path(folder)
+        moved = []
+        for source in map(Path, paths):
+            if not source.exists() or source.resolve().parent == target_folder.resolve():
+                continue
+            if source.is_dir() and (source.resolve() == target_folder.resolve()
+                                    or source.resolve() in target_folder.resolve().parents):
+                QMessageBox.warning(self, "Move", f"“{source.name}” cannot go inside itself.")
+                continue
+            target = target_folder / source.name
+            if target.exists():
+                answer = ask_about_clash(self, target)
+                if answer is None:
+                    continue
+                if answer == "keep":
+                    target = unique_path(target_folder, source.name)
+                else:
+                    self.trash_paths_quietly([str(target)])
+            self._flush_autosaves()
+            try:
+                shutil.move(str(source), str(target))
+            except OSError as error:
+                QMessageBox.warning(self, "Could not move",
+                                    f"{source.name}\n\n{error.strerror or error}")
+                continue
+            self._paths_moved(source, target)
+            moved.append(target)
+        if moved:
+            what = moved[0].name if len(moved) == 1 else f"{len(moved)} items"
+            where = target_folder.name if target_folder.resolve() != self.workspace.folder \
+                else self.workspace.name
+            self.statusBar().showMessage(f"Moved {what} to {where}", 6000)
+        self._rescan_workspace(force=True)
+
+    def trash_paths_quietly(self, paths: list[str]) -> None:
+        """Replace: the file being replaced goes to the Bin (its document closes)."""
+        inside = [d.id for d in self.documents
+                  if d.path and any(self._key(d.path) == self._key(p) for p in paths)]
+        self.remove_documents(inside, confirm=False)
+        for path in paths:
+            move_to_trash(path)
+
+    def _drop_folder(self, item) -> str | None:
+        """Where a drop on this sidebar row goes, in the Folder view."""
+        if self.workspace is None or self.view_mode != "folder":
+            return None
+        root = str(self.workspace.folder)
+        if item is None:
+            return root
+        if item.data(0, FOLDER_ROLE):
+            return item.data(0, FOLDER_ROLE)
+        path = self._row_path(item)
+        if path and self.workspace.contains(path):
+            return str(Path(path).resolve().parent)
+        return root
+
+    def _sidebar_drop(self, paths: list[str], folder: str | None, internal: bool) -> None:
+        """Files dropped on the sidebar: moved within the folder, or brought in."""
+        if folder is None:                          # not the Folder view
+            if not internal:
+                self._open_dropped(paths)
+            return
+        inside = [p for p in paths if self.workspace.contains(p)]
+        outside = [p for p in paths if p not in inside]
+        if inside:
+            self.move_paths(inside, folder)
+        folders = [p for p in outside if Path(p).is_dir()]
+        if folders:
+            self.open_workspace(folders[0])         # a folder from elsewhere: work in it
+            return
+        for path in self._bring_in(outside, folder) if outside else []:
+            self.open_path(path)
+
+    # ---------------------------------------------------------------- settings
+    def show_settings(self) -> None:
+        dialog = SettingsDialog({
+            "autosave": self.autosave_enabled,
+            "import": self._setting("files/import", "ask"),
+            "restore": self.restore_action.isChecked(),
+            "check_updates": self._setting("updates/automatic", True),
+        }, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        values = dialog.values()
+        self.set_autosave(values["autosave"])
+        self._set_setting("files/import", values["import"])
+        self.restore_action.setChecked(values["restore"])
+        self._set_setting("updates/automatic", values["check_updates"])
 
     # ---------------------------------------------------------------- drag & drop
     def dragEnterEvent(self, event) -> None:  # noqa: N802
@@ -1705,12 +2993,14 @@ class StudioWindow(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:  # noqa: N802
-        for url in event.mimeData().urls():
-            if url.isLocalFile():
-                if Path(url.toLocalFile()).is_dir():
-                    self.open_workspace(url.toLocalFile())     # a folder: work in it
-                else:
-                    self.open_path(url.toLocalFile())
+        self._open_dropped([url.toLocalFile() for url in event.mimeData().urls()
+                            if url.isLocalFile()])
+
+    def _open_dropped(self, paths: list[str]) -> None:
+        folders = [p for p in paths if Path(p).is_dir()]
+        if folders:
+            self.open_workspace(folders[0])               # a folder: work in it
+        self.open_files([p for p in paths if not Path(p).is_dir()])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1739,11 +3029,12 @@ def main(argv: list[str] | None = None) -> int:
             lambda *_: (application.setStyleSheet(style.stylesheet()), window.restyle()))
     window.show()
     window.restore_session()
+    QTimer.singleShot(3000, window.check_automatically)
     for path in argv[1:]:
         if path == "--new-cpn":             # `cpn-ide` without a file
             window.action_new_cpn()
         elif not path.startswith("-"):
-            window.open_path(path)
+            window.open_files([path])
     return application.exec()
 
 
