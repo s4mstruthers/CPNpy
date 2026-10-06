@@ -79,7 +79,7 @@ from .model_page import ModelPage
 from .sidebar import FILE_ROLE, FOLDER_ROLE, SidebarTree
 from .widgets import (
     Card, ElidedLabel, NoticeBar, SegmentedControl, button, dialog_folder, hbox, label,
-    round_menus, scroll, set_dialog_folder, vbox,
+    round_menus, scroll, set_dialog_folder, shortcut_text, vbox,
 )
 from .workspace import (
     FORBIDDEN_CHARACTERS, Workspace, WorkspaceFolder, display_name, file_stem, file_suffix,
@@ -755,7 +755,8 @@ class StudioWindow(QMainWindow):
         outer.addLayout(hbox(None, holder, None))
         outer.addSpacing(20)
         tip = label("Tip: drop files (or a folder, to work in it) anywhere on this "
-                    "window. Hover a file in the sidebar and click ✕ (or press ⌫) to close "
+                    "window. Hover a file in the sidebar and click ✕ (or press "
+                    f"{shortcut_text('Backspace')}) to close "
                     "it; double-click a name to rename it.", "muted", wrap=True)
         tip.setAlignment(Qt.AlignHCenter)
         tip.setMaximumWidth(760)
@@ -2584,7 +2585,7 @@ class StudioWindow(QMainWindow):
         for document in self.documents:
             self._update_autosave(document)
         self.statusBar().showMessage("Edits to nets in the folder are saved as you go" if on
-                                     else "Autosave is off: save with ⌘S", 6000)
+                                     else f"Autosave is off: save with {shortcut_text('Ctrl+S')}", 6000)
 
     # -- revert
     def _keep_original(self, document) -> None:

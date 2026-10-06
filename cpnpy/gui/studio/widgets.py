@@ -480,11 +480,19 @@ class PageHeader(QWidget):
 
 
 class _RoundedMenus(QObject):
-    """Gives every pop-up menu a see-through window, so the stylesheet's
-    rounded corners show (otherwise the corners are filled in square)."""
+    """Gives every pop-up -- menus, the list a combo box drops down, tooltips --
+    a see-through window, so the stylesheet's rounded corners show (otherwise
+    the corners are filled in square)."""
+
+    POPUPS = ("QComboBoxPrivateContainer", "QTipLabel")
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        if event.type() == QEvent.Polish and isinstance(watched, QMenu) \
+        if event.type() == QEvent.Show and isinstance(watched, QWidget) \
+                and watched.metaObject().className() == "QComboBoxPrivateContainer":
+            self._fit_list(watched)
+        if event.type() == QEvent.Polish and isinstance(watched, QWidget) \
+                and (isinstance(watched, QMenu) or watched.metaObject().className()
+                     in self.POPUPS) \
                 and not watched.testAttribute(Qt.WA_WState_Created):
             watched.setAttribute(Qt.WA_TranslucentBackground)
             import sys
@@ -494,11 +502,26 @@ class _RoundedMenus(QObject):
         return False
 
 
+    @staticmethod
+    def _fit_list(container: QWidget) -> None:
+        """A combo box's list is as wide as the box: widen it to its longest
+        entry, so nothing is cut off ("Activity (co…lete events)")."""
+        from PySide6.QtWidgets import QAbstractItemView
+        view = container.findChild(QAbstractItemView)
+        if view is None or view.model() is None:
+            return
+        needed = view.sizeHintForColumn(0) + 2 * view.frameWidth() + 24
+        if view.verticalScrollBar().isVisible():
+            needed += view.verticalScrollBar().width()
+        if needed > container.width():
+            container.resize(needed, container.height())
+
+
 _rounded_menus: _RoundedMenus | None = None
 
 
 def round_menus(application) -> None:
-    """Round the corners of every pop-up menu in the app (once per application)."""
+    """Round the corners of every pop-up in the app (once per application)."""
     global _rounded_menus
     if _rounded_menus is None:
         _rounded_menus = _RoundedMenus(application)

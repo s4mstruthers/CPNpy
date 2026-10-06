@@ -59,7 +59,7 @@ from . import style
 from .documents import LogDocument
 from .widgets import (
     suggested_path,
-    Card, ElidedLabel, button, flow, hbox, label, modifier_text, scroll, vbox,
+    Card, ElidedLabel, button, flow, hbox, label, modifier_text, scroll, shortcut_text, vbox,
 )
 
 X_MODES = ["Actual time", "Time since case start", "Relative to case duration (%)",
@@ -811,7 +811,7 @@ class DottedChartPanel(QWidget):
         self.chart = DottedChart()
 
         # -- navigation bar above the chart
-        back = button("‹ Back", self.chart.back, tooltip="Undo the last zoom (⌫)")
+        back = button("‹ Back", self.chart.back, tooltip=f"Undo the last zoom ({shortcut_text('Backspace')})")
         reset = button("Reset", self.chart.reset_view, tooltip="Show everything (double-click, 0)")
         zoom_in = button("＋", lambda: self.chart.zoom_at(QPointF(self.chart.plot_rect().center()),
                                                         1.5, 1.5), tooltip="Zoom in (+)")
@@ -820,7 +820,7 @@ class DottedChartPanel(QWidget):
         export = button("Export image…", self._export)
         self.view_info = ElidedLabel("", "muted")
         hint = label(f"Drag to zoom into an area · {modifier_text('Ctrl')}-scroll or pinch to zoom · "
-                     f"{modifier_text('Alt')}-drag to pan · "
+                     f"{modifier_text('Alt')}-drag or middle-drag to pan · "
                      "click a dot to select its case", "muted", wrap=True)
 
         # -- zoom sliders and scroll bars
