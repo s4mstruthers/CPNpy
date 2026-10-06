@@ -37,7 +37,10 @@ def main(argv: list[str]) -> int:
         print(f"CHANGELOG.md has no section '## {argv[1].lstrip('vV')}': say what is new "
               "in this version before releasing it.", file=sys.stderr)
         return 1
-    sys.stdout.write(notes)
+    # As UTF-8 bytes: on Windows, stdout's encoding (cp1252) has no "✕" or
+    # "▸", which broke the 0.3.2 build.
+    sys.stdout.buffer.write(notes.encode("utf-8"))
+    sys.stdout.flush()
     return 0
 
 

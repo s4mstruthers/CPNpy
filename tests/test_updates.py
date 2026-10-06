@@ -351,3 +351,14 @@ def test_running_from_source_only_says_how_to_update(monkeypatch):
     assert "git pull" in " ".join(label.text() for label in shown[0].findChildren(
         updates.QLabel))
     window.close()
+
+
+def test_release_notes_script_writes_utf8_on_windows_too(tmp_path):
+    """Regression (v0.3.2 build): printing "✕" failed on Windows, whose stdout
+    encoding is cp1252.  Run the script with that encoding to check."""
+    import os as _os
+    environment = dict(_os.environ, PYTHONIOENCODING="cp1252")
+    result = subprocess.run([sys.executable, str(ROOT / "packaging" / "release_notes.py"),
+                             "0.3.2"], capture_output=True, env=environment, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert "✕" in result.stdout.decode("utf-8")
