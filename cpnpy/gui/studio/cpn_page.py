@@ -1699,10 +1699,17 @@ class CpnPage(QWidget):
         try:
             atomic_write(path, lambda temporary: write_cpn(self.net, temporary))
         except Exception as error:  # noqa: BLE001
-            QMessageBox.critical(self, "Could not save model", str(error))
-            return False
+            return self._save_failed(error, quiet)
         self._written(path, quiet)
         return True
+
+    def _save_failed(self, error: Exception, quiet: bool) -> bool:
+        """Report a failed save: a dialog, or (an autosave) just remember why --
+        the window says so once, rather than a dialog after every edit."""
+        self.save_error = str(error)
+        if not quiet:
+            QMessageBox.critical(self, "Could not save", str(error))
+        return False
 
     def _written(self, path: Path, quiet: bool) -> None:
         self.document.path = str(path)

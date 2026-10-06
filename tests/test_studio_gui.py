@@ -1735,3 +1735,83 @@ def test_a_file_moved_in_finder_stays_open(app, tmp_path):
     assert not net.missing and net in window.documents
     assert window._key(target) not in window.placeholders                   # no duplicate row
     window.close()
+
+
+def test_recent_folder_buttons_on_the_welcome_page(app, tmp_path, monkeypatch):
+    """Regression: clicking a recent folder on the welcome page raised
+    TypeError (the button's "checked" argument replaced the folder)."""
+    from PySide6.QtWidgets import QPushButton
+    from cpnpy.gui.studio.app import StudioWindow
+
+    week = _week(tmp_path)
+    window = StudioWindow()
+    monkeypatch.setattr(window, "_recent_workspaces", lambda: [str(week)])
+    window._refresh_welcome_recent()
+    window.show()
+    buttons = [b for b in window.welcome_recent.findChildren(QPushButton)
+               if b.text() == "Week 2"]
+    assert buttons
+    buttons[0].click()
+    assert window.workspace is not None and window.workspace.folder == week.resolve()
+    window.close()
+
+
+def test_autosave_that_cannot_write_says_so_once(app, tmp_path, monkeypatch):
+    """Regression: when autosave could not write (a read-only folder, a full
+    disk), every attempt popped up an error dialog, a second after each edit.
+    Now a bar says so once, and the net keeps its "edited" dot until saved."""
+    import os
+    import stat
+
+    from cpnpy.gui.studio import cpn_page
+    from cpnpy.gui.studio.app import AUTOSAVE_DELAY, StudioWindow
+
+    popups = []
+    monkeypatch.setattr(cpn_page.QMessageBox, "critical",
+                        lambda *args, **kwargs: popups.append(args[2]))
+    week = _week(tmp_path)
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    window.open_path(str(week / "models" / "order.pnml"))
+    net, page = window.documents[-1], window.current_page()
+    assert net.autosave
+    models = week / "models"
+    models.chmod(stat.S_IRUSR | stat.S_IXUSR)             # read-only folder
+    try:
+        for _ in range(3):
+            page.set_dirty(True)
+            _pump(app, AUTOSAVE_DELAY / 1000 + 0.5)
+        assert popups == []
+        banner = window.banners[net.id]
+        assert banner.isVisibleTo(window) and "could not be saved" in banner.text.text()
+        assert net.dirty and not net.autosave
+        assert window.items[net.id].text(0).endswith("•")
+    finally:
+        models.chmod(stat.S_IRWXU)
+    net.dirty = False
+    window.close()
+
+
+def test_a_log_still_loading_stays_with_its_folder(app, tmp_path):
+    """Regression: a log still loading in the background when the folder was
+    switched (or closed) was added to the next folder anyway."""
+    import shutil
+
+    from cpnpy.gui.studio.app import StudioWindow
+
+    first, second = tmp_path / "A", tmp_path / "B"
+    first.mkdir()
+    second.mkdir()
+    shutil.copy(DATA / "plane_wilma_10.xes", first / "log.xes")
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(first))
+    window.open_path(str(first / "log.xes"))         # loads in the background
+    window.open_workspace(str(second))
+    _pump(app, 1.5)
+    assert window.documents == []
+    window.open_workspace(str(first))                # what was open comes back as usual
+    window.open_path(str(first / "log.xes"))
+    assert _wait_for(app, lambda: len(window.documents) == 1)
+    window.close()

@@ -174,6 +174,11 @@ def _arrow_images(colour: str) -> dict[str, str]:
 
 def stylesheet() -> str:
     t = tokens()
+    # Outlines of check boxes, radio buttons and slider handles: the text
+    # colour, faded -- visible on light and dark (the axis grey all but
+    # vanished on the dark surface).
+    outline = qc(t.text, 0.38).name(QColor.HexArgb)
+    track = qc(t.text, 0.16).name(QColor.HexArgb)
     arrows = _arrow_images(t.text_secondary)
     ticks = _arrow_images(t.accent_text)            # white, on the accent fill
     return f"""
@@ -294,15 +299,15 @@ def stylesheet() -> str:
         min-height: 18px; }}
     QComboBox QAbstractItemView::item:selected, QComboBox QAbstractItemView::item:hover {{
         background: {t.accent}; color: {t.accent_text}; }}
-    QSlider::groove:horizontal {{ height: 4px; background: {t.border}; border-radius: 2px; }}
+    QSlider::groove:horizontal {{ height: 4px; background: {track}; border-radius: 2px; }}
     QSlider::sub-page:horizontal {{ background: {t.accent}; border-radius: 2px; }}
-    QSlider::handle:horizontal {{ background: {t.surface}; border: 1px solid {t.axis};
+    QSlider::handle:horizontal {{ background: {t.surface}; border: 1px solid {outline};
         width: 16px; height: 16px; margin: -7px 0; border-radius: 8px; }}
     QRadioButton, QCheckBox {{ spacing: 8px; }}
     /* Check boxes (also in lists, e.g. a chart's legend) and radio buttons:
        rounded, filled with the accent colour when on. */
     QCheckBox::indicator, QAbstractItemView::indicator {{ width: 14px; height: 14px;
-        border: 1px solid {t.axis}; border-radius: 4px; background: {t.surface}; }}
+        border: 1px solid {outline}; border-radius: 4px; background: {t.surface}; }}
     QCheckBox::indicator:hover, QAbstractItemView::indicator:hover {{
         border-color: {t.accent}; }}
     QCheckBox::indicator:checked, QAbstractItemView::indicator:checked {{
@@ -310,7 +315,7 @@ def stylesheet() -> str:
     QCheckBox::indicator:indeterminate, QAbstractItemView::indicator:indeterminate {{
         background: {t.accent}; border-color: {t.accent}; image: url("{ticks['dash']}"); }}
     QCheckBox::indicator:disabled {{ background: {t.surface_alt}; border-color: {t.border}; }}
-    QRadioButton::indicator {{ width: 14px; height: 14px; border: 1px solid {t.axis};
+    QRadioButton::indicator {{ width: 14px; height: 14px; border: 1px solid {outline};
         border-radius: 8px; background: {t.surface}; }}
     QRadioButton::indicator:hover {{ border-color: {t.accent}; }}
     QRadioButton::indicator:checked {{ width: 6px; height: 6px; border: 5px solid {t.accent};
@@ -321,7 +326,7 @@ def stylesheet() -> str:
         padding: 10px 8px 8px 8px; background: {t.surface}; }}
     QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left;
         left: 4px; padding: 0 4px; color: {t.text}; font-weight: 600; }}
-    QGroupBox::indicator {{ width: 14px; height: 14px; border: 1px solid {t.axis};
+    QGroupBox::indicator {{ width: 14px; height: 14px; border: 1px solid {outline};
         border-radius: 4px; background: {t.surface}; }}
     QGroupBox::indicator:checked {{ background: {t.accent}; border-color: {t.accent};
         image: url("{ticks['check']}"); }}

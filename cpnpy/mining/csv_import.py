@@ -49,9 +49,24 @@ _CANDIDATES = {
 }
 
 
+def _encoding(path: str | Path) -> str:
+    """UTF-8 (with or without Excel's byte-order mark), else Windows' cp1252.
+
+    Excel on Windows saves "CSV" in the system's code page, so a log with
+    "café" or "Müller" in it is not valid UTF-8; cp1252 reads every byte.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as handle:
+            while handle.read(1 << 20):
+                pass
+        return "utf-8-sig"
+    except UnicodeDecodeError:
+        return "cp1252"
+
+
 def sniff(path: str | Path, sample_size: int = 64_000) -> tuple[csv.Dialect, list[str]]:
     """Detect the delimiter and read the header row."""
-    with open(path, newline="", encoding="utf-8-sig") as handle:
+    with open(path, newline="", encoding=_encoding(path), errors="replace") as handle:
         sample = handle.read(sample_size)
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
@@ -128,7 +143,7 @@ def read_csv(path: str | Path, mapping: ColumnMapping | None = None) -> EventLog
             f"Columns found: {', '.join(header)}")
 
     cases: dict[str, list[tuple[int, Event]]] = {}
-    with open(path, newline="", encoding="utf-8-sig") as handle:
+    with open(path, newline="", encoding=_encoding(path), errors="replace") as handle:
         for row_number, row in enumerate(csv.DictReader(handle, dialect=dialect)):
             case_id = (row.get(mapping.case) or "").strip()
             if not case_id:

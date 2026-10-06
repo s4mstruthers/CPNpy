@@ -822,7 +822,6 @@ class PetriNetPage(CpnPage):
             net = self.petri_net()
             atomic_write(path, lambda temporary: write_pnml(net, temporary))
         except Exception as error:  # noqa: BLE001
-            QMessageBox.critical(self, "Could not save the net", str(error))
-            return False
+            return self._save_failed(error, quiet)
         self._written(path, quiet)
         return True

@@ -482,6 +482,9 @@ class StudioWindow(QMainWindow):
         #: Autosave: one timer per document, restarted on each edit.
         self.autosave_enabled = self._setting("files/autosave", True)
         self._autosave_timers: dict[int, QTimer] = {}
+        #: Documents whose autosave failed (read-only folder, full disk): saved
+        #: with ⌘S again, with the "edited" dot, until a save works.
+        self._autosave_failed: set[int] = set()
         #: .cpn documents whose file CPNpy wrote (only those are autosaved).
         self._cpnpy_files: set[int] = set()
         #: Files the app created by itself this session (a new net's "Untitled 1.pnml").
@@ -490,6 +493,9 @@ class StudioWindow(QMainWindow):
         self._originals: dict[int, bytes] = {}
         #: Each page's notice bar ("changed on disk", "missing").
         self.banners: dict[int, NoticeBar] = {}
+        #: Counts folder switches (opening or closing one), so a log still
+        #: loading from the folder that was left is not added to the new one.
+        self._folder_switches = 0
         #: Software updates: a check is running; the installer to run on quitting.
         self._checking_updates = False
         self._installer: list[str] | None = None
@@ -1316,6 +1322,11 @@ class StudioWindow(QMainWindow):
                 document.path = str(target)
                 if previous_key in self._own_writes:
                     self._own_writes[self._key(target)] = self._own_writes.pop(previous_key)
+                if previous_key in self._created:     # still the app's own "Untitled 1"
+                    self._created.discard(previous_key)
+                    self._created.add(self._key(target))
+                if getattr(document, "_last_path", None):
+                    document._last_path = str(target)
                 self._remember_recent(document.path)
                 self.pages[document.id].refresh_title()
                 self._update_autosave(document)
@@ -1353,6 +1364,9 @@ class StudioWindow(QMainWindow):
             move_to_trash(previous)
         if isinstance(document, CpnDocument):
             self._cpnpy_files.add(document.id)      # CPNpy wrote it: autosaving is safe
+        if document.id in self._autosave_failed:    # saving works again
+            self._autosave_failed.discard(document.id)
+            self.banners[document.id].clear("unsaved")
         self._update_autosave(document)
         banner = self.banners.get(document.id)
         if banner is not None:
@@ -1534,6 +1548,8 @@ class StudioWindow(QMainWindow):
             self.settings.setValue("recent", json.dumps(recent))
 
     def _recent(self) -> list[str]:
+        if not self.persist:                      # tests: never your recent files
+            return []
         try:
             return list(json.loads(self.settings.value("recent", "[]")))
         except (TypeError, ValueError):
@@ -1692,12 +1708,19 @@ class StudioWindow(QMainWindow):
                                   options={"csv_mapping": asdict(mapping)})
             elif lower.endswith((".xes", ".xes.gz", ".gz")):
                 self.statusBar().showMessage(f"Reading {name}…")
-                run_in_background(
-                    lambda: read_xes(path),
-                    lambda log: (self.add_document(LogDocument(log, path=path)),
-                                 self.statusBar().showMessage(
-                                     f"Opened {name}: {len(log):,} cases", 6000)),
-                    lambda message: self._could_not_open(path, message, size))
+                folder = self._folder_switches
+
+                def loaded(log) -> None:
+                    if folder != self._folder_switches:
+                        # The folder was switched or closed while this was
+                        # loading: it belongs to the folder that was left.
+                        self._opening.discard(self._key(path))
+                        return
+                    self.add_document(LogDocument(log, path=path))
+                    self.statusBar().showMessage(f"Opened {name}: {len(log):,} cases", 6000)
+
+                run_in_background(lambda: read_xes(path), loaded,
+                                  lambda message: self._could_not_open(path, message, size))
             else:
                 QMessageBox.information(self, "Unsupported file",
                                         f"{name}: open .xes, .csv, .pnml or .cpn files.")
@@ -2009,6 +2032,7 @@ class StudioWindow(QMainWindow):
         finally:
             self._restoring = False
         self._stop_watching()
+        self._folder_switches += 1
 
         self.workspace = workspace
         settings = workspace.settings()
@@ -2058,6 +2082,7 @@ class StudioWindow(QMainWindow):
         finally:
             self._restoring = False
         self._stop_watching()
+        self._folder_switches += 1
         name, self.workspace = self.workspace.name, None
         self._tree, self._tree_signature = None, ()
         set_dialog_folder(None)
@@ -2432,6 +2457,8 @@ class StudioWindow(QMainWindow):
 
     # -- recent workspaces
     def _recent_workspaces(self) -> list[str]:
+        if not self.persist:                      # tests: never your recent folders
+            return []
         try:
             return [p for p in json.loads(self.settings.value("workspaces/recent", "[]"))
                     if isinstance(p, str)]
@@ -2478,7 +2505,9 @@ class StudioWindow(QMainWindow):
         if recent:
             layout.addWidget(label("Recent:", "muted"))
         for folder in recent:
-            shortcut = button(Path(folder).name, lambda f=folder: self.open_workspace(f))
+            # clicked sends "checked" (False) first: it must not land in f.
+            shortcut = button(Path(folder).name,
+                              lambda _checked=False, f=folder: self.open_workspace(f))
             shortcut.setToolTip(f"Open the folder {folder}")
             layout.addWidget(shortcut)
 
@@ -2515,6 +2544,10 @@ class StudioWindow(QMainWindow):
                     document.net.name = _file_stem(target)     # named after its file
                     page.refresh_title()
                 if not page._write(target, quiet=True):
+                    self.statusBar().showMessage(
+                        f"Could not save {document.name} into the folder "
+                        f"({getattr(page, 'save_error', 'unknown error')}) — it stays "
+                        "unsaved here", 10000)
                     return
         except Exception as error:  # noqa: BLE001 - the document stays, unsaved
             self.statusBar().showMessage(f"Could not save {document.name} into the folder: "
@@ -2548,6 +2581,7 @@ class StudioWindow(QMainWindow):
         press ⌘S, after which it is CPNpy's too.
         """
         return (self.autosave_enabled and self.workspace is not None
+                and document.id not in self._autosave_failed
                 and isinstance(document, CpnDocument) and bool(document.path)
                 and self.workspace.contains(document.path) and not document.missing
                 and (not document.path.lower().endswith(".cpn")
@@ -2587,7 +2621,17 @@ class StudioWindow(QMainWindow):
         if not Path(document.path).exists():
             self._set_missing(document, True)      # do not quietly bring a deleted file back
             return
-        page.autosave()
+        if not page.autosave():
+            # Say so once, and fall back to saving by hand (the dot comes back).
+            self._autosave_failed.add(document.id)
+            self._update_autosave(document)
+            name = Path(document.path).name
+            self.banners[document.id].show_notice(
+                "unsaved", f"<b>{name} could not be saved</b> automatically: "
+                f"{getattr(page, 'save_error', 'unknown error')}. Your edits are still "
+                "here; save it somewhere else to keep them.",
+                [("Save As…", page.export),
+                 ("Try Again", lambda: page.save())])
 
     def _flush_autosaves(self, ids: list[int] | None = None) -> None:
         """Save now what autosave would save in a moment (switching, closing, quitting)."""

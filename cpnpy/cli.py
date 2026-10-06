@@ -178,7 +178,8 @@ def command_mine_stats(arguments: argparse.Namespace) -> int:
     log = _read_log(arguments.log)
     s = summarise(log)
     print(f"{log.name}: {s.case_count:,} cases, {s.event_count:,} events, "
-          f"{s.activity_count} activities, {s.variant_count:,} variants "
+          f"{_plural(s.activity_count, 'activity').replace('activitys', 'activities')}, "
+          f"{_plural(s.variant_count, 'variant')} "
           f"(classifier: {log.default_classifier().name})")
     if s.start:
         print(f"From {s.start} to {s.end}; median case duration "
@@ -277,8 +278,8 @@ def command_mine_filter(arguments: argparse.Namespace) -> int:
     filtered = apply_filters(log, settings)
     before, after = summarise(log), summarise(filtered)
     print(f"Filters: {filtered.attributes['cpnpy:filter']}")
-    print(f"Kept {after.case_count:,} of {before.case_count:,} cases, "
-          f"{after.event_count:,} events, {after.variant_count:,} variants")
+    print(f"Kept {after.case_count:,} of {_plural(before.case_count, 'case')}, "
+          f"{_plural(after.event_count, 'event')}, {_plural(after.variant_count, 'variant')}")
     if arguments.output:
         if arguments.output.lower().endswith(".csv"):
             from .mining.csv_import import write_csv
@@ -418,6 +419,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _plural(count: int, word: str) -> str:
+    return f"{count:,} {word}{'' if count == 1 else 's'}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
@@ -429,6 +434,14 @@ def main(argv: list[str] | None = None) -> int:
         import os
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 0
+    except FileNotFoundError as error:
+        # A file that is not there, or a file that is not what it should be:
+        # one line saying so, not a traceback.
+        print(f"cpnpy: no such file: {error.filename}", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, SyntaxError) as error:     # ParseError is a SyntaxError
+        print(f"cpnpy: could not read the input: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover
