@@ -479,7 +479,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 | Rename a net or log | Double-click its name in the sidebar or the title above the canvas. A net named after its file (as every opened or saved net is) renames the file too, in the same folder. |
 | Connect | Move the mouse just outside a place or transition and drag the faint arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
 | Pan | Scroll, or drag with the middle mouse button (also past the edge of the net; *Fit* brings it back) |
-| Keep things neat | Tick **Snap to grid** (next to *Names outside*): new and moved places, transitions and arc bends land on the canvas's dots. **Tidy ▸ Snap Everything to the Grid** neatens a net drawn freely, keeping its layout; **Tidy ▸ Arrange Automatically** lays it out afresh, left to right (best for nets that flow from start to end). Undo puts it back. |
+| Keep things neat | Tick **Snap to grid** (next to *Names outside*): new and moved places, transitions and arc bends land on the canvas's dots. **Snap All to Grid** neatens a net drawn freely: every place, transition and arc bend moves to the nearest dot, and the layout stays yours. Undo puts it back. |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |
 | Remove a bend | Drag it back into line with its neighbours |

@@ -404,17 +404,10 @@ class CpnPage(QWidget):
                                  "the canvas's dots, so they line up neatly")
         self.grid_box.setChecked(NetScene.snap_to_grid)
         self.grid_box.toggled.connect(self._snap_toggled)
-        self.tidy_button = _tool("Tidy", "Make the page neat in one go (undo puts it back)")
-        self.tidy_button.setPopupMode(QToolButton.InstantPopup)
-        tidy_menu = QMenu(self.tidy_button)
-        tidy_menu.addAction("Snap Everything to the Grid", self.snap_everything) \
-            .setToolTip("Keep your layout, but move every place, transition and arc bend "
-                        "to the nearest dot")
-        tidy_menu.addAction("Arrange Automatically", self.arrange) \
-            .setToolTip("Lay the page out afresh, left to right, on the grid -- best for "
-                        "nets that flow from start to end")
-        tidy_menu.setToolTipsVisible(True)
-        self.tidy_button.setMenu(tidy_menu)
+        self.tidy_button = _tool("Snap All to Grid", "Keep the layout, but move every "
+                                 "place, transition and arc bend on this page to the "
+                                 "nearest dot (undo puts them back)")
+        self.tidy_button.clicked.connect(self.snap_everything)
         tools = hbox(self.tool_switch, 12, self.tool_hint, 8, self.names_box, 4,
                      self.grid_box, 4, self.tidy_button)
         tools.setStretch(2, 1)
@@ -989,7 +982,7 @@ class CpnPage(QWidget):
         self.snap_changed.emit(on)
 
     def snap_everything(self) -> None:
-        """Tidy ▸ Snap Everything to the Grid (this page)."""
+        """Snap All to Grid: every node and arc bend of this page, layout kept."""
         from ..canvas import GRID_STEP
         from ..tidy import snap_page
         if self.scene.page is None:
@@ -999,21 +992,6 @@ class CpnPage(QWidget):
         self._edited()
         self.status.emit(f"Snapped to the grid ({moved} node{'s' * (moved != 1)} moved) — "
                          f"{shortcut_text('Ctrl+Z')} puts them back")
-
-    def arrange(self) -> None:
-        """Tidy ▸ Arrange Automatically: lay the page out afresh, left to right."""
-        from ..canvas import GRID_STEP
-        from ..tidy import arrange_page
-        if self.scene.page is None:
-            return
-        self._checkpoint()
-        if getattr(self.net, "plain", False):
-            arrange_page(self.scene.page, GRID_STEP)
-        else:                                    # room for the arcs' inscriptions
-            arrange_page(self.scene.page, GRID_STEP, layer_gap=168.0, node_gap=84.0)
-        self._edited()
-        QTimer.singleShot(0, self.view.zoom_to_fit)
-        self.status.emit(f"Arranged left to right — {shortcut_text('Ctrl+Z')} puts it back")
 
     def _names_outside_toggled(self, outside: bool) -> None:
         if getattr(self.net, "names_outside", False) == outside:
