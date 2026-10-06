@@ -7,10 +7,10 @@ stays in :mod:`style`.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QStyle, QStyledItemDelegate,
+    QButtonGroup, QFrame, QMenu, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QStyle, QStyledItemDelegate,
     QVBoxLayout, QWidget,
 )
 
@@ -477,6 +477,32 @@ class PageHeader(QWidget):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+
+class _RoundedMenus(QObject):
+    """Gives every pop-up menu a see-through window, so the stylesheet's
+    rounded corners show (otherwise the corners are filled in square)."""
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Polish and isinstance(watched, QMenu) \
+                and not watched.testAttribute(Qt.WA_WState_Created):
+            watched.setAttribute(Qt.WA_TranslucentBackground)
+            import sys
+            if sys.platform != "darwin":
+                # Windows and Linux draw a square shadow; macOS follows the shape.
+                watched.setWindowFlag(Qt.NoDropShadowWindowHint)
+        return False
+
+
+_rounded_menus: _RoundedMenus | None = None
+
+
+def round_menus(application) -> None:
+    """Round the corners of every pop-up menu in the app (once per application)."""
+    global _rounded_menus
+    if _rounded_menus is None:
+        _rounded_menus = _RoundedMenus(application)
+        application.installEventFilter(_rounded_menus)
 
 
 class NoticeBar(QFrame):

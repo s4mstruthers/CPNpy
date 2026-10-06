@@ -78,8 +78,8 @@ from .log_page import LogPage
 from .model_page import ModelPage
 from .sidebar import FILE_ROLE, FOLDER_ROLE, SidebarTree
 from .widgets import (
-    Card, ElidedLabel, NoticeBar, SegmentedControl, button, dialog_folder, hbox, label, scroll,
-    set_dialog_folder, vbox,
+    Card, ElidedLabel, NoticeBar, SegmentedControl, button, dialog_folder, hbox, label,
+    round_menus, scroll, set_dialog_folder, vbox,
 )
 from .workspace import (
     FORBIDDEN_CHARACTERS, Workspace, WorkspaceFolder, display_name, file_stem, file_suffix,
@@ -418,6 +418,7 @@ class StudioWindow(QMainWindow):
 
     def __init__(self, persist: bool = False) -> None:
         super().__init__()
+        round_menus(QApplication.instance())
         self.setWindowTitle(APPLICATION_NAME)
         self.setAcceptDrops(True)
         self.documents: list[LogDocument | ModelDocument] = []
@@ -655,8 +656,9 @@ class StudioWindow(QMainWindow):
 
     def _section(self, title: str) -> QTreeWidgetItem:
         item = QTreeWidgetItem(self.tree, [title])
+        # No ▸ for a heading: the sidebar only draws one for subfolders (a
+        # DontShowIndicator policy would also make Qt hide the heading's rows).
         item.setFlags(Qt.ItemIsEnabled)
-        item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
         font = theme.ui_font(10, theme.QFont.Bold)
         item.setFont(0, font)
         item.setForeground(0, QColor(style.tokens().text_muted))

@@ -54,9 +54,8 @@ class SidebarTree(QTreeWidget):
         the selected row's highlight in the indentation, so that is covered up."""
         painter.fillRect(rect, QColor(style.tokens().sidebar))
         item = self.itemFromIndex(index)
-        if item is None or item.childCount() == 0 or \
-                item.childIndicatorPolicy() == QTreeWidgetItem.DontShowIndicator:
-            return
+        if item is None or item.childCount() == 0 or not item.data(0, FOLDER_ROLE):
+            return                      # only subfolders get one, not section headings
         size = 3.5
         centre = QPointF(rect.right() - self.indentation() / 2 + 2, rect.center().y() + 1)
         path = QPainterPath()
