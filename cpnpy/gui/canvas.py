@@ -49,9 +49,15 @@ from .items import (
     PLAIN_PLACE, ArcItem, PlaceItem, TransitionItem, to_model,
 )
 
-#: Grid spacing in scene units.  Used only for the background, not for snapping;
-#: CPN models are usually laid out freely.
+#: Grid spacing in scene units: the background's dots, and what nodes and
+#: arc bends snap to when :attr:`NetScene.snap_to_grid` is on.
 GRID_STEP = 28
+
+
+def on_grid(point: QPointF) -> QPointF:
+    """The grid dot nearest to ``point``."""
+    return QPointF(round(point.x() / GRID_STEP) * GRID_STEP,
+                   round(point.y() / GRID_STEP) * GRID_STEP)
 #: Perpendicular separation between two arcs joining the same pair of nodes.
 PARALLEL_ARC_SPACING = 14.0
 
@@ -80,14 +86,18 @@ class _ConnectHandle(QGraphicsPathItem):
         self.setPath(path)
         accent = theme.palette().accent
         self.setBrush(accent)
-        self.setPen(QPen(QColor(255, 255, 255, 220), 1.2))
+        self.setPen(QPen(QColor(255, 255, 255, 140), 1.0))
         #: The node it belongs to.
         self.node = None
         self.set_hot(False)
 
+    #: Opacity at rest (a hint that it is there, not in the way) and with the
+    #: mouse on it (clear enough to aim at).
+    RESTING, HOT = 0.15, 0.6
+
     def set_hot(self, hot: bool) -> None:
-        """Mouse on the handle: fully visible and a little larger."""
-        self.setOpacity(0.7 if hot else 0.3)
+        """Mouse on the handle: clearer and a little larger."""
+        self.setOpacity(self.HOT if hot else self.RESTING)
         self.setScale(1.15 if hot else 1.0)
 
     def shape(self) -> QPainterPath:
@@ -107,6 +117,10 @@ def _rect(item: QGraphicsItem) -> tuple[float, float, float, float]:
 
 class NetScene(QGraphicsScene):
     """Draws one page of a model and handles clicks on it."""
+
+    #: Put new and moved nodes, and arc bends, on the grid's dots (one
+    #: setting for every editor; the Snap to grid box).
+    snap_to_grid = False
 
     #: Emitted with the selected model object (or ``None``) when selection changes.
     selection_changed = Signal(object)
@@ -435,6 +449,16 @@ class NetScene(QGraphicsScene):
         if node is None or not node.isSelected() or self.mouseGrabberItem() is not node:
             return
         centre = (node.pos().x(), node.pos().y())
+        if self.snap_to_grid:
+            # The pressed node goes dot to dot; the rest of the selection
+            # moves with it, keeping its shape (so it stays on the grid too
+            # if it was).  On the grid, nodes line up by themselves: no guides.
+            target = on_grid(node.pos())
+            delta = target - node.pos()
+            if delta.x() or delta.y():
+                for other in self.selected_nodes():
+                    other.setPos(other.pos() + delta)
+            return
         sx, sy = edit.snap_node(centre, self._snap_targets)
         dx = 0.0 if sx is None else sx - centre[0]
         dy = 0.0 if sy is None else sy - centre[1]
@@ -548,13 +572,16 @@ class NetScene(QGraphicsScene):
                 neighbours[0] = self._centre(arc_item.transition_item)
             if index + 1 == len(points) - 1:
                 neighbours[1] = self._centre(arc_item.place_item)
-            snapped = edit.snap_bend(p, neighbours)
+            snapped = (on_grid(position).toTuple() if self.snap_to_grid
+                       else edit.snap_bend(p, neighbours))
             arc_item.arc.bendpoints[index - 1] = to_model(QPointF(*snapped))
             arc_item.reroute()
         elif kind == "segment":
             a, b = points[index - 1], points[index]
             axis = 1 if edit.aligned(a, b) == "horizontal" else 0
             delta = p[axis] - (drag["press"].y() if axis else drag["press"].x())
+            if self.snap_to_grid:                     # the segment lands on a grid line
+                delta = round((a[axis] + delta) / GRID_STEP) * GRID_STEP - a[axis]
             new_points = edit.move_segment(
                 points, index, delta,
                 (self._centre(arc_item.transition_item), _rect(arc_item.transition_item)),
@@ -641,6 +668,8 @@ class NetScene(QGraphicsScene):
     def _create_place(self, position: QPointF) -> None:
         assert self.page is not None
         self.about_to_change.emit()
+        if self.snap_to_grid:
+            position = on_grid(position)
         x, y = to_model(position)
         prefix = "p" if self.plain else "P"
         place = Place(name=self._unique_name(prefix, [p.name for p in self.net.all_places()]),
@@ -656,6 +685,8 @@ class NetScene(QGraphicsScene):
     def _create_transition(self, position: QPointF) -> None:
         assert self.page is not None
         self.about_to_change.emit()
+        if self.snap_to_grid:
+            position = on_grid(position)
         x, y = to_model(position)
         prefix = "t" if self.plain else "T"
         transition = Transition(
@@ -805,7 +836,9 @@ class NetScene(QGraphicsScene):
 
     def _update_connect_handle(self, position: QPointF) -> None:
         """Show the arrow beside the node nearest the mouse (Select tool, edit
-        mode), on the side the mouse is on."""
+        mode), on the side the mouse is on -- only once the mouse is outside the
+        node: over the node itself it would just be in the way of selecting,
+        moving or reading it."""
         if not (self.editable and self.tool == "select") or self.page is None \
                 or self._arc_drag is not None:
             self.hide_connect_handle()
@@ -835,6 +868,11 @@ class NetScene(QGraphicsScene):
         else:
             edge = min(a / abs(ux) if abs(ux) > 1e-9 else math.inf,
                        b / abs(uy) if abs(uy) > 1e-9 else math.inf)
+        if length <= edge or any(other.contains(other.mapFromScene(position))
+                                 for other in [*self.place_items.values(),
+                                               *self.transition_items.values()]):
+            self.hide_connect_handle()                    # on a node: no arrow
+            return
         if self._handle is None or self._handle.scene() is not self:
             self._handle = _ConnectHandle()
             self.addItem(self._handle)

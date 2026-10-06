@@ -1815,3 +1815,96 @@ def test_a_log_still_loading_stays_with_its_folder(app, tmp_path):
     window.open_path(str(first / "log.xes"))
     assert _wait_for(app, lambda: len(window.documents) == 1)
     window.close()
+
+
+def test_snap_to_grid_and_tidy_make_neat_nets(app, monkeypatch):
+    """Snap to grid puts new and dragged nodes on the dots; Tidy snaps a whole
+    page or arranges it afresh (and undo puts it back); the box is one
+    setting for every editor."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+    from cpnpy.gui.canvas import GRID_STEP, NetScene
+    from cpnpy.gui.studio.app import StudioWindow
+
+    def on_grid(item) -> bool:
+        return item.pos().x() % GRID_STEP == 0 and item.pos().y() % GRID_STEP == 0
+
+    monkeypatch.setattr(NetScene, "snap_to_grid", False)
+    root = Path(__file__).resolve().parents[1]
+    window = StudioWindow()
+    window.resize(1500, 950)
+    window.show()
+    window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+    first = window.current_page()
+    window.action_new_petri()
+    page = window.current_page()
+    _pump(app, 0.2)
+    view, port = page.view, page.view.viewport()
+    view.resetTransform()
+    view.auto_fit = False
+
+    def at(x: float, y: float):
+        return view.mapFromScene(QPointF(x, y))
+
+    page.grid_box.setChecked(True)
+    assert NetScene.snap_to_grid and first.grid_box.isChecked()       # every editor
+    # A new place lands on the nearest dot.
+    page.tool_switch.set_index(1)
+    QTest.mouseClick(port, Qt.LeftButton, Qt.NoModifier, at(37, 45))
+    _pump(app, 0.1)
+    editor = view.name_editor
+    if editor is not None:
+        QTest.keyClick(editor, Qt.Key_Return)
+    place = next(iter(page.scene.place_items.values()))
+    assert on_grid(place) and (place.pos().x(), place.pos().y()) == (28, 56)
+    # Dragging it goes dot to dot.
+    page.tool_switch.set_index(0)
+    QTest.mousePress(port, Qt.LeftButton, Qt.NoModifier, at(28, 56))
+    QTest.mouseMove(port, at(60, 70))
+    QTest.mouseMove(port, at(97, 125))
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, at(97, 125))
+    _pump(app, 0.1)
+    place = next(iter(page.scene.place_items.values()))
+    assert on_grid(place) and place.pos().x() > 28
+
+    # Tidy on a net drawn freely: everything to the grid, or arranged afresh.
+    window._select_document(window.documents[0])
+    scene = first.scene
+    before = {k: (i.pos().x(), i.pos().y()) for k, i in scene.place_items.items()}
+    first.snap_everything()
+    assert all(on_grid(i) for i in [*scene.place_items.values(),
+                                    *scene.transition_items.values()])
+    first.undo()
+    assert {k: (i.pos().x(), i.pos().y()) for k, i in first.scene.place_items.items()} == before
+    first.arrange()
+    items = [*first.scene.place_items.values(), *first.scene.transition_items.values()]
+    assert all(on_grid(i) for i in items)
+    assert len({(i.pos().x(), i.pos().y()) for i in items}) == len(items)
+    assert window.documents[0].dirty                                  # an edit: autosaved/undoable
+    first.grid_box.setChecked(False)
+    assert not NetScene.snap_to_grid and not page.grid_box.isChecked()
+    for document in window.documents:
+        document.dirty = False
+    window.close()
+
+
+def test_hover_arrow_only_outside_the_node(app):
+    """The arrow to draw an arc shows when the mouse is just outside a place or
+    transition, not while it is over the node (where it was in the way)."""
+    from PySide6.QtCore import QPointF
+    from cpnpy.gui.studio.app import StudioWindow
+
+    root = Path(__file__).resolve().parents[1]
+    window = StudioWindow()
+    window.show()
+    window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+    scene = window.current_page().scene
+    for item in [next(iter(scene.place_items.values())),
+                 next(iter(scene.transition_items.values()))]:
+        scene._update_connect_handle(item.pos())                         # over the node
+        assert scene._handle is None or not scene._handle.isVisible()
+        half = item.rect().width() / 2
+        scene._update_connect_handle(item.pos() + QPointF(half + 8, 0))  # just outside
+        assert scene._handle.isVisible() and scene._handle.node is item
+        assert scene._handle.opacity() <= 0.2                           # faint until aimed at
+    window.close()

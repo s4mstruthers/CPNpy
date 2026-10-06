@@ -6,6 +6,16 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.6
+
+- **Neat nets.** Tick *Snap to grid* in the editors to put new and moved
+  places, transitions and arc bends on the canvas's dots. *Tidy ▸ Snap
+  Everything to the Grid* neatens a net you drew freely, and *Tidy ▸ Arrange
+  Automatically* lays it out afresh, left to right. Undo puts it back.
+- **The arrow for drawing arcs stays out of the way.** It only appears when
+  the mouse is just outside a place or transition (not over it), and it is
+  fainter until you aim at it.
+
 ## 0.3.5
 
 - **Files moved in Finder stay open.** Moving or renaming an open file inside
