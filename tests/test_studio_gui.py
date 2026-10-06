@@ -791,6 +791,92 @@ def test_hover_arrow_draws_arcs(app):
     window.close()
 
 
+def test_dragging_the_arrow_to_empty_space_adds_the_other_node(app):
+    """Letting go of the arrow over empty canvas adds a transition (from a
+    place) or a place (from a transition) there, joined by an arc -- shown as
+    a see-through preview while dragging, and undone in one step."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+
+    from cpnpy.gui.items import PlaceItem, TransitionItem
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.documents import CpnDocument
+    from cpnpy.mining.petrinet import PetriNet
+    from cpnpy.model.plain import from_petri_net
+
+    petri = PetriNet("chain")
+    petri.add_place("p1").position = (0.0, 0.0)
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.add_document(CpnDocument(from_petri_net(petri)))
+    page = window.current_page()
+    _pump(app, 0.2)
+    scene, view, port = page.scene, page.view, page.view.viewport()
+    view.resetTransform()
+    view.auto_fit = False
+    view.centerOn(QPointF(150, 0))
+    _pump(app, 0.05)
+    net_page = page.net.pages[0]
+
+    def drag_from(node, end: QPointF) -> None:
+        QTest.mouseMove(port, view.mapFromScene(node.pos() + QPointF(node.rect().width() / 2
+                                                                     + 12, 0)))
+        _pump(app, 0.05)
+        assert scene._handle.isVisible() and scene._handle.node is node
+        start = view.mapFromScene(scene._handle.pos())
+        QTest.mousePress(port, Qt.LeftButton, Qt.NoModifier, start)
+        QTest.mouseMove(port, (start + view.mapFromScene(end)) / 2)
+        QTest.mouseMove(port, view.mapFromScene(end))
+        _pump(app, 0.02)
+
+    # Place -> empty space: a preview of a transition, then the real thing,
+    # lined up with p1 (dropped 5 units off level) and joined to it.
+    p1 = next(iter(scene.place_items.values()))
+    drag_from(p1, QPointF(160, 5))
+    assert scene._ghost.isVisible() and scene._ghost.kind is TransitionItem
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, view.mapFromScene(QPointF(160, 5)))
+    _pump(app, 0.05)
+    assert len(net_page.transitions) == 1 and len(net_page.arcs) == 1
+    t1 = net_page.transitions[0]
+    assert (t1.graphics.x, -t1.graphics.y) == (160, 0)            # level with p1
+    assert net_page.arcs[0].orientation == "PtoT"
+    assert net_page.arcs[0].transition_id == t1.id
+    assert view.name_editor is not None                         # name it straight away
+    view.name_editor.setText("send")
+
+    # Transition -> empty space (the click also finishes the name): a place.
+    t_item = scene.transition_items[t1.id]
+    drag_from(t_item, QPointF(320, 0))
+    assert t1.name == "send"
+    t_item = scene.transition_items[t1.id]
+    assert scene._ghost.isVisible() and scene._ghost.kind is PlaceItem
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier, view.mapFromScene(QPointF(320, 0)))
+    _pump(app, 0.05)
+    assert len(net_page.places) == 2 and len(net_page.arcs) == 2
+    assert net_page.arcs[-1].orientation == "TtoP"
+    assert net_page.arcs[-1].transition_id == t1.id
+    view.close_editor()
+
+    # One undo takes away the place and its arc together.
+    page.undo()
+    assert len(page.net.pages[0].places) == 1
+    assert len(page.net.pages[0].arcs) == 1
+
+    # Letting go right beside the node adds nothing (no preview there either).
+    scene = page.scene
+    p1 = next(iter(scene.place_items.values()))
+    drag_from(p1, p1.pos() + QPointF(0, p1.rect().height() / 2 + 14))
+    assert scene._ghost is None or not scene._ghost.isVisible()
+    QTest.mouseRelease(port, Qt.LeftButton, Qt.NoModifier,
+                       view.mapFromScene(p1.pos() + QPointF(0, p1.rect().height() / 2 + 14)))
+    _pump(app, 0.05)
+    assert len(page.net.pages[0].transitions) == 1
+    scene._cancel_connection()
+    page.document.dirty = False
+    window.close()
+
+
 def test_petri_analysis_follows_the_paper_and_trace_highlights(app):
     """The Analysis tab shows Theorem 1 (N̄ live and bounded) and the §6
     structure checks; N̄ opens as a net of its own; stepping through lights
@@ -1903,7 +1989,7 @@ def test_hover_arrow_only_outside_the_node(app):
         half = item.rect().width() / 2
         scene._update_connect_handle(item.pos() + QPointF(half + 8, 0))  # just outside
         assert scene._handle.isVisible() and scene._handle.node is item
-        assert scene._handle.opacity() <= 0.2                           # faint until aimed at
+        assert scene._handle.opacity() < scene._handle.HOT              # faint until aimed at
     window.close()
 
 

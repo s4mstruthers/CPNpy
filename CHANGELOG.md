@@ -6,6 +6,18 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.8
+
+- **Draw nets faster.** Drag the arrow beside a place out onto empty canvas
+  and let go: a new transition appears there, already joined by an arc (and
+  a place, if you start from a transition). A see-through preview shows
+  where it will go, and it lines up with the node you started from. Type
+  its name and carry on from its own arrow. One undo takes both away.
+- The arrow for drawing arcs is a little easier to see, and no longer gets
+  in the way of dragging a name that sits outside its node.
+- Adding a place or transition no longer shifts a small net across the
+  window.
+
 ## 0.3.7
 
 - **Snap All to Grid** replaces the *Tidy* menu: one button that moves every
