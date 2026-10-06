@@ -183,3 +183,43 @@ def test_check_for_updates_in_the_app(monkeypatch):
     _pump(application, 0.2)
     assert shown == []
     window.close()
+
+
+def test_update_check_trusts_certifi_not_the_system(monkeypatch):
+    """Regression (0.3.0): the standalone app's Python found no certificates,
+    so checking GitHub failed with CERTIFICATE_VERIFY_FAILED.  The updater's
+    connections use certifi's bundle, which works without the system's."""
+    import ssl
+
+    import certifi
+
+    monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent")       # as in the frozen app
+    monkeypatch.setenv("SSL_CERT_DIR", "/nonexistent")
+    assert ssl.create_default_context().cert_store_stats()["x509_ca"] == 0
+    context = updates.ssl_context()
+    assert context.cert_store_stats()["x509_ca"] > 50
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+    assert Path(certifi.where()).exists()
+
+    used = []
+
+    class Response:
+        headers = {"Content-Length": "0"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, *args):
+            return b"{}" if not args else b""
+
+    def fake_urlopen(request, timeout, context=None):
+        used.append(context)
+        return Response()
+    monkeypatch.setattr(updates, "urlopen", fake_urlopen)
+    updates.fetch_latest()
+    updates.download("https://example.invalid/x", Path(os.devnull))
+    assert len(used) == 2 and all(c is not None and c.cert_store_stats()["x509_ca"] > 50
+                                  for c in used)

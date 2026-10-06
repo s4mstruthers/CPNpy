@@ -40,8 +40,10 @@ analysis = Analysis(
     # Files the code opens by path at run time (the window icon).
     datas=[(str(ROOT / "cpnpy" / "gui" / "resources" / "cpnpy-icon.png"),
             "cpnpy/gui/resources")],
-    # Imported by name inside the worker branch; listed so it is never missed.
-    hiddenimports=["cpnpy.analysis.state_space_process"],
+    # Imported inside functions; listed so they are never missed.  certifi
+    # brings its certificate file (PyInstaller's hook), which the update check
+    # needs to reach GitHub: the bundled Python cannot use the system's.
+    hiddenimports=["cpnpy.analysis.state_space_process", "certifi"],
     # Not needed by the app.  PM4Py is an optional extra (AGPL-3.0) and is
     # never bundled; the app hides its PM4Py options when it is missing.
     excludes=["pm4py", "tkinter", "pytest", "matplotlib", "numpy", "pandas", "scipy"],

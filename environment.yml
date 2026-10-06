@@ -13,6 +13,7 @@ channels:
 dependencies:
   - python=3.12
   - pyside6>=6.6
+  - certifi                  # certificates for the update check
   - pytest>=8.0
   - pip
   - pip:
