@@ -176,7 +176,8 @@ handling (unsound — try Analysis)**.
    *Process map*, *Footprint*. **Filter…** keeps part of the log as a new
    log.
 3. On the *Discover* tab, pick an algorithm and press **Discover**. **Open as
-   model →** adds the result to the sidebar under **MODELS**.
+   model →** adds the result to the sidebar (under **MODELS**, or
+   **UNSAVED** in a folder until you press **Keep** to save it there).
 4. On the model's *Conformance* tab, choose a log and press **Check
    conformance**.
 
@@ -355,8 +356,10 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Generate event log…:** plays the net out many times and opens the
   traces as a log.
 - **Saving:** nets are saved as **PNML** (ProM, WoPeD and PM4Py read it), or
-  as `.cpn`. A new net is called *Untitled 1* until you save it; *Save As*
-  names it after the file.
+  as `.cpn`. *Save As* names the net after its file. With a folder open, a
+  new net is `Untitled 1.pnml` in the folder from the start and is saved as
+  you edit ([Folders](#folders-one-per-week)); without one, it is called
+  *Untitled 1* until you save it.
 - **Renaming:** double-click the net's name in the sidebar, or its title
   above the canvas. The file is renamed with it, in the same folder (an
   existing file is never overwritten).
@@ -469,6 +472,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 | Rename | Double-click the place or transition, or use the Element tab |
 | Rename a net or log | Double-click its name in the sidebar or the title above the canvas. A net named after its file (as every opened or saved net is) renames the file too, in the same folder. |
 | Connect | Hover near a place or transition and drag the translucent arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
+| Pan | Scroll, or drag with the middle mouse button (also past the edge of the net; *Fit* brings it back) |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |
 | Remove a bend | Drag it back into line with its neighbours |
@@ -503,6 +507,7 @@ The app shows each shortcut the way your system writes it.
 | Step (fire one random enabled transition) | ⌘. | Ctrl+. |
 | Zoom in / out / fit / 100 % | ⌘+ / ⌘− / ⌘0 / ⌥⌘0 | Ctrl++ / Ctrl+− / Ctrl+0 / Ctrl+Alt+0 |
 | Zoom with the mouse | ⌘-scroll or pinch | Ctrl+scroll or pinch |
+| Pan | scroll, or middle-drag | scroll, or middle-drag |
 | Toggle sidebar | ⌥⌘S | Ctrl+Alt+S |
 | Settings… | ⌘, | Ctrl+, |
 | Welcome page | ⌘1 | Ctrl+1 |
