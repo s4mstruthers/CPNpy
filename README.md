@@ -245,8 +245,14 @@ round.
   `.pnml` edited in WoPeD) is **reloaded** by itself. If it also has edits in
   CPNpy that are not saved yet, a bar above the page asks: *Reload (lose my
   edits)* or *Keep Mine*. CPNpy's own saves are recognised and never reload.
-- **An open file deleted or moved away** stays open, shown in italics with a
-  *missing* bar: *Save As…* to keep it. It is not quietly recreated.
+- **An open file moved or renamed in Finder**, within the folder, stays open
+  and follows the file to its new place, unsaved edits included.
+- **An open file deleted, or moved out of the folder,** stays open, shown in
+  italics with a *missing* bar: *Save As…* to keep it. It is not quietly
+  recreated.
+- If a net **cannot be saved automatically** (a read-only folder, a full
+  disk), a bar says so once and the net is saved with ⌘S again, with its
+  "edited" dot, until saving works.
 - A file still being copied in is not read half-way.
 - With iCloud Drive's *Optimise Mac Storage*, files that are only in iCloud
   are listed with a ☁: click one to download and open it.

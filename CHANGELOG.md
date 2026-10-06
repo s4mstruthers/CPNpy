@@ -6,6 +6,22 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.5
+
+- **Files moved in Finder stay open.** Moving or renaming an open file inside
+  the folder used to mark it as missing and list it a second time in its new
+  place; now it simply follows the file.
+- **Recent folders on the welcome page open again** when you click them.
+- **CSV files saved by Excel on Windows** (with letters like é or ü) open
+  instead of failing.
+- If a net **cannot be saved automatically** (a read-only folder, a full
+  disk), a bar says so once, instead of an error message after every edit.
+- A log still loading when you switch to another folder no longer turns up
+  in the new one.
+- Check boxes, radio buttons and sliders are easier to see in dark mode.
+- The `cpnpy` command line says plainly when a file is missing or cannot be
+  read, instead of printing a Python error.
+
 ## 0.3.4
 
 - **Smoother updates.** While an update is being prepared, its progress

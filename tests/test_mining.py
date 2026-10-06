@@ -423,3 +423,18 @@ def test_heuristics_net_replays_its_log(text):
     from cpnpy.mining.discovery.heuristics import heuristics_net
     log = parse_simple_log(text)
     assert align_log(heuristics_net(log).net, log).average_fitness == pytest.approx(1.0)
+
+
+def test_csv_from_excel_in_a_windows_code_page(tmp_path):
+    """Regression: a CSV saved by Excel on Windows (cp1252, not UTF-8) could
+    not be read at all (UnicodeDecodeError)."""
+    from cpnpy.mining.csv_import import guess_mapping, read_csv, sniff
+
+    path = tmp_path / "events.csv"
+    path.write_bytes("case;activity\n1;Café order\n1;Müller check\n".encode("cp1252"))
+    log = read_csv(path, guess_mapping(sniff(path)[1]))
+    assert [e.attributes["concept:name"] for e in log.traces[0].events] == \
+        ["Café order", "Müller check"]
+    path.write_bytes("﻿case,activity\n1,naïve\n".encode("utf-8"))      # UTF-8 + BOM
+    log = read_csv(path, guess_mapping(sniff(path)[1]))
+    assert log.traces[0].events[0].attributes["concept:name"] == "naïve"
