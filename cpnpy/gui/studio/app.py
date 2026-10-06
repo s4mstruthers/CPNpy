@@ -1908,12 +1908,32 @@ class StudioWindow(QMainWindow):
         progress.setWindowTitle("Software Update")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
-        state = {"done": 0, "total": 0, "cancelled": False}
+        # By default the dialog resets and hides itself at 100 %; with the
+        # value set to 100 again every 0.1 s while the download is checked and
+        # unpacked, it kept popping up and vanishing.  It stays up until done.
+        progress.setAutoReset(False)
+        progress.setAutoClose(False)
+        self.update_progress = progress
+        state = {"done": 0, "total": 0, "cancelled": False, "unpacking": False}
         progress.canceled.connect(lambda: state.__setitem__("cancelled", True))
+
+        def tick() -> None:
+            if state["unpacking"]:
+                return
+            if state["total"] and state["done"] >= state["total"]:
+                # Downloaded: now checked and unpacked, which cannot be
+                # stopped half-way -- a busy bar, no Cancel.
+                state["unpacking"] = True
+                progress.setLabelText(f"Preparing CPNpy {release.version}…")
+                progress.setCancelButton(None)
+                progress.setRange(0, 0)
+            else:
+                progress.setValue(int(100 * state["done"] / state["total"])
+                                  if state["total"] else 0)
         poll = QTimer(self)
-        poll.timeout.connect(lambda: progress.setValue(
-            int(100 * state["done"] / state["total"]) if state["total"] else 0))
+        poll.timeout.connect(tick)
         poll.start(100)
+        progress.show()
 
         def finish() -> None:
             poll.stop()
