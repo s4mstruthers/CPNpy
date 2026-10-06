@@ -49,6 +49,7 @@ from ...model.plain import to_petri_net, token_count, tokens_text, weight_of
 from .cpn_page import CpnPage
 from .documents import ModelDocument
 from .widgets import (
+    suggested_path,
     Card, Verdict, button, flow, footprint_table, hbox, label, status_for,
 )
 from . import instances
@@ -799,7 +800,7 @@ class PetriNetPage(CpnPage):
                 f"{where}{state}")
 
     def export(self) -> bool:
-        suggested = self.document.path or f"{self.net.name}.pnml"
+        suggested = self.document.path or suggested_path(f"{self.net.name}.pnml")
         if suggested.lower().endswith(".cpn"):
             suggested = suggested[:-4] + ".pnml"
         path, chosen = QFileDialog.getSaveFileName(

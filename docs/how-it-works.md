@@ -259,6 +259,7 @@ examples/models.py   four complete models, also used as test fixtures
     examples.py      example Petri nets (File ▸ Open Example Petri Net)
   gui/studio/
     app.py           window, sidebar, welcome page, dialogs, file opening
+    workspace.py     workspace folders: which files to list, the hidden .cpnpy state
     petri_page.py    the Petri net editor with the Analysis tab
     cpn_page.py      the coloured-net editor, simulator and state space tool
     tool_icons.py    painted tool icons and cursors

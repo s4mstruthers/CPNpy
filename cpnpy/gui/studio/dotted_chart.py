@@ -58,6 +58,7 @@ from ...mining.stats import format_duration
 from . import style
 from .documents import LogDocument
 from .widgets import (
+    suggested_path,
     Card, ElidedLabel, button, flow, hbox, label, modifier_text, scroll, vbox,
 )
 
@@ -1320,7 +1321,7 @@ class DottedChartPanel(QWidget):
 
     def _export(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Export dotted chart",
-                                              f"{self.document.name} dotted chart.png",
+                                              suggested_path(f"{self.document.name} dotted chart.png"),
                                               "PNG image (*.png);;SVG drawing (*.svg)")
         if path:
             self.chart.export_image(path)

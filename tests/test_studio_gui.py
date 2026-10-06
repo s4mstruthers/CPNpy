@@ -1121,3 +1121,116 @@ def test_renaming_a_net_renames_its_file(app, tmp_path, monkeypatch):
     window.rename_document(log_doc)
     assert log_doc.name == "Boarding (week 4)" and log_file.exists()
     window.close()
+
+
+def test_workspace_folder(app, tmp_path, monkeypatch):
+    """A folder as workspace: its files are listed (lighter until opened),
+    open with one click, come back after closing, follow changes on disk,
+    receive new nets, and the open files are restored next time."""
+    import shutil
+
+    from cpnpy.gui.studio import petri_page
+    from cpnpy.gui.studio.app import APPLICATION_NAME, FILE_ROLE, StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.mining import EventLog, parse_simple_log
+    from cpnpy.mining.xes import write_xes
+
+    root = Path(__file__).resolve().parents[1]
+    week = tmp_path / "Week 2"
+    (week / "logs").mkdir(parents=True)
+    shutil.copy(root / "examples" / "petri" / "order_handling_sound.pnml", week / "order.pnml")
+    shutil.copy(root / "examples" / "simple_transfer.cpn", week / "transfer.cpn")
+    write_xes(EventLog.from_simple_log(parse_simple_log("[<a,b>^2, <a,c>]"), "Boarding"),
+              week / "logs" / "boarding.xes")
+    (week / "notes.txt").write_text("not a model")
+
+    def rows(section):
+        return [section.child(i).text(0).strip() for i in range(section.childCount())]
+
+    def wait_for(condition, seconds=6.0):
+        for _ in range(int(seconds / 0.02)):
+            if condition():
+                return True
+            _pump(app, 0.02)
+        return condition()
+
+    window = StudioWindow()
+    window.show()
+    # A file from elsewhere (saved, so closing it needs no confirmation).
+    window.open_path(str(root / "examples" / "petri" / "order_handling_unsound.pnml"))
+    assert window.open_workspace(str(week))
+
+    # The outside file was closed; the folder's files are listed.
+    assert [d.name for d in window.documents] == []
+    assert window.sidebar_title.text() == "Week 2"
+    assert not window.workspace_caption.isHidden()
+    assert window.windowTitle() == f"Week 2 — {APPLICATION_NAME}"
+    assert rows(window.petri_section) == ["order"]
+    assert rows(window.cpn_section) == ["transfer"]
+    assert rows(window.logs_section) == ["boarding"]             # the subfolder is in the tooltip
+    assert window.logs_section.child(0).toolTip(0).startswith("logs/boarding.xes")
+
+    # One click opens a file; its row becomes the open document.
+    window._open_placeholder(window.petri_section.child(0))
+    net = window.documents[-1]
+    assert net.name == "order" and window.petri_section.childCount() == 1
+    assert window.petri_section.child(0).data(0, FILE_ROLE) is None
+    assert window.windowTitle() == "order — Week 2"
+    # A double-click right after that click does not ask to rename it.
+    window._on_double_click(window.items[net.id], 0)
+
+    # A log opens in the background.
+    window._open_placeholder(window.logs_section.child(0))
+    assert wait_for(lambda: any(isinstance(d, LogDocument) for d in window.documents))
+    assert rows(window.logs_section) == ["Boarding"]
+
+    # Closing a file lists it again, ready to reopen.
+    window.remove_documents([net.id])
+    assert rows(window.petri_section) == ["order"]
+    assert window.petri_section.child(0).data(0, FILE_ROLE)
+
+    # Files added in Finder appear by themselves (the folder is watched).
+    shutil.copy(week / "order.pnml", week / "another net.pnml")
+    assert wait_for(lambda: rows(window.petri_section) == ["another net", "order"])
+
+    # A new net's Save dialog starts in the workspace folder.
+    window.action_new_petri()
+    offered = {}
+
+    def save_dialog(_parent, _title, suggested, _filters):
+        offered["path"] = suggested
+        return str(week / "my model.pnml"), "PNML Petri net (*.pnml)"
+    monkeypatch.setattr(petri_page.QFileDialog, "getSaveFileName", save_dialog)
+    assert window.current_page().export()
+    assert Path(offered["path"]).parent == week
+    window._rescan_workspace()
+    assert rows(window.petri_section) == ["another net", "my model", "order"]
+    assert sum(1 for i in range(3) if window.petri_section.child(i).data(0, FILE_ROLE)) == 2
+
+    # What was open is remembered in the folder and comes back next time.
+    assert (week / ".cpnpy").exists()
+    window.close()
+    again = StudioWindow()
+    again.show()
+    assert again.open_workspace(str(week))
+    assert wait_for(lambda: len(again.documents) == 2)
+    assert sorted(d.name for d in again.documents) == ["Boarding", "my model"]
+    assert again.windowTitle() == "my model — Week 2"          # it was selected
+
+    # Closing the workspace closes everything and goes back to "CPNpy Studio".
+    assert again.close_workspace()
+    assert again.documents == [] and again.sidebar_title.text() == APPLICATION_NAME
+    assert all(s.isHidden() for s in (again.logs_section, again.petri_section, again.cpn_section))
+    again.close()
+
+
+def test_empty_workspace_says_so(app, tmp_path):
+    from cpnpy.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(tmp_path))
+    assert not window.empty_hint.isHidden()
+    window.close_workspace()
+    assert window.empty_hint.isHidden()
+    window.close()

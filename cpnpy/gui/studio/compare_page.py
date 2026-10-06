@@ -36,6 +36,7 @@ from .documents import ComparisonDocument, LogDocument
 from .dotted_chart import X_MODES, X_TITLES, DotData, DotSettings, DottedChart
 from .log_page import _item, _runs, _table
 from .widgets import (
+    suggested_path,
     BarDelegate, Card, ColourDot, Legend, LegendSwatch, PageHeader, SegmentedControl,
     SequenceDelegate, button, hbox, label, scroll, vbox,
 )
@@ -469,7 +470,7 @@ class ComparePage(QWidget):
 
     # -- export ----------------------------------------------------------------------------
     def export(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Export figures", "comparison.csv",
+        path, _ = QFileDialog.getSaveFileName(self, "Export figures", suggested_path("comparison.csv"),
                                               "CSV (*.csv)")
         if not path:
             return

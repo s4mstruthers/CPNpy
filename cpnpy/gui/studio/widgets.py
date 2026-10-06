@@ -416,11 +416,20 @@ class ElidedLabel(QLabel):
             self.setObjectName(name)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.setMinimumWidth(40)
+        self.hint = ""
         self.setToolTip(text)
 
     def setText(self, text: str) -> None:  # noqa: N802 - Qt naming
         super().setText(text)
-        self.setToolTip(text)
+        self._update_tooltip()
+
+    def set_hint(self, hint: str) -> None:
+        """A second tooltip line that stays when the text changes ("Double-click to rename")."""
+        self.hint = hint
+        self._update_tooltip()
+
+    def _update_tooltip(self) -> None:
+        self.setToolTip(self.text() + (f"\n{self.hint}" if self.hint else ""))
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -468,6 +477,31 @@ class PageHeader(QWidget):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+
+# ---------------------------------------------------------------------------
+# Where file dialogs start
+# ---------------------------------------------------------------------------
+#: The open workspace folder ("" when there is none).  Save and open dialogs
+#: start there, so a new net is saved into the week you are working on.
+_dialog_folder = ""
+
+
+def set_dialog_folder(folder: str | None) -> None:
+    global _dialog_folder
+    _dialog_folder = folder or ""
+
+
+def dialog_folder() -> str:
+    return _dialog_folder
+
+
+def suggested_path(file_name: str) -> str:
+    """``file_name`` inside the workspace folder, or bare (the dialog's own choice)."""
+    if _dialog_folder:
+        from pathlib import Path
+        return str(Path(_dialog_folder) / file_name)
+    return file_name
 
 
 def scroll(widget: QWidget, horizontal: bool = False) -> "QScrollArea":
