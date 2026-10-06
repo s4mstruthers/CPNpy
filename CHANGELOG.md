@@ -6,6 +6,13 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.4
+
+- **Smoother updates.** While an update is being prepared, its progress
+  window now stays put and says "Preparing…" instead of flickering on and
+  off. (Updating *to* this version may still flicker once: the fix is in the
+  version doing the updating.)
+
 ## 0.3.3
 
 - **A more modern look throughout.** Drop-down lists, check boxes, radio
