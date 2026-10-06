@@ -12,6 +12,10 @@ notice, not how it was done.
   place, transition and arc bend to the nearest dot, keeping your layout.
   *Arrange Automatically* is gone: on models drawn by hand it made a worse
   layout than the one you had.
+- **Fixed (mostly on Linux):** after an open file was deleted, a new file
+  created in the folder could be mistaken for it having moved there -- and
+  then saved over. A file now only counts as moved if it really is the same
+  file.
 
 ## 0.3.6
 

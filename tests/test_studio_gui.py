@@ -1905,3 +1905,32 @@ def test_hover_arrow_only_outside_the_node(app):
         assert scene._handle.isVisible() and scene._handle.node is item
         assert scene._handle.opacity() <= 0.2                           # faint until aimed at
     window.close()
+
+
+def test_a_new_file_reusing_a_deleted_files_number_is_not_taken_for_it(app, tmp_path):
+    """Regression (seen on Linux): a deleted open file's inode number was given
+    to the next new file, which the app then took for the open file "moved"
+    there -- its document followed it, and autosave could write over it.  A
+    move keeps the size and time too; a new file with a reused number does not."""
+    import os
+
+    from cpnpy.gui.studio.app import StudioWindow
+
+    week = _week(tmp_path)
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    window.open_path(str(week / "models" / "order.pnml"))
+    net = window.documents[-1]
+    old = window._identities[net.id]
+    (week / "models" / "order.pnml").unlink()
+    fresh = week / "logs" / "fresh.pnml"
+    fresh.write_text("<pnml/>")
+    # As Linux would: the new file gets the deleted file's number.
+    status = os.stat(fresh)
+    window._identities[net.id] = (status.st_dev, status.st_ino, old[2], old[3])
+    window._rescan_workspace(force=True)
+    assert net.missing and Path(net.path).name == "order.pnml"
+    assert window._key(fresh) in window.placeholders           # listed as itself
+    net.dirty = False
+    window.close()
