@@ -53,6 +53,7 @@ from .documents import CpnDocument
 from .graph_view import EdgeSpec, GraphView, NodeSpec
 from .ml_highlighter import MlHighlighter
 from .widgets import (
+    suggested_path,
     Card, ElidedLabel, PageHeader, SegmentedControl, StatTile, Verdict, button, flow, hbox, label,
     scroll, shortcut_text, vbox,
 )
@@ -1667,14 +1668,26 @@ class CpnPage(QWidget):
         return self._write(Path(self.document.path))
 
     def export(self) -> bool:
-        suggested = self.document.path or f"{self.net.name}.cpn"
+        suggested = self.document.path or suggested_path(f"{self.net.name}.cpn")
         path, _ = QFileDialog.getSaveFileName(self, "Save CPN model", suggested,
                                               "CPN Tools model (*.cpn)")
         if not path:
             return False
         if not path.lower().endswith(".cpn"):
             path += ".cpn"
+        self._take_file_name(Path(path))
         return self._write(Path(path))
+
+    def _take_file_name(self, path: Path) -> None:
+        """Save As names the net after its new file ("Untitled 1" → "order").
+
+        Opening a .cpn or .pnml file names the net after the file too, so the
+        name you see stays the same when the file is opened again later.  The
+        name is set before writing, so the file itself carries it as well.
+        """
+        if self.net.name != path.stem:
+            self.net.name = path.stem
+            self.refresh_title()
 
     def _write(self, path: Path) -> bool:
         try:
@@ -1690,7 +1703,8 @@ class CpnPage(QWidget):
 
     def _export_image(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Export image",
-                                              f"{self.net.name}.png", "PNG (*.png);;SVG (*.svg)")
+                                              suggested_path(f"{self.net.name}.png"),
+                                              "PNG (*.png);;SVG (*.svg)")
         if not path:
             return
         from PySide6.QtCore import QRectF

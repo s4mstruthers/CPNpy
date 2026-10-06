@@ -42,6 +42,7 @@ from .graph_builders import petri_net_specs, state_graph_specs
 from .graph_view import GraphView
 from .log_page import _item, _table, derivation_widget
 from .widgets import (
+    suggested_path,
     Card, ElidedLabel, PageHeader, SegmentedControl, StatTile, Verdict, button, fitness_status, flow, hbox, label,
     paint_chips, scroll, status_for, vbox,
 )
@@ -711,7 +712,7 @@ class ModelPage(QWidget):
     def export(self) -> None:
         """Save as PNML (with the current layout).  The document then refers to
         that file, so it survives removal and is reopened at the next launch."""
-        path, _ = QFileDialog.getSaveFileName(self, "Export Petri net", f"{self.net.name}.pnml",
+        path, _ = QFileDialog.getSaveFileName(self, "Export Petri net", suggested_path(f"{self.net.name}.pnml"),
                                               "PNML (*.pnml)")
         if path:
             positions = {node_id: (item.pos().x(), item.pos().y())
@@ -722,7 +723,7 @@ class ModelPage(QWidget):
             self.saved.emit()
 
     def _export_image(self) -> None:
-        path, chosen = QFileDialog.getSaveFileName(self, "Export image", f"{self.net.name}.png",
+        path, chosen = QFileDialog.getSaveFileName(self, "Export image", suggested_path(f"{self.net.name}.png"),
                                                    "PNG image (*.png);;SVG drawing (*.svg)")
         if not path:
             return

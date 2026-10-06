@@ -185,6 +185,12 @@ def stylesheet() -> str:
     #sidebar QTreeWidget::item:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
     #sidebar QTreeWidget::item:selected {{ background: {t.accent}; color: {t.accent_text}; }}
     #sidebarTitle {{ color: {t.text}; font-weight: 700; font-size: 15px; padding: 0 2px; }}
+    #sidebarCaption {{ color: {t.text_muted}; font-size: 10px; font-weight: 700;
+        letter-spacing: 0.8px; padding: 0 2px; }}
+    #sidebarMenuButton {{ background: transparent; border: none; border-radius: 6px;
+        color: {t.text_secondary}; font-size: 16px; padding: 0 6px 2px 6px; }}
+    #sidebarMenuButton:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
+    #sidebarMenuButton::menu-indicator {{ image: none; width: 0; }}
     #sidebarFooter QPushButton {{ background: transparent; border: none; color: {t.text_secondary};
         padding: 6px 8px; border-radius: 6px; text-align: left; }}
     #sidebarFooter QPushButton:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}

@@ -32,6 +32,7 @@ from .dotted_chart import DottedChartPanel
 from .graph_builders import dependency_specs, dfg_specs, petri_net_specs
 from .graph_view import GraphView
 from .widgets import (
+    suggested_path,
     footprint_table,
     BarDelegate, Card, ElidedLabel, Legend, LegendSwatch, PageHeader, SegmentedControl,
     SequenceDelegate, StatTile, Verdict,
@@ -161,7 +162,7 @@ class LogPage(QWidget):
         """Save the log as XES (or CSV).  The document then refers to that file,
         so it can be reopened at the next launch and removed without losing it."""
         path, chosen = QFileDialog.getSaveFileName(
-            self, "Export event log", f"{self.document.name}.xes",
+            self, "Export event log", suggested_path(f"{self.document.name}.xes"),
             "XES (*.xes *.xes.gz);;CSV, one row per event (*.csv)")
         if not path:
             return

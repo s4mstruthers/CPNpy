@@ -23,6 +23,7 @@
 
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Workspaces: a folder per week](#workspaces-a-folder-per-week)
 - [Petri nets and WF-nets](#petri-nets-and-wf-nets)
 - [Process mining](#process-mining)
 - [Coloured Petri nets](#coloured-petri-nets)
@@ -135,6 +136,10 @@ and Linux (see [Keyboard shortcuts](#keyboard-shortcuts)).
 
 ## Quick start
 
+**Work in a folder** (recommended): **File ▸ Open Workspace Folder…**
+(⌥⌘O / Ctrl+Alt+O) and pick a folder such as *Week 2*, or drop the folder
+onto the window. See [Workspaces](#workspaces-a-folder-per-week).
+
 **Check whether a WF-net is sound**
 
 1. **File ▸ New Petri Net** (⌘N / Ctrl+N).
@@ -170,6 +175,35 @@ handling (unsound — try Analysis)**.
 
 **File ▸ Open Coloured Petri Net…** (⇧⌘O / Ctrl+Shift+O), then *Step through* or
 *Simulate*.
+
+---
+
+## Workspaces: a folder per week
+
+Keep each week's material in a folder (logs from the course, the nets you
+draw) and open the folder as a **workspace**:
+
+- The sidebar lists **every event log and net in the folder**, under the
+  folder's name. Files that are not open yet are shown lighter: **click one
+  to open it**. Closing a file (✕ or ⌘W) puts it back in that state, so
+  nothing disappears from the list.
+- **New nets are saved into the folder**: the Save dialog starts there.
+  Exported logs and pictures go there too unless you pick another place.
+- Files you add, rename or delete in Finder (or Explorer) **appear by
+  themselves**. Subfolders are included (up to three levels), with hidden
+  files and folders skipped, as Finder does.
+- **What you had open comes back** the next time you open the workspace, and
+  the app reopens the last workspace at launch. This is kept in a small
+  hidden file, `.cpnpy`, in the folder. It stores paths relative to the
+  folder, so it keeps working if you move or sync the folder. Delete it to
+  start fresh.
+- Switch with **File ▸ Open Recent Workspace**, the buttons on the welcome
+  page, or the **⋯** menu next to the folder's name, which also has *Show in
+  Finder* and *Close Workspace*.
+
+Opening a workspace closes the files that are not in it (it asks first about
+unsaved changes). Without a workspace, the app works with loose files as
+before.
 
 ---
 
@@ -353,6 +387,7 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 |---|---|
 | Add a place / transition | Pick **Place** / **Transition**, click the canvas, type the name, press Return (or just click elsewhere: the name box closes and keeps the name) |
 | Rename | Double-click the place or transition, or use the Element tab |
+| Rename a net or log | Double-click its name in the sidebar or the title above the canvas. A net named after its file (as every opened or saved net is) renames the file too, in the same folder. |
 | Connect | Hover near a place or transition and drag the translucent arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |
@@ -378,6 +413,7 @@ The app shows each shortcut the way your system writes it.
 | New Petri net | ⌘N | Ctrl+N |
 | New coloured Petri net | ⇧⌘N | Ctrl+Shift+N |
 | Open… | ⌘O | Ctrl+O |
+| Open workspace folder… | ⌥⌘O | Ctrl+Alt+O |
 | Open coloured Petri net… | ⇧⌘O | Ctrl+Shift+O |
 | Log from notation… | ⌘L | Ctrl+L |
 | Compare logs… | ⇧⌘C | Ctrl+Shift+C |
@@ -390,7 +426,7 @@ The app shows each shortcut the way your system writes it.
 | Toggle sidebar | ⌥⌘S | Ctrl+Alt+S |
 | Welcome page | ⌘1 | Ctrl+1 |
 | Export selected… | ⌘E | Ctrl+E |
-| Remove from workspace / remove all | ⌘W / ⇧⌘W | Ctrl+W / Ctrl+Shift+W |
+| Close / close all | ⌘W / ⇧⌘W | Ctrl+W / Ctrl+Shift+W |
 | Cancel drawing an arc | Esc | Esc |
 
 ---
@@ -403,6 +439,7 @@ The app shows each shortcut the way your system writes it.
 | Petri nets: `.pnml` (with positions, weights, τ, arc bends) | ✓ | ✓ |
 | CPN Tools models: `.cpn` | ✓ | ✓ |
 | Pictures of nets and charts | | `.png`, `.svg` |
+| Workspace state: `.cpnpy` (hidden, in the folder) | ✓ | ✓ |
 
 Example files: `examples/petri/*.pnml` (Petri nets), `examples/*.cpn`
 (coloured nets) and `tests/data/` (a plane-boarding model and log from the
