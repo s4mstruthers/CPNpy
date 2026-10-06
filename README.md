@@ -7,6 +7,11 @@
   Pure Python + Qt. No Java, no Wine, no separate simulator to install.
 </p>
 
+<p align="center">
+  <a href="https://github.com/s4mstruthers/CPNpy/releases/latest"><b>⬇ Download for macOS, Windows or Linux</b></a>
+  · no Python needed · <a href="#install">install guide</a>
+</p>
+
 ![Drawing a WF-net and checking its soundness](docs/screenshots/petri-analysis.png)
 
 **CPNpy Studio** brings together what usually takes several tools:
@@ -16,6 +21,7 @@
 | **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
 | **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
+| **Workspaces** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, new nets are saved there, and what you had open comes back next time. | Finder windows and *File ▸ Open* every time |
 
 ---
 
@@ -82,7 +88,7 @@ The same commands on every system (Terminal on macOS and Linux, Miniforge
 Prompt or PowerShell on Windows):
 
 ```bash
-git clone <the URL of this repository>    # the green "Code" button on GitHub
+git clone https://github.com/s4mstruthers/CPNpy.git
 cd CPNpy
 conda env create -f environment.yml       # Python 3.12, PySide6, pytest, CPNpy itself
 conda activate cpnpy
@@ -180,8 +186,11 @@ handling (unsound — try Analysis)**.
 
 ## Workspaces: a folder per week
 
-Keep each week's material in a folder (logs from the course, the nets you
-draw) and open the folder as a **workspace**:
+Keep each week's material in a folder (the logs from the course, the nets
+you draw) and open the folder as a **workspace**: **File ▸ Open Workspace
+Folder…** (⌥⌘O / Ctrl+Alt+O), or drag the folder onto the window.
+
+![A workspace: the folder Week 2, with one net open and the others listed](docs/screenshots/workspace.png)
 
 - The sidebar lists **every event log and net in the folder**, under the
   folder's name. Files that are not open yet are shown lighter: **click one
@@ -190,8 +199,9 @@ draw) and open the folder as a **workspace**:
 - **New nets are saved into the folder**: the Save dialog starts there.
   Exported logs and pictures go there too unless you pick another place.
 - Files you add, rename or delete in Finder (or Explorer) **appear by
-  themselves**. Subfolders are included (up to three levels), with hidden
-  files and folders skipped, as Finder does.
+  themselves**. Subfolders are included (up to three levels deep and 500
+  files), with hidden files and folders skipped, as Finder does. A file in a
+  subfolder is listed by its name; hover over it to see where it is.
 - **What you had open comes back** the next time you open the workspace, and
   the app reopens the last workspace at launch. This is kept in a small
   hidden file, `.cpnpy`, in the folder. It stores paths relative to the
@@ -202,8 +212,12 @@ draw) and open the folder as a **workspace**:
   Finder* and *Close Workspace*.
 
 Opening a workspace closes the files that are not in it (it asks first about
-unsaved changes). Without a workspace, the app works with loose files as
-before.
+unsaved changes). Without a workspace, the app works with loose files, and
+reopens the files you had open at launch (*File ▸ Reopen Files at Launch*
+turns that off).
+
+A tip for the course: one folder per week inside your course folder, e.g.
+`Process Mining/Week 2`, with the week's logs and the nets you make.
 
 ---
 
@@ -279,7 +293,11 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Generate event log…:** plays the net out many times and opens the
   traces as a log.
 - **Saving:** nets are saved as **PNML** (ProM, WoPeD and PM4Py read it), or
-  as `.cpn`.
+  as `.cpn`. A new net is called *Untitled 1* until you save it; *Save As*
+  names it after the file.
+- **Renaming:** double-click the net's name in the sidebar, or its title
+  above the canvas. The file is renamed with it, in the same folder (an
+  existing file is never overwritten).
 - **Opening:** a `.pnml` file opens in this editor. A model you discovered
   has **✎ Edit a copy** to bring it here.
 
@@ -487,8 +505,23 @@ python packaging/build.py      # → dist/CPNpy.app or dist/CPNpy/, plus a .dmg 
 The script also smoke-tests the result. Each system can only build its own
 app, so the [Build apps](.github/workflows/build-apps.yml) workflow builds all
 of them on GitHub for every push and pull request (download them from the
-run's page). Pushing a version tag, e.g. `git tag v0.1.0 && git push origin
-v0.1.0`, also publishes them as a release.
+run's page, under *Artifacts*).
+
+**Publishing a release:**
+
+1. Set `version` in `pyproject.toml` (e.g. `0.2.0`) and merge that into `main`.
+   The download files are named after it.
+2. Tag that commit with the same version and push the tag:
+
+   ```bash
+   git pull
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+About five minutes later the
+[Releases page](https://github.com/s4mstruthers/CPNpy/releases) has the
+macOS (Apple silicon and Intel), Windows and Linux apps.
 
 ---
 
