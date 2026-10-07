@@ -6,6 +6,37 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.4.0
+
+- **Exercises.** A folder with a `question.md` (or `.pdf` / `.png`) is now an
+  exercise: click it in the sidebar and the question appears beside the
+  canvas, the given net or log is loaded, and the analysis results stay
+  hidden until you reveal them, one at a time or with *Reveal all*. Your
+  work is saved as `my answer.pnml`, so a given `net.pnml` is never changed.
+  **Check** compares your net with the model answer (`answer.pnml`) on what
+  it can do, not how it is drawn, and shows the shortest traces where they
+  differ, each of which you can replay in the token game. Without a model
+  answer, Check shows the worked answer (`answer.md`).
+- **Demo exercises**: File ▸ Open Demo Exercises copies a few to
+  *Documents/CPNpy Exercises* to try.
+- **State-based regions** in Discover: the log becomes a transition system
+  (choose the prefix or postfix, set, multiset or sequence, and how many
+  events to look back), and its minimal regions become the places of a
+  net. The derivation shows every step the way exam answers are written:
+  the transition system, GER and minimal pre-regions of every event, state
+  separation, forward closure, and whether the net behaves exactly like the
+  transition system.
+- **Transition systems** of your own: File ▸ New Transition System…, or a
+  `ts.txt` file. *Is this a region?* checks any set of states, and says
+  which event breaks it when it is not one.
+- **Compare nets…** (File menu and sidebar): do two nets allow the same
+  traces? With the shortest differences both ways.
+- Logs written in textbook notation open from `log.txt` (or `name.log.txt`)
+  files.
+- New definitions on hover and in Help ▸ Definitions: region, minimal
+  region, pre- and post-region, GER, state separation, forward closure,
+  elementary transition system and synthesis.
+
 ## 0.3.10
 
 - **Fixed:** in the net editor, dragging the gap between the canvas and the

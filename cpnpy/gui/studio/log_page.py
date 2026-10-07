@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFileDialog, QGridLayout, QHeaderView, QLabel,
-    QGraphicsOpacityEffect, QLineEdit, QPlainTextEdit, QSlider, QSplitter, QStackedWidget, QTableView,
+    QGraphicsOpacityEffect, QLineEdit, QPlainTextEdit, QSlider, QSpinBox, QSplitter, QStackedWidget, QTableView,
     QVBoxLayout, QWidget,
 )
 
@@ -27,6 +27,7 @@ from ...mining.xes import write_xes
 from .. import theme
 from . import style
 from .charts import ColumnChart
+from .concealment import ConcealsResults
 from .documents import LogDocument, ModelDocument
 from .dotted_chart import DottedChartPanel
 from .graph_builders import dependency_specs, dfg_specs, petri_net_specs
@@ -86,7 +87,7 @@ def _table(model: QStandardItemModel) -> QTableView:
     return view
 
 
-class LogPage(QWidget):
+class LogPage(ConcealsResults, QWidget):
     open_model = Signal(object)          # ModelDocument
     open_log = Signal(object)            # LogDocument (a filtered copy)
     status = Signal(str)
@@ -479,6 +480,7 @@ class LogPage(QWidget):
                      f"End activities: {', '.join(sorted(fp.end))}")
         card.add(label(start_end, "muted", wrap=True, selectable=True))
         card.body.addStretch(0)
+        self.conceal_card(card, "footprint")
         layout.addWidget(card, 1)
 
     # -------------------------------------------------------------- discover
@@ -495,6 +497,9 @@ class LogPage(QWidget):
             ("heuristics_net", "Heuristics Miner → Petri net",
              "The same, plus which forks are AND or XOR (learned from the log as a causal "
              "net), as a Petri net. Fits well; not always sound."),
+            ("regions", "State-based regions",
+             "Two-phase: the log becomes a transition system (choose the state function), "
+             "whose minimal regions become places. Shows the regions step by step."),
         ]
         if pm4py_bridge.available():
             algorithms += [
@@ -535,11 +540,36 @@ class LogPage(QWidget):
             "Dependency threshold", 50,
             "Keep a → b when (|a>b| − |b>a|) / (|a>b| + |b>a| + 1) reaches this value.")
 
+        # State-based regions: the state function (see transition_system.py).
+        direction_box = QComboBox()
+        for text, value in (("prefix", "prefix"), ("postfix", "postfix"),
+                            ("prefix + postfix", "both")):
+            direction_box.addItem(text, value)
+        direction_box.setToolTip("Which events decide the state: those before the event "
+                                 "(prefix), after it (postfix), or both")
+        representation_box = QComboBox()
+        for value in ("set", "multiset", "sequence"):
+            representation_box.addItem(value, value)
+        representation_box.setToolTip("How those events become a state: their set (order and "
+                                      "frequency forgotten), multiset (order forgotten) or "
+                                      "sequence")
+        horizon_spin = QSpinBox()
+        horizon_spin.setRange(0, 50)
+        horizon_spin.setSpecialValueText("all")
+        horizon_spin.setToolTip("Horizon k: keep only the last k events (all: no limit)")
+        region_row = QWidget()
+        region_row.setLayout(hbox(label("State function"), representation_box,
+                                  label("of the"), direction_box, label("over the last"),
+                                  horizon_spin, label("events"), None, spacing=6))
+        self.region_controls = (direction_box, representation_box, horizon_spin)
+
         open_button = button("Open as model  →", kind="primary")
         open_button.setEnabled(False)
         toolbar = Card()
         toolbar.body.addLayout(hbox(label("Algorithm"), chooser, 16, noise_row, dependency_row,
                                     None, open_button, spacing=10))
+        # On a line of its own: three choices do not fit beside the algorithm.
+        toolbar.add(region_row)
         description = label("", "muted", wrap=True)
         toolbar.add(description)
 
@@ -550,6 +580,7 @@ class LogPage(QWidget):
             key = current_key()
             noise_row.setVisible(key == "imf")
             dependency_row.setVisible(key in ("heuristics", "heuristics_net", "pm_heuristics"))
+            region_row.setVisible(key == "regions")
             description.setText(descriptions[key])
         update_params()
 
@@ -617,6 +648,14 @@ class LogPage(QWidget):
                 open_button.setEnabled(False)
                 size = (f"{plural(len(payload.activities), 'activity', 'activities')} · "
                         f"{plural(len(payload.edges), 'dependency', 'dependencies')}")
+            elif key == "regions" and payload.net is None:
+                # No net (several initial states, or too big): show the transition system.
+                from .regions_view import ts_specs
+                nodes, edges, _ = ts_specs(payload.ts)
+                preview.graph.populate(nodes, edges, layer_gap=90)
+                open_button.setEnabled(False)
+                steps_host.addWidget(derivation_widget(payload))
+                size = f"no net · transition system: {payload.ts.summary()}"
             else:
                 net = payload.net if hasattr(payload, "net") else payload
                 net.name = f"{net.info.get('algorithm', 'Model')} · {log_name}"
@@ -662,6 +701,7 @@ class LogPage(QWidget):
                 "heuristics_net": lambda: heuristics_net(simple, dependency_threshold=d),
                 "pm_heuristics": lambda: pm4py_bridge.heuristics_petri_net(simple, d),
                 "pm_ilp": lambda: pm4py_bridge.ilp_petri_net(simple),
+                "regions": lambda: self._regions(simple),
             }
             state["request"] += 1
             request = state["request"]
@@ -676,11 +716,28 @@ class LogPage(QWidget):
         chooser.currentIndexChanged.connect(lambda _i: (update_params(), discover()))
         noise.valueChanged.connect(lambda _v: discover())
         dependency.valueChanged.connect(lambda _v: discover())
+        direction_box.currentIndexChanged.connect(lambda _i: discover())
+        representation_box.currentIndexChanged.connect(lambda _i: discover())
+        horizon_spin.valueChanged.connect(lambda _v: discover())
         open_button.clicked.connect(lambda: state.get("model") and self.open_model.emit(state["model"]))
 
+        # Hidden in an exercise until revealed (see concealment.py).
+        self.conceal_card(result_card, "discovery")
+        self.conceal_card(derivation, "discovery")
         layout.addWidget(toolbar)
         layout.addWidget(results, 1)
         discover()
+
+    def _regions(self, simple):
+        """State-based regions with the state function chosen in the toolbar."""
+        from ...mining.discovery.state_regions import region_result
+        from ...mining.transition_system import transition_system_from_log
+        direction, representation, horizon = self.region_controls
+        ts = transition_system_from_log(simple, direction.currentData(),
+                                        representation.currentData(),
+                                        horizon.value() or None,
+                                        name=f"TS · {self.document.name}")
+        return region_result(ts)
 
 
 def derivation_widget(payload) -> QWidget:

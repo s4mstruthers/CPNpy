@@ -115,3 +115,18 @@ class ComparisonDocument:
         if len(self.logs) == 2:
             return f"{self.logs[0].name} vs {self.logs[1].name}"
         return f"{len(self.logs)} logs compared"
+
+
+@dataclass(eq=False)
+class TransitionSystemDocument:
+    """A transition system, typed or from a ``ts.txt`` file, to study its regions."""
+
+    ts: object                       # cpnpy.mining.transition_system.TransitionSystem
+    path: str | None = None
+    id: int = field(default_factory=lambda: next(_ids))
+    #: Its file was deleted or moved away while it was open.
+    missing: bool = False
+
+    @property
+    def name(self) -> str:
+        return self.ts.name

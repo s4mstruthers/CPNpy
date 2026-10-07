@@ -177,3 +177,36 @@ def test_atomic_write_never_leaves_half_a_file(tmp_path):
     assert made_by_cpnpy(_touch(tmp_path / "a.cpn", '<generator tool="CPNpy" version="0.2.0"/>'))
     assert not made_by_cpnpy(_touch(tmp_path / "b.cpn", '<generator tool="CPN Tools"/>'))
     assert not made_by_cpnpy(tmp_path / "missing.cpn")
+
+
+def test_text_files_and_exercise_folders(tmp_path):
+    from cpnpy.gui.studio.workspace import exercise_files, file_suffix
+    assert file_kind(Path("log.txt")) == "log" and file_kind(Path("L1.log.txt")) == "log"
+    assert file_kind(Path("ts.txt")) == "ts" and file_kind(Path("exam.ts.txt")) == "ts"
+    assert file_kind(Path("notes.txt")) is None
+    assert file_suffix("L1.log.txt") == ".log.txt" and file_suffix("log.txt") == ".txt"
+    assert display_name("week/log.txt") == "week/log"
+    assert display_name("L1.log.txt") == "L1"
+
+    exercise = tmp_path / "Exercise 1"
+    exercise.mkdir()
+    (exercise / "question.md").write_text("# Q")
+    for name in ("net.pnml", "answer.pnml", "log.txt", "answer.md", "notes.txt"):
+        (exercise / name).write_text("x")
+    plain = tmp_path / "Not an exercise"
+    plain.mkdir()
+    (plain / "net.pnml").write_text("x")
+
+    files = exercise_files(exercise)
+    assert files.question.name == "question.md" and files.net.name == "net.pnml"
+    assert files.answer_net.name == "answer.pnml" and files.answer_text.name == "answer.md"
+    assert files.log.name == "log.txt" and files.ts is None
+    assert files.my_answer.name == "my answer.pnml" and files.needs_a_net
+    assert exercise_files(plain) is None
+
+    tree = Workspace(tmp_path).tree()
+    folders = {folder.name: folder for folder in tree.walk()}
+    assert folders["Exercise 1"].exercise and not folders["Not an exercise"].exercise
+    # The model answer is not listed (a click would give the game away).
+    listed = {f.path.name for f in folders["Exercise 1"].files}
+    assert listed == {"net.pnml", "log.txt"}

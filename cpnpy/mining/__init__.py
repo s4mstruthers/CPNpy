@@ -25,7 +25,12 @@ Modules
     Labelled P/T nets, PNML, state spaces, properties, WF-net soundness,
     process trees.
 ``discovery``
-    α-algorithm, Heuristics Miner (dependency graph), Inductive Miner (IM/IMf).
+    α-algorithm, Heuristics Miner (dependency graph), Inductive Miner (IM/IMf),
+    state-based regions.
+``transition_system``, ``regions``
+    Transition systems from logs, regions, elementary checks, net synthesis.
+``compare_nets``
+    Do two nets allow the same complete traces?
 ``conformance``
     Token-based replay, alignments, precision, generalisation, simplicity.
 ``layout``
@@ -37,27 +42,32 @@ from .analysis import (analyse, check_soundness, check_workflow_net, coverabilit
 from .conformance.alignments import align_log, align_trace
 from .conformance.quality import generalisation, precision, simplicity
 from .conformance.token_replay import token_replay
+from .compare_nets import compare_nets
 from .csv_import import read_csv
 from .dfg import discover_dfg
 from .discovery.alpha import alpha_miner
 from .discovery.heuristics import heuristics_miner
 from .discovery.inductive import inductive_miner
+from .discovery.state_regions import region_miner
 from .footprint import compare_footprints, footprint_of_log, footprint_of_net
 from .log import (BY_NAME, BY_NAME_COMPLETE, BY_NAME_LIFECYCLE, Classifier, Event, EventLog,
                   Trace, format_simple_log, parse_simple_log)
 from .petrinet import Marking, PetriNet
 from .pnml import read_pnml, write_pnml
 from .processtree import Operator, ProcessTree, to_petri_net
+from .regions import analyse_regions, check_region, synthesise
+from .transition_system import (TransitionSystem, parse_transition_system,
+                                transition_system_from_log)
 from .stats import summarise
 from .xes import read_xes, write_xes
 
 __all__ = [
     "BY_NAME", "BY_NAME_COMPLETE", "BY_NAME_LIFECYCLE", "Classifier", "Event", "EventLog",
-    "Marking", "Operator", "PetriNet", "ProcessTree", "Trace",
-    "align_log", "align_trace", "alpha_miner", "analyse", "check_soundness",
-    "check_workflow_net", "compare_footprints", "coverability_graph", "discover_dfg",
+    "Marking", "Operator", "PetriNet", "ProcessTree", "Trace", "TransitionSystem",
+    "align_log", "align_trace", "alpha_miner", "analyse", "analyse_regions", "check_region",
+    "check_soundness", "check_workflow_net", "compare_footprints", "compare_nets", "coverability_graph", "discover_dfg",
     "footprint_of_log", "footprint_of_net", "format_simple_log", "generalisation",
-    "heuristics_miner", "inductive_miner", "parse_simple_log", "precision",
-    "reachability_graph", "read_csv", "read_pnml", "read_xes", "simplicity", "summarise",
-    "to_petri_net", "token_replay", "write_pnml", "write_xes",
+    "heuristics_miner", "inductive_miner", "parse_simple_log", "parse_transition_system", "precision",
+    "reachability_graph", "read_csv", "read_pnml", "read_xes", "region_miner", "simplicity", "summarise",
+    "synthesise", "to_petri_net", "token_replay", "transition_system_from_log", "write_pnml", "write_xes",
 ]

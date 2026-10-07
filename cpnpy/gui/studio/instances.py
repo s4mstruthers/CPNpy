@@ -317,3 +317,97 @@ def structure(report: SoundnessReport, net: PetriNet, key: str) -> list[str]:
                          f"{node(net, missing)} \\in N_s")
         return lines
     return []
+
+
+# ---------------------------------------------------------------------------
+# Transition systems and regions
+# ---------------------------------------------------------------------------
+def _states(ts, states, limit: int = 8) -> str:
+    """``{s0, s2}`` in the transition system's own order."""
+    position = {s: i for i, s in enumerate(ts.states)}
+    items = sorted(states, key=lambda s: position.get(s, len(position)))
+    if not items:
+        return "\\emptyset"
+    shown = [name(s) for s in items[:limit]] + (["\\ldots"] if len(items) > limit else [])
+    return "\\lbrace " + ", ".join(shown) + " \\rbrace"
+
+
+def regions(analysis, key: str, synthesis=None) -> list[str]:
+    """Formulas for the region definitions, filled in for ``analysis.ts``."""
+    ts = analysis.ts
+    events = list(analysis.by_event.values())
+    if key == "transition_system":
+        start = name(ts.initial_state) if ts.initial_state else "\\text{(" + \
+            str(len(ts.initial)) + " initial states)}"
+        return [f"|S| = {len(ts.states)}, \\quad E = "
+                + "\\lbrace " + ", ".join(name(e) for e in ts.events[:10])
+                + (", \\ldots" if len(ts.events) > 10 else "") + " \\rbrace"
+                + f", \\quad |T| = {len(ts.transitions)}",
+                f"s_{{in}} = {start}"]
+    if key == "minimal_region":
+        lines = [f"\\text{{{len(analysis.regions)} non-trivial regions, "
+                 f"{len(analysis.minimal)} minimal}}"]
+        for number, region in enumerate(analysis.minimal[:6], 1):
+            lines.append(f"r_{{{number}}} = {_states(ts, region)}")
+        return lines
+    if key == "pre_region":
+        lines = []
+        for item in events[:5]:
+            pre = ", ".join(f"r_{{{analysis.minimal.index(r) + 1}}}" for r in item.minimal_pre)
+            post = ", ".join(f"r_{{{analysis.minimal.index(r) + 1}}}" for r in item.minimal_post)
+            lines.append(f"\\text{{pre}}({name(item.event)}) \\cap \\text{{minimal}} = "
+                         f"\\lbrace {pre or ' '} \\rbrace, \\quad \\text{{post}}"
+                         f"({name(item.event)}) \\cap \\text{{minimal}} = "
+                         f"\\lbrace {post or ' '} \\rbrace")
+        return lines
+    if key == "ger":
+        return [f"\\text{{GER}}({name(item.event)}) = {_states(ts, item.ger)}"
+                for item in events[:6]]
+    if key == "forward_closure":
+        lines = []
+        failing = [item for item in events if not item.forward_closed]
+        for item in (failing or events)[:5]:
+            relation = "=" if item.forward_closed else "\\neq"
+            lines.append(f"\\bigcap \\text{{pre}}({name(item.event)}) = "
+                         f"{_states(ts, item.intersection)} {relation} "
+                         f"\\text{{GER}}({name(item.event)}) = {_states(ts, item.ger)}")
+        return lines
+    if key == "state_separation":
+        if analysis.inseparable:
+            return [f"{name(pair.first)} \\neq {name(pair.second)}, \\text{{ but every region "
+                    f"contains both or neither}}" for pair in analysis.inseparable[:4]]
+        return [f"\\text{{all {len(ts.states)} states lie in different sets of regions}}"]
+    if key == "elementary_ts":
+        def verdict(value):
+            return "\\text{holds}" if value else (
+                "\\text{fails}" if value is False else "\\text{undecided}")
+        return [f"\\text{{state separation }} {verdict(analysis.state_separation)} \\; "
+                f"\\land \\; \\text{{forward closure }} {verdict(analysis.forward_closure)}"]
+    if key == "region_synthesis" and synthesis is not None and synthesis.net is not None:
+        net = synthesis.net
+        marked = [p for p in net.initial_marking]
+        lines = [f"|P| = {len(net.places)}, \\quad |T| = {len(net.transitions)}, \\quad "
+                 f"M_0 = [" + ", ".join(f"p_{{r_{{{p[1:]}}}}}" for p in marked) + "]"]
+        if synthesis.isomorphic is not None:
+            lines.append("RG(N, M_0) \\cong TS" if synthesis.isomorphic else
+                         "RG(N, M_0) \\text{ and } TS \\text{ are not isomorphic}")
+        return lines
+    return []
+
+
+def region_check(check, ts) -> list[str]:
+    """The definition of a region filled in for one set of states."""
+    if check.unknown:
+        return []
+    region = _states(ts, check.states)
+    if check.is_region:
+        parts = []
+        for event, what in list(check.events.items())[:6]:
+            word = {"enter": "enter", "exit": "exit"}.get(what, "nocross")
+            parts.append(f"\\text{{{word}}}({name(event)}, R)")
+        return [f"R = {region}", " \\land ".join(parts)]
+    (s1, t1, _), (s2, t2, _) = check.conflict[:2]
+    e = name(check.event)
+    return [f"R = {region}",
+            f"({name(s1)}, {e}, {name(t1)}) \\in T \\text{{ and }} ({name(s2)}, {e}, "
+            f"{name(t2)}) \\in T \\text{{ cross }} R \\text{{ differently}}"]

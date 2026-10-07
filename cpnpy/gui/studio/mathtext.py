@@ -32,13 +32,14 @@ SYMBOLS = {
     "forall": "∀", "exists": "∃", "neg": "¬", "bullet": "•", "emptyset": "∅",
     "langle": "⟨", "rangle": "⟩", "lbrace": "{", "rbrace": "}", "{": "{", "}": "}",
     "ldots": "…", "cdots": "⋯", "infty": "∞", "omega": "ω", "sigma": "σ",
-    "tau": "τ", "alpha": "α", "star": "∗", "max": "max",
+    "tau": "τ", "alpha": "α", "star": "∗", "max": "max", "bigcap": "⋂", "bigcup": "⋃",
 }
 #: Relations: a thick space on both sides.
 RELATIONS = {
     "in": "∈", "notin": "∉", "subseteq": "⊆", "neq": "≠", "leq": "≤", "geq": "≥",
     "Rightarrow": "⇒", "iff": "⟺", "to": "→", "rightarrow": "→", "leftarrow": "←",
-    "mid": "|", "parallel": "‖", "colon": ":", "#": "#",
+    "mid": "|", "parallel": "‖", "colon": ":", "#": "#", "subsetneq": "⊊",
+    "Leftrightarrow": "⇔", "cong": "≅",
 }
 #: Binary operators: a medium space on both sides.
 BINARY = {"cap": "∩", "cup": "∪", "times": "×", "land": "∧", "lor": "∨", "setminus": "∖",

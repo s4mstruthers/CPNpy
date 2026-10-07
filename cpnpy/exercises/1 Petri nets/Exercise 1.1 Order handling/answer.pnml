@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml>
+  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">
+    <name><text>answer</text></name>
+    <page id="page1">
+      <place id="start"><name><text>start</text></name><initialMarking><text>1</text></initialMarking><graphics><position x="40.0" y="160.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="end"><name><text>end</text></name><graphics><position x="600.0" y="160.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p1"><name><text>p1</text></name><graphics><position x="200.0" y="100.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p2"><name><text>p2</text></name><graphics><position x="200.0" y="220.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p3"><name><text>p3</text></name><graphics><position x="400.0" y="100.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p4"><name><text>p4</text></name><graphics><position x="400.0" y="220.0"/><dimension x="40" y="40"/></graphics></place>
+      <transition id="t_receive"><name><text>receive</text></name><graphics><position x="120.0" y="160.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t_pay"><name><text>pay</text></name><graphics><position x="300.0" y="100.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t_ship"><name><text>ship</text></name><graphics><position x="300.0" y="220.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="t_close"><name><text>close</text></name><graphics><position x="500.0" y="160.0"/><dimension x="40" y="40"/></graphics></transition>
+      <arc id="arc1" source="start" target="t_receive"></arc>
+      <arc id="arc2" source="t_receive" target="p1"></arc>
+      <arc id="arc3" source="t_receive" target="p2"></arc>
+      <arc id="arc4" source="p1" target="t_pay"></arc>
+      <arc id="arc5" source="p2" target="t_ship"></arc>
+      <arc id="arc6" source="t_pay" target="p3"></arc>
+      <arc id="arc7" source="t_ship" target="p4"></arc>
+      <arc id="arc8" source="p3" target="t_close"></arc>
+      <arc id="arc9" source="p4" target="t_close"></arc>
+      <arc id="arc10" source="t_close" target="end"></arc>
+    </page>
+    <finalmarkings><marking>
+      <place idref="end"><text>1</text></place>
+    </marking></finalmarkings>
+  </net>
+</pnml>
