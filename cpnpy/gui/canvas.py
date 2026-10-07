@@ -1002,16 +1002,17 @@ class NetScene(QGraphicsScene):
         if self._handle_hit(position):
             self._handle.set_hot(True)
             return
+        import math
         reach = self.HANDLE_REACH / scale
-        node = None
-        for item in [*self.place_items.values(), *self.transition_items.values()]:
-            if item.sceneBoundingRect().adjusted(-reach, -reach, reach, reach).contains(position):
-                node = item
-                break
+        # The nearest, not the first: zoomed out, the reach can span several nodes.
+        near = [item for item in [*self.place_items.values(), *self.transition_items.values()]
+                if item.sceneBoundingRect().adjusted(-reach, -reach, reach, reach)
+                .contains(position)]
+        node = min(near, key=lambda item: math.hypot(*(position - item.pos()).toTuple()),
+                   default=None)
         if node is None:
             self.hide_connect_handle()
             return
-        import math
         direction = position - node.pos()
         length = math.hypot(direction.x(), direction.y())
         ux, uy = (1.0, 0.0) if length < 1e-6 else (direction.x() / length,

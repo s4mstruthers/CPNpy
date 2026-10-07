@@ -201,6 +201,8 @@ def stylesheet() -> str:
         color: {t.text_secondary}; font-size: 16px; padding: 0 6px 2px 6px; }}
     #sidebarMenuButton:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
     #sidebarMenuButton::menu-indicator {{ image: none; width: 0; }}
+    #sidebarToggle {{ background: transparent; border: none; border-radius: 6px; padding: 4px; }}
+    #sidebarToggle:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
     #sidebarFooter QPushButton {{ background: transparent; border: none; color: {t.text_secondary};
         padding: 6px 8px; border-radius: 6px; text-align: left; }}
     #sidebarFooter QPushButton:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}

@@ -514,6 +514,8 @@ class StudioWindow(QMainWindow):
         root.setObjectName("studioRoot")
         root.setHandleWidth(1)
         root.addWidget(self._build_sidebar())
+        # Hidden and shown only by toggle_sidebar, so its button and menu tick agree.
+        root.setCollapsible(0, False)
         self.content = QStackedWidget()
         self.content.addWidget(scroll(self._build_welcome(), horizontal=True))
         # Above the pages: "a new version is out" (see check_automatically).
@@ -534,6 +536,8 @@ class StudioWindow(QMainWindow):
         self.setCentralWidget(root)
         self.statusBar().showMessage("Ready")
         self._build_menus()
+        if not self._setting("window/sidebar", True):
+            self.toggle_sidebar(False)
 
     def _fit_to_screen(self) -> None:
         """Start at a size that fits the screen we are on (at most 1440 × 900).
@@ -678,6 +682,30 @@ class StudioWindow(QMainWindow):
         row.addWidget(self.workspace_button, 0, Qt.AlignVCenter)
         return header
 
+    def toggle_sidebar(self, show: bool | None = None) -> None:
+        """Show or hide the sidebar (hidden, every page gets the full width)."""
+        if show is None:
+            show = self.sidebar.isHidden()
+        self.sidebar.setHidden(not show)
+        action = getattr(self, "sidebar_action", None)
+        if action is not None and action.isChecked() != show:
+            action.blockSignals(True)
+            action.setChecked(show)
+            action.blockSignals(False)
+        self._set_setting("window/sidebar", show)
+
+    def _sidebar_button(self) -> QToolButton:
+        """The button at the top left of every page that hides or shows the sidebar."""
+        from .tool_icons import sidebar_icon
+        toggle = QToolButton()
+        toggle.setObjectName("sidebarToggle")
+        toggle.setIcon(sidebar_icon())
+        toggle.setIconSize(QSize(20, 20))
+        toggle.setCursor(Qt.PointingHandCursor)
+        toggle.setToolTip(f"Show or hide the sidebar ({shortcut_text('Ctrl+Alt+S')})")
+        toggle.clicked.connect(lambda: self.toggle_sidebar())
+        return toggle
+
     def _section(self, title: str) -> QTreeWidgetItem:
         item = QTreeWidgetItem(self.tree, [title])
         # No ▸ for a heading: the sidebar only draws one for subfolders (a
@@ -694,7 +722,9 @@ class StudioWindow(QMainWindow):
     def _build_welcome(self) -> QWidget:
         page = QWidget()
         outer = QVBoxLayout(page)
-        outer.setContentsMargins(32, 40, 32, 32)
+        outer.setContentsMargins(20, 16, 32, 32)
+        outer.addLayout(hbox(self._sidebar_button(), None))
+        outer.addSpacing(24)
         outer.addStretch(1)
         logo = QLabel()
         logo.setPixmap(app_icon().pixmap(96, 96))
@@ -834,8 +864,10 @@ class StudioWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("&View")
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
                      lambda: self.content.setCurrentIndex(0))
-        self._action(view_menu, "Toggle Sidebar", "Ctrl+Alt+S",
-                     lambda: self.sidebar.setVisible(not self.sidebar.isVisible()))
+        self.sidebar_action = self._action(view_menu, "Show Sidebar", "Ctrl+Alt+S",
+                                           lambda on: self.toggle_sidebar(on))
+        self.sidebar_action.setCheckable(True)
+        self.sidebar_action.setChecked(True)
         view_menu.addSeparator()
         zoom_in = self._action(view_menu, "Zoom In", QKeySequence.ZoomIn,
                                lambda: self._zoom("zoom_in"))
@@ -961,6 +993,7 @@ class StudioWindow(QMainWindow):
                 lambda doc=document: self.rename_document(doc))
             page.header.title.set_hint("Double-click to rename")
         self.pages[document.id] = page
+        page.header.layout().insertWidget(0, self._sidebar_button(), 0, Qt.AlignTop)
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
         # refusing to shrink (which is what pushed it off the screen).

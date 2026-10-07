@@ -390,7 +390,6 @@ class CpnPage(QWidget):
         card.add(flow(self.structure_toggle, self.undo_button, self.redo_button, 10,
                       self.mode_switch, 10, self.values_button, self.inspector_toggle, 10,
                       self.sim_status))
-        self.tool_row = QWidget()
         self.tool_hint = ElidedLabel("", "muted")
         self.names_box = QCheckBox("Names outside")
         self.names_box.setToolTip("Write the names of places and transitions next to them "
@@ -408,10 +407,12 @@ class CpnPage(QWidget):
                                  "place, transition and arc bend on this page to the "
                                  "nearest dot (undo puts them back)")
         self.tidy_button.clicked.connect(self.snap_everything)
-        tools = hbox(self.tool_switch, 12, self.tool_hint, 8, self.names_box, 4,
-                     self.grid_box, 4, self.tidy_button)
-        tools.setStretch(2, 1)
-        self.tool_row.setLayout(tools)
+        # Wraps like the row above: a fixed row made this the widest thing on
+        # the page, so a narrow window pinned the splitter handles in place.
+        self.tool_hint.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.tool_hint.setMaximumWidth(460)
+        self.tool_row = flow(self.tool_switch, 12, self.names_box, 4, self.grid_box, 4,
+                             self.tidy_button, 12, self.tool_hint)
         card.add(self.tool_row)
 
         # -- simulation bar ---------------------------------------------------

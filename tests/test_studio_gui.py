@@ -2020,3 +2020,36 @@ def test_a_new_file_reusing_a_deleted_files_number_is_not_taken_for_it(app, tmp_
     assert window._key(fresh) in window.placeholders           # listed as itself
     net.dirty = False
     window.close()
+
+
+def test_net_editor_fits_a_laptop_window_and_the_sidebar_hides(app):
+    """On a laptop-sized window the net editor fits without scrolling sideways,
+    so the divider between canvas and inspector can be dragged; the sidebar
+    button hides the sidebar and the menu tick follows."""
+    from PySide6.QtWidgets import QScrollArea
+    from cpnpy.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1280, 800)
+    window.show()
+    window.action_new_petri()
+    _pump(app, 0.3)
+    page = window.current_page()
+    holder = page.parentWidget()
+    while not isinstance(holder, QScrollArea):
+        holder = holder.parentWidget()
+    assert holder.horizontalScrollBar().maximum() == 0
+
+    splitter = page.splitter
+    canvas, inspector = splitter.sizes()[1:]
+    splitter.moveSplitter(splitter.handle(2).x() - 100, 2)
+    assert splitter.sizes()[1:] == [canvas - 100, inspector + 100]
+
+    assert window.sidebar_action.isChecked()
+    window.toggle_sidebar()
+    _pump(app, 0.1)
+    assert window.sidebar.isHidden() and not window.sidebar_action.isChecked()
+    assert splitter.sizes()[1] > canvas - 100                 # the canvas got the room
+    window.sidebar_action.trigger()
+    assert not window.sidebar.isHidden()
+    window.close()
