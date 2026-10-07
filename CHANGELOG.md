@@ -6,7 +6,7 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
-## Unreleased
+## 0.5.1
 
 - **Notes in exercises.** ✎ *Notes* in the top bar opens scratch paper under
   the worksheet, for working things out before you answer. It is kept with
