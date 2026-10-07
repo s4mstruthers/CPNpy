@@ -249,7 +249,7 @@ class Workspace:
             except OSError:
                 return
             names = {entry.name for entry in entries}
-            folder.exercise = _question_file(folder.path, names) is not None
+            folder.exercise = _question_file(names) is not None
             subfolders = []
             for entry in entries:
                 name = entry.name
@@ -399,76 +399,9 @@ class Workspace:
 # ---------------------------------------------------------------------------
 # Exercises
 # ---------------------------------------------------------------------------
-#: The question, in the order they are looked for.
-QUESTION_FILES = ("question.md", "question.pdf", "question.png", "question.jpg",
-                  "question.jpeg", "question.txt")
-#: Files that hold the answer (left out of the sidebar in an exercise).
-ANSWER_FILES = {"answer.pnml", "answer.md"}
-#: The file CPNpy creates for your own net.
-MY_ANSWER = "my answer.pnml"
-
-
-def _question_file(folder: Path, names) -> str | None:
-    lower = {name.lower(): name for name in names}
-    for candidate in QUESTION_FILES:
-        if candidate in lower:
-            return lower[candidate]
-    return None
-
-
-@dataclass(frozen=True)
-class ExerciseFiles:
-    """The parts of an exercise folder (None: the folder has no such file).
-
-    ===================  ================================================
-    ``question``         ``question.md`` (or ``.pdf`` / ``.png``): shown beside the canvas
-    ``net``              ``net.pnml``: a given net, loaded when the exercise opens
-    ``log``              ``log.xes``, ``log.csv`` or ``log.txt`` (textbook notation)
-    ``ts``               ``ts.txt``: a given transition system
-    ``answer_net``       ``answer.pnml``: Check compares your net with it
-    ``answer_text``      ``answer.md``: the worked answer, hidden until revealed
-    ``my_answer``        ``my answer.pnml``: your work (it may not exist yet)
-    ===================  ================================================
-    """
-
-    folder: Path
-    question: Path
-    net: Path | None = None
-    log: Path | None = None
-    ts: Path | None = None
-    answer_net: Path | None = None
-    answer_text: Path | None = None
-
-    @property
-    def name(self) -> str:
-        return self.folder.name
-
-    @property
-    def my_answer(self) -> Path:
-        return self.folder / MY_ANSWER
-
-    @property
-    def needs_a_net(self) -> bool:
-        """Is drawing (or editing) a net part of the exercise?"""
-        return self.net is not None or self.answer_net is not None
-
-
-def exercise_files(folder: str | Path) -> ExerciseFiles | None:
-    """The exercise in ``folder``, or None when it has no ``question`` file."""
-    folder = Path(folder)
-    try:
-        names = [entry.name for entry in os.scandir(folder) if entry.is_file()]
-    except OSError:
-        return None
-    question = _question_file(folder, names)
-    if question is None:
-        return None
-    lower = {name.lower(): folder / name for name in names}
-
-    def first(*candidates: str) -> Path | None:
-        return next((lower[c] for c in candidates if c in lower), None)
-
-    return ExerciseFiles(folder, folder / question, net=first("net.pnml"),
-                         log=first("log.xes", "log.xes.gz", "log.csv", "log.txt"),
-                         ts=first("ts.txt"), answer_net=first("answer.pnml"),
-                         answer_text=first("answer.md", "answer.txt"))
+# An exercise is a folder with a question file; the details live with the
+# rest of the exercise code (no Qt there, so the command line can use it).
+from ...teaching.pack import (  # noqa: E402,F401 - re-exported
+    ANSWER_FILES, MY_ANSWER, MY_ANSWERS, QUESTION_FILES, ExerciseFiles, _question_file,
+    exercise_files,
+)

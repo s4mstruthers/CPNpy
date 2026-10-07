@@ -21,7 +21,7 @@
 | **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
 | **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner, state-based regions). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
-| **Exercises** | Open a folder with a `question.md` as an exercise: the question sits beside the canvas, the given net or log is loaded, the analysis stays hidden until you reveal it, and **Check** compares your net with the model answer on behaviour. Demo exercises included. | Answer sheets and guesswork |
+| **Exercises** | A quiet mode of its own for worksheets: answer in boxes on the sheet (sets, footprint matrices, firing sequences, yes/no, choices, a net in the editor beside it) and press **Check**. Most answers are checked automatically, often against answers worked out from the given log or net. Professors write packs as plain Markdown. Demo exercises included. | Answer sheets, a notes app and guesswork |
 | **Folders** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, with its subfolders. The folder and the app stay in step both ways: new nets and edits are saved into it as you go, and changes made in Finder show up by themselves. | Finder windows and *File ▸ Open* every time |
 
 ---
@@ -230,7 +230,7 @@ round.
   A `.cpn` model made in CPN Tools is not autosaved (CPNpy would rewrite it
   in its own writer) until you save it once yourself with ⌘S.
 - **Logs you make are files too**: a log typed in notation is saved as
-  `<name>.xes`, a filtered log as `<log> (filtered).xes` next to the log it
+  `<name>.log.txt` (still in notation), a filtered log as `<log> (filtered).xes` next to the log it
   came from, and a CPN simulation's log as `<model> simulation.xes`.
 - **A discovered model** stays in the **UNSAVED** group until you press
   **Keep**, so trying algorithms does not fill the folder. Keep saves it as
@@ -388,7 +388,13 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   - XES, XES.GZ and CSV (you map the columns);
   - the course's notation, e.g. `[<a,b,c,d>^3, <a,e,d>]` (or `⟨a,b⟩³` as
     in the book);
-  - XES and CSV export.
+  - XES, CSV and notation export.
+- **Edit…** a log after opening it: as notation (a log you typed comes back
+  exactly as you typed it, so you can change it), or case by case — add,
+  delete, duplicate and reorder events and cases, edit activities,
+  timestamps and resources, rename or remove an activity everywhere. The
+  edit is saved to the log's file; XES and CSV logs keep their other
+  attributes.
 - **Filter** (as in ProM and Disco): keep cases in a time frame, cases that
   start or end with chosen activities, only the events of chosen activities
   (or the cases that do or do not contain them), cases of a certain length,
@@ -460,43 +466,51 @@ The app follows the system's light or dark appearance:
 
 ## Exercises
 
-An exercise is an ordinary folder with a `question` file. Click it in the
-sidebar (or File ▸ Open Exercise…, or drop the folder on the window):
+Click an exercise folder in the sidebar, **File ▸ Open Exercise Pack…**, or
+**File ▸ Open Demo Exercises**: the window switches to **exercise mode**, a
+view made for working through a pack without distractions.
 
-- **the question** appears in a panel beside the canvas: `question.md`
-  (Markdown with tables and maths between `$…$`), or `question.pdf` /
-  `question.png`;
-- **the given files** are loaded: `net.pnml`, `log.xes` / `log.csv` /
-  `log.txt` (a log in textbook notation, e.g. `[<a,b,e>^10, <a,c,e>^4]`),
-  `ts.txt` (a transition system);
-- **analysis results are hidden**: soundness, properties, invariants,
-  footprint, discovered models, conformance figures, regions. Reveal each
-  with its own button, or all at once with **Reveal all**;
-- **your work** is saved as `my answer.pnml` the first time you edit,
-  starting from a copy of `net.pnml` if there is one, so the given net stays
-  as it was;
-- **Check** compares your net with `answer.pnml` on behaviour (see
-  *Compare nets* above), with your net's soundness, and offers the worked
-  answer `answer.md`. Without `answer.pnml`, Check shows `answer.md`. The
-  wording is "differs from the model answer", not "wrong": a different model
-  can still be a correct reading of the question.
+- **The worksheet** on the left is the question top to bottom, with an
+  answer box wherever one is needed: yes/no, multiple choice, a set
+  (`{a, b}`, sets of sets, or pairs like `({a}, {b,d})`), a number, a short
+  text, a **footprint matrix** to fill in, a **firing sequence** (which you
+  can play in the net), free text, or a **net to draw** in the editor beside
+  it.
+- **Check** says whether each answer is right — and when it is not, how far
+  off it is (“2 of your items are right, 1 is missing”, the wrong cells of a
+  footprint, the shortest traces where your net differs, which you can
+  replay) without giving the answer away. *Hint* and *Show answer* are there
+  when you want them.
+- **The materials** on the right are what the exercise gives: the log, the
+  transition system, the given net (to play, not change), and your own net.
+  Results that would give answers away — soundness, the footprint,
+  discovered models, regions… — stay hidden until you reveal them.
+- **Your work is saved as you go**, in the exercise's folder:
+  `my answers.json`, and `my answer.pnml` for a net. The top bar shows your
+  progress through the pack and steps between exercises; *Exit* returns to
+  your folder exactly as it was.
 
+**Writing a pack** (for a course or an exam) is plain Markdown: put an
+`answer` block wherever students should answer.
+
+````
+**b.** Give the start activities $T_I$.
+
+```answer
+type: set
+compute: alpha.T_I
+hint: Which activities does a trace begin with?
 ```
-Petri nets/
-  Exercise 2.12 Insurance claims/
-    question.md
-    answer.pnml
-Soundness/
-  Exercise 4.1 N6/
-    question.md
-    net.pnml
-    answer.md
-```
+````
 
-Outside an exercise everything works as before. **File ▸ Open Demo
-Exercises** copies a small set of exercises (modelling, soundness, the
-α-algorithm and regions) to *Documents/CPNpy Exercises* and opens it.
-Exercise folders can be shared as they are.
+`compute:` works the right answer out from the exercise's own log, net or
+transition system (α-algorithm steps, soundness and its conditions, regions,
+fitness…), so most answers need not be written by hand. **Help ▸ Writing
+Exercise Packs** ([cpnpy/teaching/exercise-packs.md](cpnpy/teaching/exercise-packs.md))
+lists every box type and computed answer, and `cpnpy exercises check <pack>`
+reports mistakes in a pack before you share it. Exercises written for
+earlier versions (a `question.md` with `answer.pnml` or `answer.md`) still
+work.
 
 ---
 
@@ -542,7 +556,8 @@ Both editors work the same way. Arcs follow the rules of CPN IDE.
 | Rename a net or log | Double-click its name in the sidebar or the title above the canvas. A net named after its file (as every opened or saved net is) renames the file too, in the same folder. |
 | Connect | Move the mouse just outside a place or transition and drag the faint arrow that appears onto another node. Or pick **Arc** and drag from one node to another, or click one node, then the other. Joining two places (or two transitions) is refused, with an explanation. Esc cancels. |
 | Grow a net quickly | Drag a node's arrow (or, with **Arc**, drag from a node) out onto empty canvas: a see-through preview shows what letting go will add — a transition after a place, a place after a transition — joined by an arc. It lines up with nodes it is nearly level with (or lands on the grid). Type its name, or click its arrow and keep going. One undo takes the node and its arc away. |
-| Pan | Scroll, or drag with the middle mouse button (also past the edge of the net; *Fit* brings it back) |
+| Pan | Scroll (two fingers on a trackpad; Shift + wheel goes sideways), drag with the middle mouse button, or hold Space and drag. The canvas goes on in every direction, so there is always room to start a new part beside the net; *Fit* frames the whole net again. |
+| Zoom | ⌘-scroll / Ctrl+scroll or pinch zooms about the pointer; or − % + in the corner |
 | Keep things neat | Tick **Snap to grid** (next to *Names outside*): new and moved places, transitions and arc bends land on the canvas's dots. **Snap All to Grid** neatens a net drawn freely: every place, transition and arc bend moves to the nearest dot, and the layout stays yours. Undo puts it back. |
 | Move things | Drag them. Nodes snap into line with other nodes (dashed guides show it). Drag on empty canvas to select several. |
 | Bend an arc | Press anywhere on the arc and drag: that adds a bend. Drag an existing bend (a small circle) to move it. |
@@ -578,7 +593,7 @@ The app shows each shortcut the way your system writes it.
 | Step (fire one random enabled transition) | ⌘. | Ctrl+. |
 | Zoom in / out / fit / 100 % | ⌘+ / ⌘− / ⌘0 / ⌥⌘0 | Ctrl++ / Ctrl+− / Ctrl+0 / Ctrl+Alt+0 |
 | Zoom with the mouse | ⌘-scroll or pinch | Ctrl+scroll or pinch |
-| Pan | scroll, or middle-drag | scroll, or middle-drag |
+| Pan | scroll, middle-drag, or Space + drag | scroll, middle-drag, or Space + drag |
 | Toggle sidebar | ⌥⌘S | Ctrl+Alt+S |
 | Settings… | ⌘, | Ctrl+, |
 | Welcome page | ⌘1 | Ctrl+1 |
@@ -615,9 +630,14 @@ cpnpy --help              # command line: check, simulate, state space, mining
 
 The same commands work on macOS, Windows and Linux. `cpnpy mine` covers the
 process mining side: `stats`, `filter`, `discover` (α, IM, IMf, heuristics),
-`conform`, `soundness` and `invariants`. `docs/definitions.md` is
+`conform`, `soundness` and `invariants`; `cpnpy exercises check` checks an
+exercise pack. `docs/definitions.md` is
 generated from `cpnpy/mining/definitions.py`; after editing a definition, run
 `python -m cpnpy.mining.definitions > docs/definitions.md` (a test checks it).
+Likewise [`docs/references.md`](docs/references.md) — every source CPNpy's
+notation and algorithms follow, also in the app under **Help ▸ References** —
+is generated from `cpnpy/references.py` with
+`python -m cpnpy.references > docs/references.md`.
 
 The engines (`cpnpy.mining`, `cpnpy.ml`, `cpnpy.sim`, `cpnpy.analysis`)
 have **no dependencies**, so they work in a notebook or a script:

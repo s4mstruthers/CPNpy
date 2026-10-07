@@ -25,6 +25,9 @@ class LogDocument:
     id: int = field(default_factory=lambda: next(_ids))
     #: Its file was deleted or moved away while it was open.
     missing: bool = False
+    #: The text the log was written in, for a log typed in the course's
+    #: notation or read from a ``….log.txt`` file (None for XES and CSV logs).
+    notation: str | None = None
 
     def __post_init__(self) -> None:
         self.classifier: Classifier = self.log.default_classifier()

@@ -231,12 +231,78 @@ def stylesheet() -> str:
     #sectionLabel {{ color: {t.text_muted}; font-size: 11px; font-weight: 700;
                      letter-spacing: 0.6px; }}
 
-    /* ---- exercises -------------------------------------------------------- */
-    #exercisePanel {{ background: {t.page}; border-right: 1px solid {t.border}; }}
-    #exerciseTitle {{ font-weight: 700; font-size: 15px; }}
-    #exerciseClose {{ background: transparent; border: none; border-radius: 6px;
-                      color: {t.text_secondary}; padding: 3px 7px; }}
-    #exerciseClose:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
+    /* ---- exercise mode -------------------------------------------------------- */
+    #exerciseBar {{ background: {t.page}; border-bottom: 1px solid {t.border}; }}
+    #exerciseWhere {{ color: {t.text_secondary}; font-weight: 600; }}
+    #exercisePosition {{ color: {t.text_muted}; font-size: 12px; min-width: 34px;
+                         qproperty-alignment: AlignCenter; }}
+    #exerciseBarButton {{ background: transparent; border: none; border-radius: 6px;
+        color: {t.text_secondary}; padding: 4px 9px; font-size: 13px; }}
+    #exerciseBarButton:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)};
+        color: {t.text}; }}
+    #exerciseBarButton:disabled {{ color: {qc(t.text, 0.22).name(QColor.HexArgb)}; }}
+    #exerciseBarButton::menu-indicator {{ image: none; width: 0; }}
+    QPushButton#exerciseExit {{ padding: 4px 14px; }}
+    #progressDot {{ border-radius: 6px; border: 1.5px solid {qc(t.text, 0.28).name(QColor.HexArgb)};
+        background: transparent; padding: 0; }}
+    #progressDot[state="started"] {{ border-color: {STATUS["warning"]};
+        background: {qc(STATUS["warning"], 0.35).name(QColor.HexArgb)}; }}
+    #progressDot[state="done"] {{ border-color: {STATUS["good"]}; background: {STATUS["good"]}; }}
+    #progressDot[current="true"] {{ border: 2px solid {t.accent}; }}
+    #exerciseHome, #worksheet {{ background: {t.page}; }}
+    #materials {{ background: {t.page}; }}
+    #sheetChapter {{ color: {t.accent}; font-size: 11px; font-weight: 700;
+                     letter-spacing: 0.8px; }}
+    #sheetTitle {{ font-size: 24px; font-weight: 700; }}
+    #sheetProblem {{ color: {t.text}; background: {qc(STATUS["warning"], 0.16).name(QColor.HexArgb)};
+        border-radius: 8px; padding: 8px 10px; }}
+    QLabel#markdown {{ font-size: 14px; line-height: 150%; }}
+    #taskCard {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 12px; }}
+    #taskCard[state="good"] {{ border-color: {qc(STATUS["good"], 0.55).name(QColor.HexArgb)}; }}
+    #taskCard[state="critical"] {{ border-color: {qc(STATUS["critical"], 0.45).name(QColor.HexArgb)}; }}
+    #taskCard[state="warning"] {{ border-color: {qc(STATUS["warning"], 0.7).name(QColor.HexArgb)}; }}
+    #taskCaption {{ color: {t.text_muted}; font-size: 10px; font-weight: 700;
+                    letter-spacing: 0.8px; }}
+    #statusChip {{ font-size: 11px; font-weight: 600; border-radius: 9px; padding: 2px 8px; }}
+    #statusChip[state="good"] {{ color: {STATUS["good"]};
+        background: {qc(STATUS["good"], 0.13).name(QColor.HexArgb)}; }}
+    #statusChip[state="warning"] {{ color: {t.text};
+        background: {qc(STATUS["warning"], 0.25).name(QColor.HexArgb)}; }}
+    #statusChip[state="critical"] {{ color: {STATUS["critical"]};
+        background: {qc(STATUS["critical"], 0.12).name(QColor.HexArgb)}; }}
+    #feedback {{ border-radius: 8px; padding: 7px 10px;
+        background: {qc(t.text, 0.05).name(QColor.HexArgb)}; }}
+    #feedback[state="good"] {{ background: {qc(STATUS["good"], 0.12).name(QColor.HexArgb)}; }}
+    #feedback[state="warning"] {{ background: {qc(STATUS["warning"], 0.2).name(QColor.HexArgb)}; }}
+    #feedback[state="critical"] {{ background: {qc(STATUS["critical"], 0.1).name(QColor.HexArgb)}; }}
+    #taskNote {{ background: {qc(t.accent, 0.07).name(QColor.HexArgb)};
+        border-left: 3px solid {qc(t.accent, 0.55).name(QColor.HexArgb)}; border-radius: 6px; }}
+    #taskNote QLabel {{ background: transparent; }}
+    #answerReading {{ color: {t.text_muted}; font-size: 12px; }}
+    #answerReading[ok="false"] {{ color: {STATUS["critical"]}; }}
+    QLineEdit#answerLine {{ padding: 6px 9px; font-size: 14px; }}
+    #choiceOption {{ border: 1px solid {t.border}; border-radius: 8px; background: {t.surface}; }}
+    #choiceOption:hover {{ border-color: {t.accent}; }}
+    #choiceOption QLabel {{ background: transparent; }}
+    QPushButton#choicePill {{ min-width: 56px; padding: 5px 16px; border-radius: 12px; }}
+    QPushButton#choicePill:checked {{ background: {t.accent}; border-color: {t.accent};
+        color: {t.accent_text}; font-weight: 600; }}
+    QToolButton#footprintCell {{ background: {t.surface_alt}; border: 1px solid {t.border};
+        border-radius: 6px; font-size: 15px; }}
+    QToolButton#footprintCell:hover {{ border-color: {t.accent}; }}
+    QToolButton#footprintCell:focus {{ border: 1.5px solid {t.accent}; }}
+    QToolButton#footprintCell[wrong="true"] {{ border: 2px solid {STATUS["critical"]};
+        background: {qc(STATUS["critical"], 0.08).name(QColor.HexArgb)}; }}
+    #footprintHeading {{ color: {t.text_secondary}; font-weight: 600; padding: 0 4px; }}
+    #exerciseRow {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 10px; }}
+    #exerciseRow:hover {{ border-color: {t.accent}; }}
+    #exerciseRow QLabel {{ background: transparent; }}
+    #rowTitle {{ font-weight: 600; font-size: 14px; }}
+    #rowChevron {{ color: {t.text_muted}; font-size: 18px; }}
+    #rowMark {{ color: {t.text_muted}; font-size: 15px; }}
+    #rowMark[state="done"] {{ color: {STATUS["good"]}; font-weight: 700; }}
+    #rowMark[state="started"] {{ color: {STATUS["warning"]}; }}
+    QTextBrowser#guideBrowser {{ border: none; border-radius: 0; padding: 18px 26px; }}
     QTextBrowser#plainBrowser {{ background: transparent; border: none; padding: 0; }}
     /* A result an exercise hides: a soft inset with its Reveal button. */
     #revealRow {{ background: {qc(t.text, 0.045).name(QColor.HexArgb)};

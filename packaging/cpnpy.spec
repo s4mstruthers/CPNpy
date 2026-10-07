@@ -41,7 +41,9 @@ analysis = Analysis(
     # exercises that File ▸ Open Demo Exercises copies to Documents).
     datas=[(str(ROOT / "cpnpy" / "gui" / "resources" / "cpnpy-icon.png"),
             "cpnpy/gui/resources"),
-           (str(ROOT / "cpnpy" / "exercises"), "cpnpy/exercises")],
+           (str(ROOT / "cpnpy" / "exercises"), "cpnpy/exercises"),
+           # Help ▸ Writing Exercise Packs.
+           (str(ROOT / "cpnpy" / "teaching" / "exercise-packs.md"), "cpnpy/teaching")],
     # Imported inside functions; listed so they are never missed.  certifi
     # brings its certificate file (PyInstaller's hook), which the update check
     # needs to reach GitHub: the bundled Python cannot use the system's.
