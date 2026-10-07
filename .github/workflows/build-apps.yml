@@ -1,9 +1,10 @@
 # Test CPNpy, and build the standalone CPNpy Studio app for macOS, Windows and
 # Linux.
 #
-# Nothing here can hang for long: Ubuntu's packages come from Ubuntu's own
-# archive, with retries (packaging/ci/install-qt-libraries.sh; the runners'
-# default mirror stalls now and then, which used to hang a run for good),
+# Nothing here can hang for long: the few Ubuntu packages Qt needs are kept
+# in the Actions cache, so the runners' often very slow connection to
+# Ubuntu's mirrors is only needed when the cache is empty
+# (packaging/ci/install-qt-libraries.sh),
 # every job has a time limit, and a test that hangs prints where it is stuck.
 #
 # When it runs: on a pull request (the code about to be merged), when a
@@ -59,8 +60,14 @@ jobs:
           cache: pip              # reuse downloaded packages between runs
           cache-dependency-path: pyproject.toml
 
+      - name: Keep Qt's system libraries between runs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/qt-debs
+          key: qt-debs-${{ runner.os }}-${{ hashFiles('packaging/ci/install-qt-libraries.sh') }}
+
       - name: Install Qt's system libraries
-        timeout-minutes: 10       # the script retries a stalled mirror itself
+        timeout-minutes: 15       # from the cache it takes seconds
         run: packaging/ci/install-qt-libraries.sh
 
       - name: Install CPNpy with the app and the test tools
@@ -103,11 +110,18 @@ jobs:
           cache: pip              # reuse downloaded packages between runs
           cache-dependency-path: pyproject.toml
 
+      - name: Keep Qt's system libraries between runs
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/qt-debs
+          key: qt-debs-${{ runner.os }}-${{ hashFiles('packaging/ci/install-qt-libraries.sh') }}
+
       - name: Install Qt's system libraries (Linux)
         if: runner.os == 'Linux'
         # Installed here so PyInstaller bundles them: users then need fewer
         # libraries of their own.
-        timeout-minutes: 10       # the script retries a stalled mirror itself
+        timeout-minutes: 15       # from the cache it takes seconds
         run: packaging/ci/install-qt-libraries.sh
 
       - name: Check the tag matches the version, and CHANGELOG.md says what is new
