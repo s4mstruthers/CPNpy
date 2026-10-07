@@ -6,6 +6,40 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## Unreleased
+
+- **Exercise mode.** Exercises now open in a view of their own, made for
+  working through them: the worksheet on the left with an answer box
+  wherever one is needed, and what the exercise gives (the log, the
+  transition system, the net, your net) on the right. Answer as you would on
+  paper — yes/no, choices, sets like `{a, b}` or `({a}, {b,d})`, a footprint
+  matrix to fill in, a firing sequence, a number, a net — and press
+  **Check**: most answers are checked straight away, and when one is not
+  right you see how far off it is without being given the answer. *Hint*
+  and *Show answer* when you want them. Your answers are saved in the
+  exercise's folder as you go, and the top bar shows your progress and steps
+  through the pack.
+- **Writing exercise packs** is plain Markdown: an `answer` block wherever
+  students should answer. Right answers can be worked out by the app from the
+  exercise's log, net or transition system (`compute: alpha.Y_L`,
+  `compute: sound`, `compute: pre-regions(c)`, …). *Help ▸ Writing Exercise
+  Packs* has the details, and `cpnpy exercises check` finds mistakes in a
+  pack before you share it. The demo exercises are rewritten this way.
+- **Edit a log** after opening it (*Edit…* on its page): as notation — a log
+  you typed comes back exactly as you typed it — or case by case: events,
+  timestamps, resources, cases, and renaming or removing an activity
+  everywhere. Changes are saved to the log's file. A log typed in notation is
+  now kept as a `.log.txt` file, in notation.
+- **The canvas goes on in every direction.** Scrolling (two fingers on a
+  trackpad) pans whether or not the whole net is in view, so you can always
+  make room to start a new part beside it. Hold Space and drag to pan with
+  the mouse. Zooming with ⌘-scroll or a pinch keeps the point under the
+  pointer where it is.
+  Pan the net right out of view and a button at the top of the canvas
+  points to where it went; click it to bring it back.
+- **Help ▸ References** lists the books, papers and standards behind every
+  notation and algorithm in CPNpy (also in `docs/references.md`).
+
 ## 0.4.1
 
 - **The sidebar button is on the sidebar.** Hide it with the button at its

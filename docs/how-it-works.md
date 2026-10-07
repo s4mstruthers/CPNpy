@@ -232,10 +232,14 @@ cpnpy/
     theme.py         palette, fonts and stylesheet; light/dark aware
     items.py         Qt graphics items for places, transitions, arcs
     canvas.py        the scene, the editing tools (drag to connect, rename), the view
-    panning.py       middle-button panning, shared by every canvas
+    panning.py       the endless canvas: panning and zooming, shared by every canvas
     arc_editing.py   CPN IDE's rules for bending, sliding and reconnecting arcs
     app.py           `cpn-ide`: CPNpy Studio opened on a new coloured net
-  cli.py             the `cpnpy` command
+  cli.py             the `cpnpy` command (`cpnpy exercises check` too)
+  references.py      the sources of every notation and algorithm (docs/references.md)
+  teaching/          exercise packs, no Qt: sheet.py (question.md with answer
+                     blocks), pack.py (folders, progress), answers.py (reading typed
+                     sets, pairs, traces), checks.py (checking, computed answers)
 examples/models.py   four complete models, also used as test fixtures
   mining/
     log.py           events, traces, logs, classifiers, textbook notation
@@ -275,6 +279,11 @@ examples/models.py   four complete models, also used as test fixtures
     graph_view.py    zoomable canvas for nets, maps and state spaces
     graph_builders.py  mining objects -> canvas descriptions
     filter_dialog.py the Filter… dialog of a log page
+    log_editor.py    Edit… on a log page: its notation, or case by case
+    exercise_mode.py exercise mode: pack overview, worksheet beside the materials
+    answer_boxes.py  the answer boxes of a worksheet (one editor per type)
+    concealment.py   hiding analysis results until they are revealed
+    markdown_view.py Markdown with maths; net_comparison.py: Compare nets' result
     dotted_chart.py, charts.py, widgets.py, style.py, workers.py, documents.py
 tests/               the test suite (tests/data holds a small course plane-boarding log)
 packaging/           the standalone apps: PyInstaller recipe (cpnpy.spec), entry

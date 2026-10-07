@@ -1,4 +1,4 @@
-"""Exercises, transition systems and regions, and Compare nets… in CPNpy Studio.
+"""Exercise mode, transition systems and regions, and Compare nets… in CPNpy Studio.
 
 Rendered offscreen, like the other GUI tests.  The demo exercises that ship
 with the app (``cpnpy/exercises``) are copied to a temporary folder first,
@@ -7,6 +7,7 @@ because an exercise saves your work into its folder.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import time
@@ -56,46 +57,136 @@ def _window():
     return window
 
 
-def test_every_demo_folder_is_an_exercise():
-    from cpnpy.gui.studio.workspace import exercise_files
-    folders = [p for p in DEMO.glob("*/*") if p.is_dir()]
-    assert len(folders) == 4
-    for folder in folders:
-        files = exercise_files(folder)
-        assert files is not None, folder
-        assert files.answer_net is not None or files.answer_text is not None
+def _cards(window):
+    return list(window.exercise_mode.view.cards.values())
 
 
-def test_modelling_exercise_checks_your_net(app, demo):
-    """A blank net that becomes "my answer.pnml" on the first edit; Check finds an
-    XOR where the answer has an AND, with a trace to replay, and accepts an
-    equivalent net drawn differently."""
+def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
+    from cpnpy.gui.studio.exercise_mode import ExerciseRow
+
+    window = _window()
+    window.open_workspace(str(demo))
+    assert window.open_exercise(demo)
+    mode = window.exercise_mode
+    assert window.in_exercises and mode.view is None
+    rows = mode.home.findChildren(ExerciseRow)
+    assert len(rows) == 4
+    rows[1].open_it()
+    assert mode.index == 1 and "Spot the flaw" in mode.view.title.text()
+    assert mode.position.text() == "2 / 4"
+    mode.step(1)
+    assert "α-algorithm" in mode.view.title.text()
+    mode.show_home()
+    assert mode.stack.currentWidget() is mode.home_area
+
+    # Exit: back to the folder, which is as it was.
+    mode.exit_button.click()
+    assert not window.in_exercises and window.workspace is not None
+    window.close()
+
+
+def test_clicking_an_exercise_in_the_sidebar_opens_it(app, demo):
     from cpnpy.gui.studio.app import EXERCISE_ROLE
-    from cpnpy.gui.studio.petri_page import PetriNetPage
+
+    window = _window()
+    window.open_workspace(str(demo))
+    window.set_view_mode("folder")
+    rows = [i for i in window._all_rows() if i.data(0, EXERCISE_ROLE)]
+    assert len(rows) == 4
+    window._open_placeholder(rows[2])
+    assert window.in_exercises
+    assert window.exercise_mode.view.exercise.folder.name == "Exercise 3.1 The alpha-algorithm"
+    # The pack is the open folder: all four, with the overview one step away.
+    assert len(window.exercise_mode.pack.exercises) == 4
+    window.close()
+
+
+def test_answers_are_checked_saved_and_restored(app, demo):
+    folder = demo / "2 Soundness" / "Exercise 2.1 Spot the flaw"
+    window = _window()
+    window.open_exercise(folder)
+    wf, sound, conditions, deadlock, repair = _cards(window)
+    assert [c.task.type for c in _cards(window)] == ["yesno", "yesno", "choice", "trace", "net"]
+
+    wf.editor.buttons["yes"].click()
+    wf.check_button.click()
+    sound.editor.buttons["yes"].click()
+    sound.check_button.click()
+    conditions.editor.rows[0].indicator.click()
+    conditions.check_button.click()
+    deadlock.editor.edit.setText("register, call customer")
+    deadlock.editor._edited()
+    deadlock.check_button.click()
+    assert wait_for(app, lambda: None not in (wf.status, sound.status, deadlock.status))
+    assert wf.status == "correct" and sound.status == "incorrect"
+    assert conditions.status == "partial" and deadlock.status == "correct"
+    assert "Not right" in sound.feedback.text()
+
+    # Show answer: the solution from the block; a hint on request.
+    sound.reveal_solution()
+    assert "No" in sound.solution_label.body.plain_text()
+    conditions.toggle_hint()
+    assert not conditions.hint_label.isHidden()
+
+    # Changing an answer clears its old verdict.
+    sound.editor.buttons["no"].click()
+    assert sound.status is None and sound.feedback.isHidden()
+
+    window.exercise_mode.close_view()
+    saved = json.loads((folder / "my answers.json").read_text())["tasks"]
+    assert saved["q1"] == {"answer": "yes", "status": "correct"}
+    assert saved["q2"]["answer"] == "no" and "status" not in saved["q2"]
+    assert saved["q4"]["answer"] == "register, call customer"
+
+    # Opening it again puts everything back.
+    window.exercise_mode.open_index(1)
+    wf, sound, conditions, deadlock, _ = _cards(window)
+    assert wf.editor.value() == "yes" and wf.status == "correct"
+    assert sound.editor.value() == "no" and conditions.editor.value() == [0]
+    assert deadlock.editor.edit.text() == "register, call customer"
+    window.close()
+
+
+def test_drawing_a_net_saves_my_answer_and_checks_it(app, demo):
+    from cpnpy.mining.pnml import read_pnml
+
+    folder = demo / "2 Soundness" / "Exercise 2.1 Spot the flaw"
+    given = (folder / "net.pnml").read_bytes()
+    window = _window()
+    window.open_exercise(folder)
+    view = window.exercise_mode.view
+    repair = _cards(window)[-1]
+    page = view.net_pages[repair.task.id]
+    assert [name for name, _ in view.materials] == ["Given net", "Your net"]
+    assert page.document.path is None                   # the given net, not yet yours
+
+    # The given net is checked as it is: not sound.
+    repair.check_button.click()
+    assert wait_for(app, lambda: repair.status is not None)
+    assert repair.status == "incorrect" and "not sound" in repair.feedback.text()
+
+    # An edit saves your net as "my answer.pnml"; the given net stays.
+    page._edited()
+    view.flush()
+    assert (folder / "my answer.pnml").exists()
+    assert (folder / "net.pnml").read_bytes() == given
+
+    # The repaired net (as if drawn): right.
+    fixed = read_pnml(str(folder / "answer.pnml"))
+    page.petri_net = lambda: fixed
+    repair.check_button.click()
+    assert wait_for(app, lambda: repair.status == "correct")
+    assert "same behaviour" in repair.feedback.text()
+    window.close()
+
+
+def test_a_wrong_net_shows_traces_to_replay(app, demo):
+    """Check finds an XOR where the answer has an AND, with traces that replay
+    in your net's token game."""
+    from cpnpy.gui.studio.net_comparison import NetComparisonView
     from cpnpy.mining.pnml import read_pnml, write_pnml
 
     folder = demo / "1 Petri nets" / "Exercise 1.1 Order handling"
-    window = _window()
-    window.open_exercise(str(folder))
-    assert window.exercise is not None and not window.exercise_panel.isHidden()
-    assert "Order handling" in window.exercise_panel.question.toPlainText()
-    # The exercise folder is a row of its own; the answer is not listed.
-    rows = [i for i in window._all_rows() if i.data(0, EXERCISE_ROLE)]
-    assert len(rows) == 1 and rows[0].text(0) == folder.name   # its parent was opened
-    from cpnpy.gui.studio.sidebar import FILE_ROLE
-    assert not any(str(i.data(0, FILE_ROLE) or "").endswith("/answer.pnml")
-                   for i in window._all_rows())
-
-    # A blank net, not saved until you edit it.
-    page = window.current_page()
-    assert isinstance(page, PetriNetPage)
-    assert page.document.path is None and not (folder / "my answer.pnml").exists()
-    page._edited()
-    assert page.document.path == str(folder / "my answer.pnml")
-    assert (folder / "my answer.pnml").exists()
-
-    # Your net: an XOR where the answer has an AND.  Written as your file and
-    # reopened, as if you had drawn it.
     answer = read_pnml(str(folder / "answer.pnml"))
     xor = answer.copy()
     for place in ("p2", "p4"):
@@ -103,110 +194,75 @@ def test_modelling_exercise_checks_your_net(app, demo):
     xor.add_arc("p1", "t_ship")
     xor.add_arc("t_ship", "p3")
     write_pnml(xor, str(folder / "my answer.pnml"))
-    window.close_exercise()
-    window.remove_documents([d.id for d in window.documents], confirm=False)
-    window.open_exercise(str(folder))
-    mine = window.current_page()
-    assert mine.document.path == str(folder / "my answer.pnml")
-
-    window.check_exercise()
-    assert wait_for(app, lambda: getattr(window, "last_comparison", None) is not None)
-    view = window.last_comparison
-    assert not view.comparison.equivalent
-    assert view.comparison.only_second == [("receive", "pay", "ship", "close")]
-    assert ("receive", "pay", "close") in view.comparison.only_first
-    # Replay: the net does what it can of the answer's trace, then stops.
-    view.replay_buttons[0].click()
-    assert mine.simulator.step_count == 2
-    assert "differs" in window.statusBar().currentMessage()
-
-    # The same behaviour, drawn differently (other place names, a silent step).
-    same = answer.copy()
-    for place in list(same.places.values()):
-        place.name = "q" + place.name
-    write_pnml(same, str(folder / "my answer.pnml"))
-    window.close_exercise()
-    window.remove_documents([d.id for d in window.documents], confirm=False)
-    window.last_comparison = None
-    window.open_exercise(str(folder))
-    window.check_exercise()
-    assert wait_for(app, lambda: window.last_comparison is not None)
-    assert window.last_comparison.comparison.equivalent
-    window.close()
-
-
-def test_soundness_exercise_hides_results_and_keeps_the_given_net(app, demo):
-    from cpnpy.gui.studio import petri_page
-
-    folder = demo / "2 Soundness" / "Exercise 2.1 Spot the flaw"
-    given = (folder / "net.pnml").read_bytes()
     window = _window()
-    window.open_exercise(str(folder))
-    page = window.current_page()
-    assert page.document.path == str(folder / "net.pnml")
-    assert not page.document.autosave             # the given net is never saved over
-
-    original = petri_page.run_in_background
-    petri_page.run_in_background = lambda work, done, failed=None: done(work())
-    try:
-        page.run_analysis()
-    finally:
-        petri_page.run_in_background = original
-    # Hidden in the exercise, one card at a time or all at once.
-    assert page.soundness_card.concealed and page.footprint_card.concealed
-    assert not page.soundness_card.reveal_row.isHidden()
-    page.soundness_card.reveal_button.click()
-    assert not page.soundness_card.concealed and page.footprint_card.concealed
-    window.exercise_panel.reveal_button.click()
-    assert not page.footprint_card.concealed
-    assert not window.exercise_panel.reveal_button.isEnabled()
-
-    # The first edit moves your work to "my answer.pnml".
-    page._edited()
+    window.open_exercise(folder)
+    view = window.exercise_mode.view
+    card = _cards(window)[1]
+    page = view.net_pages[card.task.id]
     assert page.document.path == str(folder / "my answer.pnml")
-    assert (folder / "net.pnml").read_bytes() == given
-
-    # No answer.pnml: Check shows the worked answer.
-    assert window.exercise_panel.check_button.text() == "Show answer"
-    window.exercise_panel.check_button.click()
-    assert "PT-handle" in window.exercise_panel.answer_browser.toPlainText()
-
-    # Closing the exercise: nothing is hidden any more, and the question goes.
-    window.close_exercise()
-    assert page.concealment is None and window.exercise_panel.isHidden()
+    card.check_button.click()
+    assert wait_for(app, lambda: card.status is not None)
+    assert card.status == "incorrect"
+    comparison = card.findChildren(NetComparisonView)[0]
+    assert comparison.comparison.only_second == [("receive", "pay", "ship", "close")]
+    comparison.replay_buttons[0].click()
+    assert page.simulator.step_count == 2
     window.close()
 
 
-def test_log_exercise_opens_textbook_notation_and_hides_the_footprint(app, demo):
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.log_page import LogPage
+def test_footprint_and_sets_on_a_log(app, demo):
+    from cpnpy.mining import footprint_of_log, parse_simple_log
 
     folder = demo / "3 Discovery" / "Exercise 3.1 The alpha-algorithm"
     window = _window()
-    window.open_exercise(str(folder))
-    logs = [d for d in window.documents if isinstance(d, LogDocument)]
-    assert len(logs) == 1 and len(logs[0].log) == 7
-    assert logs[0].path == str(folder / "log.txt")
-    page = window.pages[logs[0].id]
-    assert isinstance(page, LogPage)
-    page.tabs.set_index(5)                       # Footprint
-    footprint = [c for c, key in page._concealed_cards if key == "footprint"][0]
-    assert footprint.concealed
-    window.close_exercise()
-    assert not footprint.concealed               # outside an exercise: as before
+    window.open_exercise(folder)
+    view = window.exercise_mode.view
+    assert [name for name, _ in view.materials] == ["Log", "Your net"]
+    footprint, t_l, t_i = _cards(window)[:3]
+    truth = footprint_of_log(parse_simple_log((folder / "log.txt").read_text()))
+    editor = footprint.editor
+    assert editor.activities == truth.activities
+    for (a, b), cell in editor.cells.items():
+        editor.choose(cell, truth.relation(a, b))
+    editor.choose(editor.cells[("b", "c")], "→")         # one mistake
+    footprint.check_button.click()
+    assert wait_for(app, lambda: footprint.status is not None)
+    assert footprint.status == "partial"
+    assert editor.cells[("b", "c")].property("wrong") is True
+    assert editor.cells[("a", "b")].property("wrong") is False
+    editor.choose(editor.cells[("b", "c")], "‖")         # fixed: the mark goes
+    assert editor.cells[("b", "c")].property("wrong") is False
+    footprint.check_button.click()
+    assert wait_for(app, lambda: footprint.status == "correct")
+
+    t_i.editor.edit.setText("{a")
+    t_i.editor._edited()
+    assert t_i.editor.reading.property("ok") is False      # read as you type
+    t_i.editor.edit.setText("{a}")
+    t_i.editor._edited()
+    assert "{a}" in t_i.editor.reading.text()
+    t_i.check_button.click()
+    assert wait_for(app, lambda: t_i.status == "correct")
+
+    # The log's footprint is hidden beside the question until revealed.
+    log_page = view.materials[0][1]
+    log_page.tabs.set_index(5)
+    card = [c for c, key in log_page._concealed_cards if key == "footprint"][0]
+    assert card.concealed
+    view.concealment.reveal_all()
+    assert not card.concealed
     window.close()
 
 
 def test_regions_exercise_and_transition_system_page(app, demo):
-    from cpnpy.gui.studio.documents import TransitionSystemDocument
     from cpnpy.gui.studio.regions_view import TransitionSystemPage
 
     folder = demo / "4 Regions" / "Exercise 4.1 Regions of a transition system"
+    given = (folder / "ts.txt").read_text()
     window = _window()
-    window.open_exercise(str(folder))
-    systems = [d for d in window.documents if isinstance(d, TransitionSystemDocument)]
-    assert len(systems) == 1 and len(systems[0].ts.states) == 7
-    page = window.pages[systems[0].id]
+    window.open_exercise(folder)
+    view = window.exercise_mode.view
+    (name, page), = view.materials
     assert isinstance(page, TransitionSystemPage)
     assert wait_for(app, lambda: page.panel is not None)
     panel = page.panel
@@ -218,15 +274,81 @@ def test_regions_exercise_and_transition_system_page(app, demo):
     assert panel.region_edit.text() == "s1, s3, s4" and not panel.last_check.is_region
     hidden = [card for card, _ in panel._concealed_cards]
     assert hidden and all(card.concealed for card in hidden)
-    window.exercise_panel.reveal_button.click()
+    view.concealment.reveal_all()
     assert not any(card.concealed for card in hidden)
-    assert panel.result.analysis.state_separation is False
 
-    # Editing the text recomputes and saves the file.
+    pre_c = _cards(window)[2]
+    pre_c.editor.set_value("{s1, s3}, {s2, s3}")
+    pre_c.check_button.click()
+    assert wait_for(app, lambda: pre_c.status == "correct")
+
+    # Trying another system recomputes, but never writes over the given file.
     page.editor.setPlainText("s0 -a-> s1, s1 -b-> s2")
     page.apply()
     assert wait_for(app, lambda: page.panel is not None and len(page.panel.ts.states) == 3)
-    assert "s1 -b-> s2" in (folder / "ts.txt").read_text()
+    assert (folder / "ts.txt").read_text() == given
+    window.close()
+
+
+def test_starting_again_and_an_open_question(app, tmp_path):
+    folder = tmp_path / "pack" / "Ex"
+    folder.mkdir(parents=True)
+    (folder / "question.md").write_text(
+        "# Reflect\n\nWhy?\n\n```answer\ntype: open\nsolution: Because.\n```\n")
+    window = _window()
+    window.open_exercise(folder)
+    (card,) = _cards(window)
+    assert not card.check_button.isVisible()
+    card.editor.set_value("My thoughts")
+    card.editor.changed.emit()
+    card.reveal_solution()
+    assert "Because." in card.solution_label.body.plain_text()
+    assert not card.assess_row.isHidden()
+    card.assess(True)
+    assert card.status == "done"
+    window.exercise_mode.view.flush()
+    assert json.loads((folder / "my answers.json").read_text())["tasks"]["q1"]["status"] == \
+        "done"
+    from PySide6.QtWidgets import QMessageBox
+    original = QMessageBox.question
+    QMessageBox.question = lambda *a, **k: QMessageBox.Yes
+    try:
+        window.exercise_mode.reset_exercise()
+    finally:
+        QMessageBox.question = original
+    assert not (folder / "my answers.json").exists()
+    assert _cards(window)[0].status is None
+    window.close()
+
+
+def test_a_mistake_in_a_sheet_is_shown_not_hidden(app, tmp_path):
+    folder = tmp_path / "Ex"
+    folder.mkdir()
+    (folder / "question.md").write_text("# Broken\n\n```answer\ntype: essay\n```\n")
+    window = _window()
+    window.open_exercise(folder)
+    view = window.exercise_mode.view
+    assert view.exercise.error and "needs a type" in view.exercise.error
+    from PySide6.QtWidgets import QLabel
+    assert any("mistake" in w.text() for w in view.findChildren(QLabel)
+               if w.objectName() == "sheetProblem")
+    window.close()
+
+
+def test_open_demo_exercises_updates_an_old_copy(app, tmp_path, monkeypatch):
+    from cpnpy.gui.studio.app import StudioWindow
+    target = tmp_path / "CPNpy Exercises"
+    old = target / "1 Petri nets" / "Exercise 1.1 Order handling"
+    old.mkdir(parents=True)
+    (old / "question.md").write_text("# Old\n\nDraw it.")
+    (old / "my answer.pnml").write_text("mine")
+    monkeypatch.setattr(StudioWindow, "demo_exercises_target", lambda self: target)
+    window = _window()
+    window.open_demo_exercises()
+    assert (target / "pack.md").exists()
+    assert "```answer" in (old / "question.md").read_text()
+    assert (old / "my answer.pnml").read_text() == "mine"           # yours stays
+    assert window.in_exercises and len(window.exercise_mode.pack.exercises) == 4
     window.close()
 
 
@@ -266,7 +388,7 @@ def test_compare_nets_outside_an_exercise(app):
     first, second = window.documents
     window.compare_nets(first, second)
     assert wait_for(app, lambda: getattr(window, "net_comparison_dialog", None) is not None)
-    from cpnpy.gui.studio.exercise_panel import NetComparisonView
+    from cpnpy.gui.studio.net_comparison import NetComparisonView
     view = window.net_comparison_dialog.findChildren(NetComparisonView)[0]
     assert isinstance(view.comparison.equivalent, bool)
     window.net_comparison_dialog.close()
@@ -276,70 +398,31 @@ def test_compare_nets_outside_an_exercise(app):
 def test_question_markdown_has_maths_and_tables():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
-    from cpnpy.gui.studio.exercise_panel import markdown_html
+    from cpnpy.gui.studio.markdown_view import markdown_html
     html = markdown_html("| a | b |\n|---|---|\n| 1 | 2 |\n\nInline $s_{in} \\in S$ and\n\n"
                          "$$\\bigcap_{R} R$$\n\nand $\\frobnicate$ stays as written.")
     assert "<table" in html and "<sub>" in html and "⋂" in html
     assert "frobnicate" in html and "MATHX" not in html
 
 
-def test_exercise_layout_fits_a_laptop_window(app, demo):
-    """In a narrow window the exercise folds the sidebar to the rail and the
-    editor's inspector away, so nothing scrolls sideways; the panels come back
-    from the rail and when there is room.  "my answer" is listed under its
-    exercise, not under UNSAVED."""
-    from PySide6.QtWidgets import QScrollArea
-    from cpnpy.gui.studio.app import StudioWindow
-
-    folder = demo / "1 Petri nets" / "Exercise 1.1 Order handling"
-    window = StudioWindow()
-    window.resize(1000, 700)
-    window.show()
-    assert not window.rail.isVisible()               # nothing hidden: no rail
-    window.open_exercise(str(folder))
-    _pump(app, 0.3)
-    page = window.current_page()
-    assert window.sidebar.isHidden() and window.rail.isVisible()
-    assert window.rail_sidebar.isVisible() and not window.rail_question.isVisible()
-    area = page.parentWidget()
-    while not isinstance(area, QScrollArea):
-        area = area.parentWidget()
-    assert area.horizontalScrollBar().maximum() == 0
-    assert not page.inspector_panel.isVisible()      # folded to make room
-
-    # "my answer" (not saved yet) sits under its exercise folder.
-    row = window.items[page.document.id]
-    assert row.parent() is not None and row.parent().text(0) == folder.name
-    assert window.unsaved_section.childCount() == 0
-
-    # Fold the question away and back from the rail.
-    window.exercise_panel.collapse_requested.emit()
-    assert window.exercise_panel.isHidden() and window.rail_question.isVisible()
-    window.rail_question.click()
-    assert not window.exercise_panel.isHidden()
-
-    # A wider window: the inspector comes back by itself.
-    window.resize(1600, 900)
-    _pump(app, 0.3)
-    assert page.inspector_panel.isVisible()
-    assert area.horizontalScrollBar().maximum() == 0
-
-    # Closing the exercise brings back the sidebar it folded away (not saved
-    # as your choice), and the rail goes.
-    window.close_exercise()
-    assert not window.sidebar.isHidden() and not window.rail.isVisible()
-    page.document.dirty = False
-    window.close()
+def test_help_shows_references_and_the_authoring_guide(app):
+    from cpnpy import references
+    from cpnpy.gui.studio.definition_view import show_guide
+    dialog = show_guide("references")
+    text = dialog.browser.toPlainText()
+    assert "Works cited" in text and "Process Mining: Data Science in Action" in text
+    guide = show_guide("exercise-packs")
+    assert "compute" in guide.browser.toPlainText()
+    # Every topic cites works that exist.
+    for _, topics in references.TOPICS:
+        for topic in topics:
+            assert topic.sources and all(k in references.BY_KEY for k in topic.sources)
+    dialog.close()
+    guide.close()
 
 
-def test_sidebar_toggle_sits_on_the_sidebar(app):
-    from cpnpy.gui.studio.app import StudioWindow
-    window = StudioWindow()
-    window.show()
-    assert window.sidebar_hide_button.isVisibleTo(window.sidebar)
-    window.sidebar_hide_button.click()
-    assert window.sidebar.isHidden() and window.rail_sidebar.isVisible()
-    assert not window.sidebar_action.isChecked()
-    window.rail_sidebar.click()
-    assert not window.sidebar.isHidden() and not window.rail.isVisible()
-    window.close()
+def test_references_doc_is_up_to_date():
+    from cpnpy import references
+    path = Path(__file__).resolve().parents[1] / "docs" / "references.md"
+    assert path.read_text(encoding="utf-8") == references.markdown(), \
+        "regenerate with: python -m cpnpy.references > docs/references.md"

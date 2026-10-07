@@ -1,6 +1,12 @@
 # Test CPNpy, and build the standalone CPNpy Studio app for macOS, Windows and
 # Linux.
 #
+# Nothing here can hang for long: the few Ubuntu packages Qt needs are kept
+# in the Actions cache, so the runners' often very slow connection to
+# Ubuntu's mirrors is only needed when the cache is empty
+# (packaging/ci/install-qt-libraries.sh),
+# every job has a time limit, and a test that hangs prints where it is stuck.
+#
 # When it runs: on a pull request (the code about to be merged), when a
 # version tag is pushed (the release), and with "Run workflow" on the Actions
 # tab.  Not on pushes to main: a merged pull request was built already, and a
@@ -44,18 +50,25 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-22.04
+    timeout-minutes: 15       # the suite takes about a minute
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip              # reuse downloaded packages between runs
+          cache-dependency-path: pyproject.toml
+
+      - name: Keep Qt's system libraries between runs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/qt-debs
+          key: qt-debs-${{ runner.os }}-${{ hashFiles('packaging/ci/install-qt-libraries.sh') }}
 
       - name: Install Qt's system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
-            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+        timeout-minutes: 15       # from the cache it takes seconds
+        run: packaging/ci/install-qt-libraries.sh
 
       - name: Install CPNpy with the app and the test tools
         run: |
@@ -65,12 +78,14 @@ jobs:
       - name: Run the test suite (the windows are drawn offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        # A test still running after two minutes prints where it is stuck.
+        run: python -m pytest -q -o faulthandler_timeout=120
 
   build:
     name: ${{ matrix.name }}
     needs: tests              # no point building apps from code that fails its tests
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30       # a build takes a few minutes
     strategy:
       fail-fast: false        # one system failing should not cancel the others
       matrix:
@@ -92,15 +107,22 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip              # reuse downloaded packages between runs
+          cache-dependency-path: pyproject.toml
+
+      - name: Keep Qt's system libraries between runs
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/qt-debs
+          key: qt-debs-${{ runner.os }}-${{ hashFiles('packaging/ci/install-qt-libraries.sh') }}
 
       - name: Install Qt's system libraries (Linux)
         if: runner.os == 'Linux'
         # Installed here so PyInstaller bundles them: users then need fewer
         # libraries of their own.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
-            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
+        timeout-minutes: 15       # from the cache it takes seconds
+        run: packaging/ci/install-qt-libraries.sh
 
       - name: Check the tag matches the version, and CHANGELOG.md says what is new
         if: startsWith(github.ref, 'refs/tags/v')

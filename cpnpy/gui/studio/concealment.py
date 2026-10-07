@@ -1,23 +1,23 @@
 """Hiding analysis results while you do an exercise.
 
-Inside an exercise (see :mod:`.exercise_panel`) the answers the app would
+Inside an exercise (see :mod:`.exercise_mode`) the answers the app would
 normally show straight away -- soundness, properties, invariants, the
 footprint, discovered models, conformance figures, regions -- are hidden.
 Each result card shows *Hidden in this exercise · Reveal* instead; clicking
-reveals that one, and *Reveal all* in the exercise panel reveals the lot.
+reveals that one, and *Reveal Every Hidden Result* (the ⋯ menu) reveals the lot.
 
 One :class:`Concealment` belongs to the open exercise.  Pages that show
 results mix in :class:`ConcealsResults` and register their cards with
-:meth:`ConcealsResults.conceal_card`; the window hands the exercise's
-concealment to the pages of the exercise's documents (and ``None`` to every
-other page, which then behaves exactly as without exercises).
+:meth:`ConcealsResults.conceal_card`; the exercise view hands its
+concealment to the pages of the exercise's materials.  Pages outside
+exercise mode have none, and show everything.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-#: What each key hides, for the exercise panel and the reveal buttons.
+#: What each key hides, for the reveal buttons.
 RESULTS = {
     "soundness": "soundness",
     "theorem": "the short-circuited net",

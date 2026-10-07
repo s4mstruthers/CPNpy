@@ -17,6 +17,7 @@ Commands
 ``mine``        process mining from the command line:
                 ``stats``, ``filter``, ``discover``, ``conform``,
                 ``soundness``, ``invariants``
+``exercises``   ``check``: check an exercise pack before sharing it
 """
 
 from __future__ import annotations
@@ -327,6 +328,40 @@ def command_mine_invariants(arguments: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+def command_exercises_check(arguments: argparse.Namespace) -> int:
+    """List a pack's exercises and answer boxes; report mistakes in them."""
+    from .teaching.checks import Context, TaskError, model_answer_text, validate
+    from .teaching.pack import load_pack
+    pack = load_pack(arguments.folder)
+    if not pack.exercises:
+        print(f"No exercises in {arguments.folder} (an exercise is a folder with a "
+              "question.md).", file=sys.stderr)
+        return 1
+    print(f"{pack.title}: {len(pack.exercises)} exercise(s)")
+    problems = 0
+    for exercise in pack.exercises:
+        chapter = pack.chapter(exercise)
+        print(f"\n{chapter + ' › ' if chapter else ''}{exercise.title}  "
+              f"({exercise.folder.name})")
+        found = validate(exercise)
+        context = Context(exercise)
+        for task in exercise.sheet.tasks:
+            checked = "checked" if task.checkable else "self-checked"
+            line = f"  - {task.id:<8} {task.type:<10} {checked}"
+            if arguments.answers and task.type not in ("net", "footprint", "trace", "open"):
+                try:
+                    answer = model_answer_text(exercise, task, context)
+                except TaskError as error:
+                    answer = f"(cannot work it out: {error})"
+                line += "  →  " + " ".join(answer.split())[:100]
+            print(line)
+        for problem in found:
+            print(f"  ! {problem}")
+        problems += len(found)
+    print(f"\n{problems} problem(s) found." if problems else "\nNo problems found.")
+    return 1 if problems else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cpnpy",
@@ -369,6 +404,15 @@ def build_parser() -> argparse.ArgumentParser:
     studio = subparsers.add_parser("studio", help="launch CPNpy Studio (process mining)")
     studio.add_argument("files", nargs="*", help="logs (.xes/.csv) or nets (.pnml) to open")
     studio.set_defaults(handler=command_studio)
+
+    exercises = subparsers.add_parser("exercises", help="exercise packs")
+    exercise_commands = exercises.add_subparsers(dest="exercises_command", required=True)
+    exercise_check = exercise_commands.add_parser(
+        "check", help="list a pack's exercises and report mistakes in its answer blocks")
+    exercise_check.add_argument("folder", help="the pack (or one exercise) folder")
+    exercise_check.add_argument("--answers", action="store_true",
+                                help="also print the right answers the app works out")
+    exercise_check.set_defaults(handler=command_exercises_check)
 
     mine = subparsers.add_parser("mine", help="process mining on event logs")
     mining = mine.add_subparsers(dest="mining_command", required=True)

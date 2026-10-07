@@ -1407,7 +1407,103 @@ def test_middle_drag_pans_the_net_editor(app):
 
     # Zoom to fit brings the whole net back.
     view.zoom_to_fit()
-    assert view.sceneRect() == page.scene.sceneRect()
+    assert view.viewport().rect().contains(view.mapFromScene(page.scene.itemsBoundingRect()
+                                                             ).boundingRect())
+    window.close()
+
+
+def _wheel(app, view, point, pixels=(0, 0), angle=(0, 0), modifiers=Qt.NoModifier):
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QApplication
+    event = QWheelEvent(QPointF(*point), view.viewport().mapToGlobal(QPointF(*point)),
+                        QPoint(*pixels), QPoint(*angle), Qt.NoButton, modifiers,
+                        Qt.NoScrollPhase, False)
+    QApplication.sendEvent(view.viewport(), event)
+    app.processEvents()
+
+
+@pytest.mark.parametrize("which", ["editor", "graph"])
+def test_the_canvas_is_endless(app, which):
+    """With the whole net in view, scrolling still pans (so there is room to
+    start a new part beside it), Space + drag pans, and zooming keeps the point
+    under the pointer where it is."""
+    from PySide6.QtCore import QEvent, QPoint, QPointF
+    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.graph_view import GraphView
+    from cpnpy.mining import alpha_miner, parse_simple_log
+    from cpnpy.gui.studio.graph_builders import petri_net_specs
+
+    root = Path(__file__).resolve().parents[1]
+    window = StudioWindow()
+    window.resize(1300, 850)
+    window.show()
+    if which == "editor":
+        window.open_path(str(root / "examples" / "petri" / "order_handling_sound.pnml"))
+        view = window.current_page().view
+        view.zoom_to_fit()
+        landmark = view.scene().itemsBoundingRect().center()
+    else:
+        view = GraphView()
+        view.resize(700, 500)
+        view.show()
+        net = alpha_miner(parse_simple_log("[<a,b,c>^2, <a,c,b>]")).net
+        view.graph.populate(*petri_net_specs(net))
+        view.fit()
+        landmark = view.graph.itemsBoundingRect().center()
+    _pump(app, 0.2)
+
+    def on_screen():
+        point = view.mapFromScene(landmark)
+        return point.x(), point.y()
+
+    before = on_screen()
+    _wheel(app, view, (200, 200), pixels=(-120, -60))         # two-finger scroll
+    assert on_screen() == (before[0] - 120, before[1] - 60)
+    before = on_screen()
+    _wheel(app, view, (200, 200), angle=(0, -120), modifiers=Qt.ShiftModifier)
+    assert on_screen() == (before[0] - 40, before[1])          # Shift + wheel: sideways
+
+    # Space + left drag pans, even over a node.
+    view.setFocus()
+    QApplication.sendEvent(view, QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.NoModifier, " "))
+    before = on_screen()
+    start = QPoint(*before)
+
+    def send(kind, point, button, buttons):
+        QApplication.sendEvent(view.viewport(), QMouseEvent(
+            kind, QPointF(point), view.viewport().mapToGlobal(QPointF(point)), button, buttons,
+            Qt.NoModifier))
+    send(QEvent.MouseButtonPress, start, Qt.LeftButton, Qt.LeftButton)
+    send(QEvent.MouseMove, start + QPoint(30, 20), Qt.NoButton, Qt.LeftButton)
+    send(QEvent.MouseButtonRelease, start + QPoint(30, 20), Qt.LeftButton, Qt.NoButton)
+    QApplication.sendEvent(view, QKeyEvent(QEvent.KeyRelease, Qt.Key_Space, Qt.NoModifier, " "))
+    assert on_screen() == (before[0] + 30, before[1] + 20)
+
+    # ⌘-scroll zooms about the pointer: the point under it stays put.
+    pointer = (150, 120)
+    under = view.mapToScene(QPoint(*pointer))
+    zoom = view.zoom()
+    _wheel(app, view, pointer, angle=(0, 240), modifiers=Qt.ControlModifier)
+    assert view.zoom() > zoom
+    after = view.mapFromScene(under)
+    assert abs(after.x() - pointer[0]) <= 1 and abs(after.y() - pointer[1]) <= 1
+
+    # Panned right out of view: a hint points back to it, and brings it back.
+    _pump(app, 0.1)
+    assert view.offscreen_hint.isHidden()
+    view.pan_by(-5000, 0)                        # the drawing is now far to the left
+    _pump(app, 0.1)
+    assert view.offscreen_hint.isVisible() and view.offscreen_hint.text().startswith("←")
+    view.offscreen_hint.click()
+    _pump(app, 0.1)
+    assert view.offscreen_hint.isHidden()
+    assert view.viewport().rect().intersects(
+        view.mapFromScene(view.scene().itemsBoundingRect()).boundingRect())
+    if which == "graph":
+        view.close()
     window.close()
 
 

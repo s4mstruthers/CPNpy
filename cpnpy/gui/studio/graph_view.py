@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...mining.layout import layered_layout
-from ..panning import MiddleButtonPan
+from ..panning import CanvasPanning
 from . import style
 from .widgets import shortcut_text
 
@@ -510,7 +510,7 @@ class ZoomControls(QFrame):
         self.plus.setEnabled(scale < self.view.MAX_ZOOM - 1e-6)
 
 
-class GraphView(MiddleButtonPan, QGraphicsView):
+class GraphView(CanvasPanning, QGraphicsView):
     """Pan/zoom view with 'fit', a floating zoom bar and image export.
 
     Zooming: the ``− 100% + Fit`` bar, ⌘/Ctrl + scroll wheel, trackpad pinch,
@@ -542,6 +542,7 @@ class GraphView(MiddleButtonPan, QGraphicsView):
         self.auto_fit = True
         self.zoom_controls = ZoomControls(self) if zoom_controls else None
         self._place_controls()
+        self.init_canvas()
 
     @property
     def graph(self) -> GraphScene:
@@ -566,7 +567,6 @@ class GraphView(MiddleButtonPan, QGraphicsView):
 
     def fit(self) -> None:
         self.auto_fit = True
-        self.reset_pan_area()
         rect = self.graph.sceneRect()
         if rect.isEmpty():
             return
@@ -597,17 +597,14 @@ class GraphView(MiddleButtonPan, QGraphicsView):
                                 area.bottom() - size.height() - 9)
         self.zoom_controls.raise_()
 
-    def zoom_by(self, factor: float, around_centre: bool = False) -> None:
+    def zoom_by(self, factor: float, around_centre: bool = False, at=None) -> None:
         self.auto_fit = False
         current = self.transform().m11()
         target = min(max(current * factor, self.MIN_ZOOM), self.MAX_ZOOM)
-        if around_centre:
-            anchor = self.transformationAnchor()
-            self.setTransformationAnchor(QGraphicsView.AnchorViewCenter)
-            self.scale(target / current, target / current)
-            self.setTransformationAnchor(anchor)
-        else:
-            self.scale(target / current, target / current)
+        if target == current:
+            return
+        self.zoom_about(target / current, QPointF(self.viewport().rect().center())
+                        if around_centre else at)
         self.zoom_changed.emit(target)
 
     def zoom_in(self) -> None:
@@ -636,17 +633,18 @@ class GraphView(MiddleButtonPan, QGraphicsView):
 
     def wheelEvent(self, event) -> None:  # noqa: N802
         if event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier):
-            self.zoom_by(1.0015 ** event.angleDelta().y())
+            self.zoom_by(1.0015 ** event.angleDelta().y(), at=event.position())
             event.accept()
         else:
-            super().wheelEvent(event)
+            self.wheel_pan(event)
 
     def event(self, event) -> bool:
         # macOS trackpad pinch arrives as a native zoom gesture.
         if event.type() == event.Type.NativeGesture:
             try:
                 if event.gestureType() == Qt.ZoomNativeGesture:
-                    self.zoom_by(1 + event.value())
+                    self.zoom_by(1 + event.value(),
+                                 at=self.viewport().mapFromGlobal(event.globalPosition()))
                     return True
             except AttributeError:  # pragma: no cover
                 pass

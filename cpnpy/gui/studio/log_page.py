@@ -93,6 +93,8 @@ class LogPage(ConcealsResults, QWidget):
     status = Signal(str)
     #: Emitted after the log was exported; the document now lives in that file.
     saved = Signal()
+    #: The log was edited (Edit…): the document holds the new log.
+    edited = Signal()
 
     def __init__(self, document: LogDocument, parent=None) -> None:
         super().__init__(parent)
@@ -116,6 +118,9 @@ class LogPage(ConcealsResults, QWidget):
         self.classifier_box.currentIndexChanged.connect(self._classifier_changed)
         self.header.actions.addWidget(label("Classifier", "muted"))
         self.header.actions.addWidget(self.classifier_box)
+        self.edit_button = button("Edit…", self.edit_log,
+                                  tooltip="Change the log: its notation, or case by case")
+        self.header.actions.addWidget(self.edit_button)
         self.header.actions.addWidget(button("Filter…", self.filter_log,
                                              tooltip="Keep part of the log (variants, "
                                                      "activities, start/end, length, time) "
@@ -166,19 +171,47 @@ class LogPage(ConcealsResults, QWidget):
     def export(self) -> None:
         """Save the log as XES (or CSV).  The document then refers to that file,
         so it can be reopened at the next launch and removed without losing it."""
+        notation = "Textbook notation, activities only (*.log.txt)"
+        filters = ["XES (*.xes *.xes.gz)", "CSV, one row per event (*.csv)", notation]
+        if self.document.notation:                 # written in notation: offer that first
+            filters.insert(0, filters.pop())
         path, chosen = QFileDialog.getSaveFileName(
-            self, "Export event log", suggested_path(f"{self.document.name}.xes"),
-            "XES (*.xes *.xes.gz);;CSV, one row per event (*.csv)")
+            self, "Export event log", suggested_path(
+                f"{self.document.name}." + ("log.txt" if self.document.notation else "xes")),
+            ";;".join(filters))
         if not path:
             return
         if chosen.startswith("CSV") and not path.lower().endswith(".csv"):
             path += ".csv"
+        elif chosen.startswith("Textbook") and not path.lower().endswith(".log.txt"):
+            path = (path[:-4] if path.lower().endswith(".txt") else path) + ".log.txt"
         self.write_to(path)
 
+    def edit_log(self) -> bool:
+        """Edit the log (see :mod:`.log_editor`); True when it changed."""
+        from .log_editor import LogEditorDialog
+        dialog = LogEditorDialog(self.document, self)
+        if dialog.exec() != LogEditorDialog.Accepted or dialog.new_log is None:
+            return False
+        self.apply_edit(dialog.new_log, dialog.new_notation)
+        return True
+
+    def apply_edit(self, log, notation: str | None) -> None:
+        """Make ``log`` (written as ``notation``, if it is) the document's log."""
+        self.document.replace_log(log)
+        self.document.notation = notation
+        self.edited.emit()
+
     def write_to(self, path: str, quiet: bool = False) -> None:
-        """Save the log to ``path`` (XES, or CSV by its extension); it is then that file."""
+        """Save the log to ``path`` (XES, CSV, or notation for ``….log.txt``, by its
+        extension); it is then that file."""
         from .workspace import atomic_write
-        if path.lower().endswith(".csv"):
+        if path.lower().endswith(".txt"):
+            from ...mining.log import format_simple_log
+            text = self.document.notation or format_simple_log(self.document.simple_log())
+            atomic_write(path, lambda temporary: temporary.write_text(text.strip() + "\n",
+                                                                       encoding="utf-8"))
+        elif path.lower().endswith(".csv"):
             from ...mining.csv_import import write_csv
             atomic_write(path, lambda temporary: write_csv(self.document.log, temporary))
         else:

@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 from ..model.net import Arc, CPNet, Page, Place, Transition
 from . import arc_editing as edit
 from . import theme
-from .panning import MiddleButtonPan
+from .panning import CanvasPanning
 from .items import (
     PLAIN_PLACE, PLAIN_TRANSITION, ArcItem, PlaceItem, TransitionItem, to_model,
 )
@@ -1164,11 +1164,13 @@ class _ClickAway(QObject):
         return False
 
 
-class NetView(MiddleButtonPan, QGraphicsView):
-    """A viewport with zooming (floating − % + Fit bar, ⌘-scroll, pinch)
-    and panning (scroll, or drag with the middle button; see :mod:`.panning`)."""
+class NetView(CanvasPanning, QGraphicsView):
+    """An endless canvas with zooming (floating − % + Fit bar, ⌘-scroll, pinch,
+    all about the pointer) and panning (scroll, or drag with the middle button
+    or with Space held; see :mod:`.panning`)."""
 
     zoom_changed = Signal(float)
+    drawing_name = "Your net"
     MIN_ZOOM, MAX_ZOOM = 0.1, 5.0
     MIN_SCALE, MAX_SCALE = MIN_ZOOM, MAX_ZOOM      # older names
     STEP = 1.25
@@ -1200,6 +1202,7 @@ class NetView(MiddleButtonPan, QGraphicsView):
         self.viewport().setMouseTracking(True)      # the rubber-band arc follows the mouse
         #: The inline name editor while one is open.
         self.name_editor = None
+        self.init_canvas()
 
     # -- editing a name in place ------------------------------------------------
     def edit_text(self, centre: QPointF, text: str, done, min_width: float = 60.0) -> None:
@@ -1274,12 +1277,6 @@ class NetView(MiddleButtonPan, QGraphicsView):
             editor.deleteLater()
             self.setFocus()
 
-    def hold_still(self) -> None:
-        """Keep the drawing where it is on screen from now on, even if the
-        scene grows (as after panning; zooming to fit lets go again)."""
-        if not self._pan_following:
-            self._grow_pan_area()
-
     # -- zoom -----------------------------------------------------------------
     @property
     def _scale(self) -> float:
@@ -1288,17 +1285,16 @@ class NetView(MiddleButtonPan, QGraphicsView):
     def zoom(self) -> float:
         return self.transform().m11()
 
-    def zoom_by(self, factor: float, around_centre: bool = False) -> None:
+    def zoom_by(self, factor: float, around_centre: bool = False, at=None) -> None:
+        """Zoom by ``factor`` about the pointer (or ``at``, a viewport point),
+        or about the middle of the view."""
         self.auto_fit = False
         current = self.transform().m11()
         target = min(max(current * factor, self.MIN_ZOOM), self.MAX_ZOOM)
-        if around_centre:
-            anchor = self.transformationAnchor()
-            self.setTransformationAnchor(QGraphicsView.AnchorViewCenter)
-            self.scale(target / current, target / current)
-            self.setTransformationAnchor(anchor)
-        else:
-            self.scale(target / current, target / current)
+        if target == current:
+            return
+        self.zoom_about(target / current, QPointF(self.viewport().rect().center())
+                        if around_centre else at)
         self.zoom_changed.emit(target)
 
     def zoom_in(self) -> None:
@@ -1313,7 +1309,6 @@ class NetView(MiddleButtonPan, QGraphicsView):
     def zoom_to_fit(self) -> None:
         """Frame the whole page, within sensible magnification limits."""
         self.auto_fit = True
-        self.reset_pan_area()
         items_rect = self.scene().itemsBoundingRect()
         if items_rect.isEmpty():
             return
@@ -1334,17 +1329,18 @@ class NetView(MiddleButtonPan, QGraphicsView):
     def wheelEvent(self, event) -> None:  # noqa: N802
         """⌘/Ctrl + scroll zooms; plain scrolling pans, as in every Mac app."""
         if event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier):
-            self.zoom_by(1.0015 ** event.angleDelta().y())
+            self.zoom_by(1.0015 ** event.angleDelta().y(), at=event.position())
             event.accept()
             return
-        super().wheelEvent(event)
+        self.wheel_pan(event)
 
     def event(self, event) -> bool:
         # macOS trackpad pinch arrives as a native zoom gesture.
         if event.type() == event.Type.NativeGesture:
             try:
                 if event.gestureType() == Qt.ZoomNativeGesture:
-                    self.zoom_by(1 + event.value())
+                    self.zoom_by(1 + event.value(),
+                                 at=self.viewport().mapFromGlobal(event.globalPosition()))
                     return True
             except AttributeError:  # pragma: no cover
                 pass

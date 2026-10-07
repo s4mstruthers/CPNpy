@@ -240,3 +240,45 @@ def attach_definition(widget: QWidget, key: str | None, instance: list[str] | No
         target.installEventFilter(_ClickFilter(widget, definition, instance))
     widget.definition = definition
     return definition
+
+
+# ---------------------------------------------------------------------------
+# Guides: References, Writing Exercise Packs
+# ---------------------------------------------------------------------------
+GUIDES = {"references": "References", "exercise-packs": "Writing Exercise Packs"}
+_guides: dict[str, QDialog] = {}
+
+
+def guide_markdown(name: str) -> str:
+    """The text of a guide (Markdown)."""
+    if name == "references":
+        from ... import references
+        text = references.markdown()
+        return text.split("-->", 1)[-1].lstrip()
+    from pathlib import Path
+    from ...teaching import __file__ as teaching
+    return (Path(teaching).parent / f"{name}.md").read_text(encoding="utf-8")
+
+
+def show_guide(name: str, parent: QWidget | None = None) -> QDialog:
+    """Open (or raise) a guide in a window of its own."""
+    from .markdown_view import markdown_html
+    dialog = _guides.get(name)
+    if dialog is None:
+        dialog = QDialog(parent.window() if parent is not None else None)
+        dialog.setWindowTitle(GUIDES.get(name, name))
+        dialog.resize(760, 760)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        browser = QTextBrowser()
+        browser.setObjectName("guideBrowser")
+        browser.setOpenExternalLinks(True)
+        browser.setFrameShape(QFrame.NoFrame)
+        browser.setHtml(markdown_html(guide_markdown(name)))
+        layout.addWidget(browser)
+        dialog.browser = browser
+        _guides[name] = dialog
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    return dialog
