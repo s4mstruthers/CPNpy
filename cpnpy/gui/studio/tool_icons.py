@@ -89,3 +89,25 @@ def tool_cursor(kind: str) -> QCursor:
     _shape(painter, kind, 16, QColor(style.tokens().accent))
     painter.end()
     return QCursor(pixmap, 8, 8)
+
+
+def sidebar_icon() -> QIcon:
+    """A window with a pane on the left: the button that shows or hides the sidebar."""
+    pixmap = QPixmap(40, 40)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    colour = QColor(style.tokens().text_secondary)
+    pen = QPen(colour, 1.5)
+    pen.setJoinStyle(Qt.RoundJoin)
+    frame = QRectF(2.5, 4.5, 15, 11)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(colour.red(), colour.green(), colour.blue(), 60))
+    painter.drawRoundedRect(QRectF(frame.x(), frame.y(), 5.5, frame.height()), 2.5, 2.5)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(frame, 2.5, 2.5)
+    painter.drawLine(QPointF(8, frame.top()), QPointF(8, frame.bottom()))
+    painter.end()
+    return QIcon(pixmap)

@@ -6,6 +6,19 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.3.10
+
+- **Fixed:** in the net editor, dragging the gap between the canvas and the
+  inspector did nothing unless the window was very wide, and on a laptop
+  screen the inspector ran off the right edge behind a scroll bar. The
+  editor's tool buttons now wrap onto a second line when space is short, so
+  the page fits and the divider can be dragged.
+- **Hide the sidebar** with the new button at the top left of every page
+  (or View ▸ Show Sidebar, ⌘⌥S) to give the net the whole window. CPNpy
+  remembers your choice.
+- The arrow for drawing arcs now belongs to the node nearest the mouse; when
+  zoomed out it could pick a neighbouring one.
+
 ## 0.3.9
 
 - **Fixed:** adding a place or transition to a net saved in an earlier
