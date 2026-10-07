@@ -175,8 +175,8 @@ handling (unsound — try Analysis)**.
 2. Look through the tabs: *Overview*, *Variants*, *Cases*, *Dotted chart*,
    *Process map*, *Footprint*. **Filter…** keeps part of the log as a new
    log.
-3. On the *Discover* tab, pick an algorithm and press **Discover**. **Open as
-   model →** adds the result to the sidebar (under **MODELS**, or
+3. On the *Discover* tab, pick an algorithm: the model and how it was
+   derived update straight away. **Open as model →** adds the result to the sidebar (under **MODELS**, or
    **UNSAVED** in a folder until you press **Keep** to save it there).
 4. On the model's *Conformance* tab, choose a log and press **Check
    conformance**.

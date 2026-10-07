@@ -11,8 +11,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QComboBox, QFileDialog, QGridLayout, QHeaderView, QLabel,
-    QLineEdit, QPlainTextEdit, QRadioButton, QSlider, QSplitter, QStackedWidget, QTableView,
+    QAbstractItemView, QComboBox, QFileDialog, QGridLayout, QHeaderView, QLabel,
+    QGraphicsOpacityEffect, QLineEdit, QPlainTextEdit, QSlider, QSplitter, QStackedWidget, QTableView,
     QVBoxLayout, QWidget,
 )
 
@@ -39,6 +39,10 @@ from .widgets import (
     button, hbox, label, scroll, vbox,
 )
 from .workers import run_in_background
+
+def plural(count: int, singular: str, many: str | None = None) -> str:
+    return f"{count:,} {singular if count == 1 else many or singular + 's'}"
+
 
 TABS = ["Overview", "Variants", "Cases", "Dotted chart", "Process map", "Footprint", "Discover"]
 
@@ -480,12 +484,12 @@ class LogPage(QWidget):
     # -------------------------------------------------------------- discover
     def _build_discover(self, layout) -> None:
         algorithms = [
-            ("alpha", "α-algorithm", "Classic footprint-based miner. Shows the eight steps; "
-             "cannot handle short loops, noise or silent steps."),
             ("im", "Inductive Miner", "Divide-and-conquer on the DFG. Always sound, always fits "
              "the log perfectly."),
             ("imf", "Inductive Miner – infrequent", "IM with a noise filter: simpler models, "
              "fitness may drop slightly."),
+            ("alpha", "α-algorithm", "Classic footprint-based miner. Shows the eight steps; "
+             "cannot handle short loops, noise or silent steps."),
             ("heuristics", "Heuristics Miner",
              "Frequency-based dependency measures, robust to noise. Produces a dependency graph."),
             ("heuristics_net", "Heuristics Miner → Petri net",
@@ -498,81 +502,95 @@ class LogPage(QWidget):
                  "Full heuristics net with split/join semantics, converted by PM4Py."),
                 ("pm_ilp", "ILP Miner (PM4Py)", "Region-based miner via integer programming."),
             ]
+        names = {key: name for key, name, _ in algorithms}
+        descriptions = {key: text for key, _, text in algorithms}
 
-        chooser = Card("Algorithm")
-        group = QButtonGroup(chooser)
-        for index, (key, name, description) in enumerate(algorithms):
-            radio = QRadioButton(name)
-            radio.setProperty("key", key)
-            group.addButton(radio, index)
-            chooser.add(radio)
-            hint = label(description, "muted", wrap=True)
-            hint.setContentsMargins(26, 0, 0, 6)
-            chooser.add(hint)
-        group.button(1).setChecked(True)
+        # --- toolbar: algorithm, its parameter, and the way out to a model.
+        # A compact bar rather than a sidebar, so the model and its derivation
+        # get the whole width.
+        chooser = QComboBox()
+        for key, name, _ in algorithms:
+            chooser.addItem(name, key)
+        chooser.setSizeAdjustPolicy(QComboBox.AdjustToContents)
 
-        params = Card("Parameters")
-        noise = QSlider(Qt.Horizontal)
-        noise.setRange(0, 100)
-        noise.setValue(20)
-        noise_value = label("0.20", "muted")
-        noise.valueChanged.connect(lambda v: noise_value.setText(f"{v / 100:.2f}"))
-        dependency = QSlider(Qt.Horizontal)
-        dependency.setRange(0, 100)
-        dependency.setValue(50)
-        dependency_value = label("0.50", "muted")
-        dependency.valueChanged.connect(lambda v: dependency_value.setText(f"{v / 100:.2f}"))
-        noise_row = QWidget()
-        noise_row.setLayout(vbox(label("Noise threshold f"), hbox(noise, noise_value),
-                                 label("Edges weaker than f × the strongest outgoing edge are "
-                                       "ignored when no cut is found.", "muted", wrap=True)))
-        dependency_row = QWidget()
-        dependency_row.setLayout(vbox(label("Dependency threshold"), hbox(dependency, dependency_value),
-                                      label("Keep a → b when (|a>b| − |b>a|) / (|a>b| + |b>a| + 1) "
-                                            "reaches this value.", "muted", wrap=True)))
-        none_row = label("No parameters.", "muted")
-        params.add(noise_row)
-        params.add(dependency_row)
-        params.add(none_row)
+        def slider_row(text: str, value: int, tooltip: str):
+            slider = QSlider(Qt.Horizontal)
+            slider.setRange(0, 100)
+            slider.setValue(value)
+            slider.setFixedWidth(160)
+            # Rediscover when the slider is let go, not at every step of a drag.
+            slider.setTracking(False)
+            shown = label(f"{value / 100:.2f}", "muted")
+            slider.sliderMoved.connect(lambda v: shown.setText(f"{v / 100:.2f}"))
+            slider.valueChanged.connect(lambda v: shown.setText(f"{v / 100:.2f}"))
+            row = QWidget()
+            row.setLayout(hbox(label(text), slider, shown))
+            row.setToolTip(tooltip)
+            return slider, row
 
-        def update_params() -> None:
-            key = group.checkedButton().property("key")
-            noise_row.setVisible(key == "imf")
-            dependency_row.setVisible(key in ("heuristics", "heuristics_net", "pm_heuristics"))
-            none_row.setVisible(key not in ("imf", "heuristics", "heuristics_net",
-                                            "pm_heuristics"))
-        group.idToggled.connect(lambda *_: update_params())
-        update_params()
+        noise, noise_row = slider_row(
+            "Noise threshold f", 20,
+            "Edges weaker than f × the strongest outgoing edge are ignored when no cut is found.")
+        dependency, dependency_row = slider_row(
+            "Dependency threshold", 50,
+            "Keep a → b when (|a>b| − |b>a|) / (|a>b| + |b>a| + 1) reaches this value.")
 
-        run = button("Discover", kind="primary")
-        left_content = QWidget()
-        left_content.setLayout(vbox(chooser, params, run, None, spacing=12))
-        # Scrollable, so a short window never forces the page taller.
-        left = scroll(left_content)
-        left.setMinimumWidth(240)
-        left.setMaximumWidth(330)
-
-        # --- result side
-        result_card = Card("Result", "Choose an algorithm and press Discover.")
-        preview = GraphView()
-        preview.setMinimumHeight(140)
         open_button = button("Open as model  →", kind="primary")
         open_button.setEnabled(False)
-        result_card.header.addWidget(open_button)
+        toolbar = Card()
+        toolbar.body.addLayout(hbox(label("Algorithm"), chooser, 16, noise_row, dependency_row,
+                                    None, open_button, spacing=10))
+        description = label("", "muted", wrap=True)
+        toolbar.add(description)
+
+        def current_key() -> str:
+            return chooser.currentData()
+
+        def update_params() -> None:
+            key = current_key()
+            noise_row.setVisible(key == "imf")
+            dependency_row.setVisible(key in ("heuristics", "heuristics_net", "pm_heuristics"))
+            description.setText(descriptions[key])
+        update_params()
+
+        # --- result: the model beside how it was derived
+        result_card = Card("Model", " ")
+        caption = result_card.caption_label
+        preview = GraphView()
+        preview.setMinimumHeight(140)
         result_card.add(preview, 1)
         derivation_body = QWidget()
         steps_host = QVBoxLayout(derivation_body)
         steps_host.setContentsMargins(0, 0, 0, 0)
         derivation = Card("How it was derived")
-        derivation.add(scroll(derivation_body), 1)
-        derivation.setVisible(False)
-        right = QSplitter(Qt.Vertical)
-        right.addWidget(result_card)
-        right.addWidget(derivation)
-        right.setSizes([520, 260])
-        right.setStyleSheet("QSplitter::handle { background: transparent; }")
+        steps = scroll(derivation_body)
+        derivation.add(steps, 1)
+        derivation.setMinimumWidth(260)
+        results = QSplitter(Qt.Horizontal)
+        results.addWidget(result_card)
+        results.addWidget(derivation)
+        results.setStretchFactor(0, 3)
+        results.setStretchFactor(1, 2)
+        results.setSizes([600, 400])
+        results.setHandleWidth(14)
+        results.setStyleSheet("QSplitter::handle { background: transparent; }")
 
-        state: dict = {}
+        # Faded while a new model is on its way, so the old one reads as stale.
+        fades = []
+        for widget in (preview, steps):
+            fades.append(QGraphicsOpacityEffect(widget))
+            fades[-1].setEnabled(False)
+            widget.setGraphicsEffect(fades[-1])
+
+        def fade(opacity: float) -> None:
+            for effect in fades:
+                effect.setOpacity(opacity)
+                # Off when opaque: the views then paint exactly as elsewhere.
+                effect.setEnabled(opacity < 1.0)
+
+        # Only the newest request's result is shown, so quickly switching
+        # algorithms cannot leave an older model on screen.
+        state: dict = {"request": 0}
 
         def clear_steps() -> None:
             while steps_host.count():
@@ -582,21 +600,23 @@ class LogPage(QWidget):
                     item.widget().deleteLater()
 
         def show(result) -> None:
-            run.setEnabled(True)
-            run.setText("Discover")
-            key, payload = result
+            request, key, payload = result
+            if request != state["request"]:
+                return
+            fade(1.0)
             clear_steps()
             state["model"] = None
             log_name = self.document.name
             if key == "heuristics":
                 nodes, edges = dependency_specs(payload)
                 preview.graph.populate(nodes, edges)
-                derivation.setVisible(True)
                 steps_host.addWidget(label(
                     "Dependency graph: edge labels are a ⇒ b values. It has no split/join "
                     "semantics, so it is not a Petri net — “Heuristics Miner → Petri net” "
                     "learns those from the log.", "muted", wrap=True))
                 open_button.setEnabled(False)
+                size = (f"{plural(len(payload.activities), 'activity', 'activities')} · "
+                        f"{plural(len(payload.edges), 'dependency', 'dependencies')}")
             else:
                 net = payload.net if hasattr(payload, "net") else payload
                 net.name = f"{net.info.get('algorithm', 'Model')} · {log_name}"
@@ -606,22 +626,32 @@ class LogPage(QWidget):
                                                f"“{log_name}”", derivation=payload,
                                                source_log=self.document)
                 open_button.setEnabled(True)
-                derivation.setVisible(True)
                 steps_host.addWidget(derivation_widget(payload))
+                silent = sum(t.silent for t in net.transitions.values())
+                size = " · ".join(filter(None, [
+                    plural(len(net.places), "place"),
+                    plural(len(net.transitions) - silent, "transition"),
+                    silent and f"{silent} silent",
+                    plural(len(net.arcs), "arc"),
+                ]))
             steps_host.addStretch(1)
             preview.fit()
-            result_card.findChild(QLabel, "cardCaption").setText(
-                f"{dict((a[0], a[1]) for a in algorithms)[key]} on “{log_name}”")
+            caption.setText(size)
 
-        def failed(message: str) -> None:
-            run.setEnabled(True)
-            run.setText("Discover")
+        def failed(request: int, key: str, message: str) -> None:
+            if request != state["request"]:
+                return
+            fade(1.0)
             clear_steps()
-            derivation.setVisible(True)
+            preview.graph.populate([], [])
+            state["model"] = None
+            open_button.setEnabled(False)
+            caption.setText(f"{names[key]} found no model")
             steps_host.addWidget(Verdict("Discovery failed", "critical", message))
+            steps_host.addStretch(1)
 
         def discover() -> None:
-            key = group.checkedButton().property("key")
+            key = current_key()
             simple = self.document.simple_log()
             f, d = noise.value() / 100, dependency.value() / 100
             functions = {
@@ -633,22 +663,23 @@ class LogPage(QWidget):
                 "pm_heuristics": lambda: pm4py_bridge.heuristics_petri_net(simple, d),
                 "pm_ilp": lambda: pm4py_bridge.ilp_petri_net(simple),
             }
-            run.setEnabled(False)
-            run.setText("Discovering…")
-            run_in_background(lambda: (key, functions[key]()), show, failed)
+            state["request"] += 1
+            request = state["request"]
+            # The previous model stays up until the new one arrives.
+            open_button.setEnabled(False)
+            fade(0.35)
+            caption.setText(f"Discovering with {names[key]}…")
+            run_in_background(lambda: (request, key, functions[key]()), show,
+                              lambda message: failed(request, key, message))
 
-        run.clicked.connect(discover)
+        # Rediscover whenever the choice changes.
+        chooser.currentIndexChanged.connect(lambda _i: (update_params(), discover()))
+        noise.valueChanged.connect(lambda _v: discover())
+        dependency.valueChanged.connect(lambda _v: discover())
         open_button.clicked.connect(lambda: state.get("model") and self.open_model.emit(state["model"]))
 
-        splitter = QSplitter()
-        splitter.addWidget(left)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([310, 1000])
-        splitter.setHandleWidth(14)
-        splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
-        layout.addWidget(splitter, 1)
+        layout.addWidget(toolbar)
+        layout.addWidget(results, 1)
         discover()
 
 
