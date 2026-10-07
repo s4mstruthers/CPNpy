@@ -6,7 +6,7 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
-## Unreleased
+## 0.5.0
 
 - **Exercise mode.** Exercises now open in a view of their own, made for
   working through them: the worksheet on the left with an answer box
