@@ -335,19 +335,33 @@ def test_a_mistake_in_a_sheet_is_shown_not_hidden(app, tmp_path):
     window.close()
 
 
-def test_open_demo_exercises_updates_an_old_copy(app, tmp_path, monkeypatch):
+def test_open_demo_exercises_asks_where_and_updates_an_old_copy(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
     from cpnpy.gui.studio.app import StudioWindow
-    target = tmp_path / "CPNpy Exercises"
-    old = target / "1 Petri nets" / "Exercise 1.1 Order handling"
+
+    # First time: you choose the folder; cancelling copies nothing.
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")
+    window = _window()
+    window.open_demo_exercises()
+    assert not window.in_exercises and not list(tmp_path.iterdir())
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+    window.open_demo_exercises()
+    target = tmp_path / "CPNpy Demo Exercises"
+    assert (target / "pack.md").exists() and window.in_exercises
+    assert window.workspace is None                  # your folder is left as it was
+    window.close()
+
+    # A copy made by an older version is brought up to date; yours stays.
+    old = tmp_path / "old" / "1 Petri nets" / "Exercise 1.1 Order handling"
     old.mkdir(parents=True)
     (old / "question.md").write_text("# Old\n\nDraw it.")
     (old / "my answer.pnml").write_text("mine")
-    monkeypatch.setattr(StudioWindow, "demo_exercises_target", lambda self: target)
+    monkeypatch.setattr(StudioWindow, "demo_exercises_target",
+                        lambda self: tmp_path / "old")
     window = _window()
     window.open_demo_exercises()
-    assert (target / "pack.md").exists()
     assert "```answer" in (old / "question.md").read_text()
-    assert (old / "my answer.pnml").read_text() == "mine"           # yours stays
+    assert (old / "my answer.pnml").read_text() == "mine"
     assert window.in_exercises and len(window.exercise_mode.pack.exercises) == 4
     window.close()
 
@@ -426,3 +440,34 @@ def test_references_doc_is_up_to_date():
     path = Path(__file__).resolve().parents[1] / "docs" / "references.md"
     assert path.read_text(encoding="utf-8") == references.markdown(), \
         "regenerate with: python -m cpnpy.references > docs/references.md"
+
+
+def test_old_style_parts_get_boxes_and_notes_are_kept(app, tmp_path):
+    """A sheet written before answer blocks gets a box under each lettered part,
+    with that part of answer.md as its model answer; Notes are saved."""
+    folder = tmp_path / "Ex"
+    folder.mkdir()
+    (folder / "question.md").write_text(
+        "# Flaw\n\nThe net.\n\na. Is it a WF-net?\n\nb. Change the net so that it is "
+        "sound.\n")
+    (folder / "answer.md").write_text("**a.** Yes.\n\n**b.** Merge c2 and c3.\n")
+    shutil.copy(DEMO / "2 Soundness" / "Exercise 2.1 Spot the flaw" / "net.pnml", folder)
+    window = _window()
+    window.open_exercise(folder)
+    mode = window.exercise_mode
+    first, second = _cards(window)
+    assert (first.task.type, second.task.type) == ("open", "net")
+    first.reveal_solution()
+    assert "Yes." in first.solution_label.body.plain_text()
+
+    view = mode.view
+    assert not view.notes_visible
+    mode.notes_button.click()
+    assert view.notes_visible and mode.notes_open
+    view.notes.setPlainText("[i] -register-> [c1]")
+    mode.show_home()                                   # leaving saves them
+    assert (folder / "my notes.md").read_text() == "[i] -register-> [c1]"
+    mode.close_view()
+    mode.open_index(0)
+    assert mode.view.notes_visible and "register" in mode.view.notes.toPlainText()
+    window.close()

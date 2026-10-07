@@ -262,6 +262,9 @@ def stylesheet() -> str:
     #sheetProblem {{ color: {t.text}; background: {qc(STATUS["warning"], 0.16).name(QColor.HexArgb)};
         border-radius: 8px; padding: 8px 10px; }}
     QLabel#markdown {{ font-size: 14px; line-height: 150%; }}
+    #notesPanel {{ background: {t.page}; border-top: 1px solid {t.border}; }}
+    QPlainTextEdit#notesEdit {{ font-size: 14px; padding: 8px 10px; }}
+    #exerciseBarButton:checked {{ background: {t.accent_soft}; color: {t.text}; }}
     #taskCard {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 12px; }}
     #taskCard[state="good"] {{ border-color: {qc(STATUS["good"], 0.55).name(QColor.HexArgb)}; }}
     #taskCard[state="critical"] {{ border-color: {qc(STATUS["critical"], 0.45).name(QColor.HexArgb)}; }}

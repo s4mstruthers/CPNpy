@@ -467,8 +467,9 @@ The app follows the system's light or dark appearance:
 ## Exercises
 
 Click an exercise folder in the sidebar, **File ▸ Open Exercise Pack…**, or
-**File ▸ Open Demo Exercises**: the window switches to **exercise mode**, a
-view made for working through a pack without distractions.
+**File ▸ Open Demo Exercises** (it asks where to put a copy, since your
+answers are saved next to the exercises): the window switches to **exercise
+mode**, a view made for working through a pack without distractions.
 
 - **The worksheet** on the left is the question top to bottom, with an
   answer box wherever one is needed: yes/no, multiple choice, a set
@@ -485,8 +486,11 @@ view made for working through a pack without distractions.
   transition system, the given net (to play, not change), and your own net.
   Results that would give answers away — soundness, the footprint,
   discovered models, regions… — stay hidden until you reveal them.
+- **Notes** (✎ in the top bar) opens scratch paper under the worksheet for
+  working things out — markings, firing sequences, sets — kept with the
+  exercise.
 - **Your work is saved as you go**, in the exercise's folder:
-  `my answers.json`, and `my answer.pnml` for a net. The top bar shows your
+  `my answers.json`, `my answer.pnml` for a net, and `my notes.md`. The top bar shows your
   progress through the pack and steps between exercises; *Exit* returns to
   your folder exactly as it was.
 
@@ -509,8 +513,8 @@ fitness…), so most answers need not be written by hand. **Help ▸ Writing
 Exercise Packs** ([cpnpy/teaching/exercise-packs.md](cpnpy/teaching/exercise-packs.md))
 lists every box type and computed answer, and `cpnpy exercises check <pack>`
 reports mistakes in a pack before you share it. Exercises written for
-earlier versions (a `question.md` with `answer.pnml` or `answer.md`) still
-work.
+earlier versions still work: a sheet written in lettered parts (a., b., …)
+gets a box under each part, with that part of `answer.md` as its model answer.
 
 ---
 

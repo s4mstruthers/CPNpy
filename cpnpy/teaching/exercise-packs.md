@@ -26,8 +26,8 @@ Week 3 — Discovery/
   `[<a,b,c>^3, <a,c>]`), `log.xes` or `log.csv`; `net.pnml`; `ts.txt`
   (`s0 -a-> s1`, one per line or comma-separated, plus `initial: s0`). They are
   opened beside the worksheet. Other files can be referred to by name.
-- Students' work is saved next to the question: `my answers.json`, and
-  `my answer.pnml` for a drawn net. Delete them to reset an exercise; leave
+- Students' work is saved next to the question: `my answers.json`,
+  `my answer.pnml` for a drawn net and `my notes.md` for their scratch notes. Delete them to reset an exercise; leave
   them out when you share the pack.
 
 ## The worksheet
@@ -138,6 +138,9 @@ their line numbers. Add `--answers` to print the right answers.
 
 ## Older exercises
 
-An exercise without answer blocks still works: with an `answer.pnml` the
-student draws a net that is compared with it; with only an `answer.md`, that
-file is the worked answer, hidden until asked for.
+An exercise without answer blocks still works. A sheet written in lettered
+parts (`a.`, `b.`, … at the start of a paragraph) gets a box under each part:
+the net editor for the part that asks to draw or change a net, a text box for
+the others, each with the same part of `answer.md` (`**a.** …`) as its model
+answer. Otherwise, with an `answer.pnml` the student draws a net that is
+compared with it, and with only an `answer.md` that file is the worked answer.

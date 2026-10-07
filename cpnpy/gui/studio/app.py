@@ -3370,14 +3370,25 @@ class StudioWindow(QMainWindow):
         """The demo exercises that ship with CPNpy (read-only in an installed app)."""
         return Path(__file__).resolve().parents[2] / "exercises"
 
-    def demo_exercises_target(self) -> Path:
-        """Where the demo exercises are copied, so your answers can be saved."""
-        documents = Path.home() / "Documents"
-        return (documents if documents.is_dir() else Path.home()) / "CPNpy Exercises"
+    def demo_exercises_target(self) -> Path | None:
+        """Where the demo exercises are copied (so your answers can be saved): the
+        copy made before, else a folder you choose now (None: you cancelled)."""
+        remembered = self._setting("exercises/demo_copy", "")
+        if remembered and Path(remembered).is_dir():
+            return Path(remembered)
+        start = str(self.workspace.folder) if self.workspace else dialog_folder()
+        parent = QFileDialog.getExistingDirectory(
+            self, "Where should the demo exercises go? (Your answers are saved there.)",
+            start or str(Path.home()))
+        if not parent:
+            return None
+        return unique_path(parent, "CPNpy Demo Exercises")
 
     def open_demo_exercises(self) -> None:
-        """Copy the demo exercises to Documents (once) and do them."""
+        """Copy the demo exercises (once, where you say) and do them."""
         target = self.demo_exercises_target()
+        if target is None:
+            return
         source = self.demo_exercises_source()
         try:
             if not target.exists():
@@ -3391,10 +3402,7 @@ class StudioWindow(QMainWindow):
             QMessageBox.warning(self, "Demo exercises", f"Could not copy the demo "
                                 f"exercises to {target}:\n\n{error}")
             return
-        if self.workspace is None or self._key(self.workspace.folder) != self._key(target):
-            if not self.open_workspace(str(target)):
-                return
-            self.set_view_mode("folder")
+        self._set_setting("exercises/demo_copy", str(target))
         self.open_exercise(target)
 
     def open_exercise(self, folder: str | Path) -> bool:

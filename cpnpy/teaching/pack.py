@@ -18,8 +18,8 @@ exercise.  Exercises and chapters are listed in name order, numbers sorted
 as numbers (Exercise 2 before Exercise 10).
 
 The student's work is stored next to the question: ``my answers.json``
-(every typed answer and whether it was right) and ``my answer.pnml`` for a
-drawn net.  Delete those files to start an exercise again.
+(every typed answer and whether it was right), ``my answer.pnml`` for a
+drawn net, and ``my notes.md`` for scratch notes.  Delete those files to start an exercise again.
 """
 
 from __future__ import annotations
@@ -41,6 +41,8 @@ ANSWER_FILES = {"answer.pnml", "answer.md"}
 MY_ANSWER = "my answer.pnml"
 #: Your typed answers and how they did.
 MY_ANSWERS = "my answers.json"
+#: Your scratch notes (the Notes pane).
+MY_NOTES = "my notes.md"
 #: The optional title page of a pack.
 PACK_FILE = "pack.md"
 
@@ -164,8 +166,42 @@ class Exercise:
         else:
             sheet = Sheet(self.folder.name, [])        # a PDF or picture: shown as it is
         if not sheet.tasks:
-            sheet.blocks += self._tasks_from_files()
+            parts = split_parts(sheet.blocks[0]) if len(sheet.blocks) == 1 else []
+            if len(parts) >= 2:
+                sheet.blocks = self._boxes_for_parts(parts)
+            else:
+                sheet.blocks += self._tasks_from_files()
         return sheet
+
+    def _boxes_for_parts(self, parts: list[tuple[str, str]]) -> list:
+        """An exercise written before answer blocks, in lettered parts (a., b., …):
+        a box under each part.  The part that asks for a net to be drawn or
+        changed gets the net editor; the others a text box, with that part of
+        ``answer.md`` as its model answer."""
+        files = self.files
+        solutions = {}
+        if files.answer_text is not None:
+            text = files.answer_text.read_text(encoding="utf-8", errors="replace")
+            solutions = {letter: body for letter, body in split_parts(text) if letter}
+        has_net = files.net is not None or files.answer_net is not None
+        drawing = [letter for letter, body in parts if letter and DRAWING.search(body)]
+        net_part = drawing[-1] if has_net and drawing else None
+        blocks: list = []
+        for letter, body in parts:
+            blocks.append(body)
+            if not letter:
+                continue
+            if letter == net_part:
+                settings = {"answer": files.answer_net.name} if files.answer_net else {}
+                if letter in solutions:
+                    settings["solution"] = solutions[letter]
+                blocks.append(Task("net", letter, settings=settings))
+            else:
+                settings = {"solution": solutions[letter]} if letter in solutions else {}
+                blocks.append(Task("open", letter, settings=settings))
+        if has_net and net_part is None:
+            blocks += self._tasks_from_files()[:1]
+        return blocks
 
     def _tasks_from_files(self) -> list[Task]:
         """An exercise written before answer blocks: a net to draw if there is
@@ -218,6 +254,28 @@ class Exercise:
         temporary.write_text(text, encoding="utf-8")
         os.replace(temporary, self.progress_file)
 
+    @property
+    def notes_file(self) -> Path:
+        return self.folder / MY_NOTES
+
+    def load_notes(self) -> str:
+        try:
+            return self.notes_file.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def save_notes(self, text: str) -> None:
+        """Keep the notes (an empty pad leaves no file behind)."""
+        if not text.strip():
+            try:
+                self.notes_file.unlink()
+            except OSError:
+                pass
+            return
+        temporary = self.notes_file.with_name("." + MY_NOTES + ".tmp")
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, self.notes_file)
+
     def summary(self, progress: dict | None = None) -> "ProgressSummary":
         progress = self.load_progress() if progress is None else progress
         tasks = self.sheet.tasks
@@ -227,8 +285,9 @@ class Exercise:
         return ProgressSummary(len(tasks), len(done), len(tried))
 
     def reset(self) -> None:
-        """Start again: your answers and nets go."""
-        for path in [self.progress_file] + [self.answer_net_path(t) for t in self.net_tasks()]:
+        """Start again: your answers, nets and notes go."""
+        for path in [self.progress_file, self.notes_file] + \
+                [self.answer_net_path(t) for t in self.net_tasks()]:
             try:
                 path.unlink()
             except OSError:
@@ -277,6 +336,33 @@ class Pack:
         key = Path(folder).resolve()
         return next((i for i, e in enumerate(self.exercises) if e.folder.resolve() == key),
                     None)
+
+
+#: The start of a lettered part: "a.", "a)", "**a.**", "(a)".
+PART = re.compile(r"^\s*(?:\*\*)?\(?([a-h])[.)](?:\*\*)?\s+", re.M)
+#: A part that asks for a net to be drawn or changed.
+DRAWING = re.compile(r"\b(draw|change|repair|fix|model|construct)\b.*\bnet\b|"
+                     r"\bnet\b.*\b(draw|change|repair|fix)\b", re.I | re.S)
+
+
+def split_parts(text: str) -> list[tuple[str, str]]:
+    """Markdown split at its lettered parts: ``[("", intro), ("a", "a. …"), …]``.
+    A part starts a paragraph with its letter; the letters must run a, b, c…"""
+    paragraphs = re.split(r"(\n\s*\n)", text)
+    parts: list[tuple[str, str]] = [("", "")]
+    expected = "a"
+    for paragraph in paragraphs:
+        match = PART.match(paragraph)
+        if match and match.group(1) == expected:
+            parts.append((expected, paragraph))
+            expected = chr(ord(expected) + 1)
+        else:
+            letter, body = parts[-1]
+            parts[-1] = (letter, body + paragraph)
+    parts = [(letter, body.strip()) for letter, body in parts]
+    if not parts[0][1]:
+        parts = parts[1:]
+    return parts if len(parts) > 1 or (parts and parts[0][0]) else []
 
 
 def find_exercises(root: Path, depth: int = 0) -> list[Path]:

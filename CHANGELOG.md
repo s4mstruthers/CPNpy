@@ -6,6 +6,18 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## Unreleased
+
+- **Notes in exercises.** ✎ *Notes* in the top bar opens scratch paper under
+  the worksheet, for working things out before you answer. It is kept with
+  the exercise (*my notes.md*).
+- **Older exercises are easier to answer.** A sheet written before answer
+  boxes, in parts a., b., c., now has a box under each part, with that part
+  of the worked answer behind *Show answer*.
+- **The demo exercises go where you say.** *Open Demo Exercises* asks where
+  to put its copy (nothing is copied until you choose), remembers it, and no
+  longer switches the folder you are working in.
+
 ## 0.5.0
 
 - **Exercise mode.** Exercises now open in a view of their own, made for
