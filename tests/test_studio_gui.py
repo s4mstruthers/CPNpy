@@ -1490,6 +1490,18 @@ def test_the_canvas_is_endless(app, which):
     assert view.zoom() > zoom
     after = view.mapFromScene(under)
     assert abs(after.x() - pointer[0]) <= 1 and abs(after.y() - pointer[1]) <= 1
+
+    # Panned right out of view: a hint points back to it, and brings it back.
+    _pump(app, 0.1)
+    assert view.offscreen_hint.isHidden()
+    view.pan_by(-5000, 0)                        # the drawing is now far to the left
+    _pump(app, 0.1)
+    assert view.offscreen_hint.isVisible() and view.offscreen_hint.text().startswith("←")
+    view.offscreen_hint.click()
+    _pump(app, 0.1)
+    assert view.offscreen_hint.isHidden()
+    assert view.viewport().rect().intersects(
+        view.mapFromScene(view.scene().itemsBoundingRect()).boundingRect())
     if which == "graph":
         view.close()
     window.close()

@@ -231,6 +231,11 @@ def stylesheet() -> str:
     #sectionLabel {{ color: {t.text_muted}; font-size: 11px; font-weight: 700;
                      letter-spacing: 0.6px; }}
 
+    /* The canvas's "out of view — show it" hint (see panning.py). */
+    QPushButton#offscreenHint {{ background: {t.accent}; border: none; color: {t.accent_text};
+        border-radius: 13px; padding: 5px 14px; font-weight: 600; }}
+    QPushButton#offscreenHint:hover {{ background: {QColor(t.accent).lighter(110).name()}; }}
+
     /* ---- exercise mode -------------------------------------------------------- */
     #exerciseBar {{ background: {t.page}; border-bottom: 1px solid {t.border}; }}
     #exerciseWhere {{ color: {t.text_secondary}; font-weight: 600; }}

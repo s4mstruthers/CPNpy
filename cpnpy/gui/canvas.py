@@ -1170,6 +1170,7 @@ class NetView(CanvasPanning, QGraphicsView):
     or with Space held; see :mod:`.panning`)."""
 
     zoom_changed = Signal(float)
+    drawing_name = "Your net"
     MIN_ZOOM, MAX_ZOOM = 0.1, 5.0
     MIN_SCALE, MAX_SCALE = MIN_ZOOM, MAX_ZOOM      # older names
     STEP = 1.25

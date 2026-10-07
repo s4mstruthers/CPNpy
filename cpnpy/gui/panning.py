@@ -18,13 +18,24 @@ canvas behaves like a sheet of paper that goes on in every direction:
   (:meth:`CanvasPanning.zoom_about`).
 
 Zooming to fit just frames the drawing; nothing has to be reset.
+
+The drawing can never be lost, but it can be panned out of view: then a
+hint at the top of the canvas says so, with an arrow pointing to where it
+is, and clicking it frames the drawing again (as *Fit* does).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+import math
+
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtWidgets import QGraphicsView, QPushButton
+
+#: Arrows pointing from the middle of the view towards the drawing, by
+#: eighths of a turn, starting east and going clockwise (screen y points down).
+ARROWS = "→↘↓↙←↖↑↗"
+
 
 #: Half the side of the canvas, in scene units: far more than any net needs,
 #: small enough that the scroll range fits in an int at the largest zoom.
@@ -39,6 +50,8 @@ class CanvasPanning:
     _pan_cursor = None          # the (tool's) cursor to put back afterwards
     _space_held = False         # Space is down: a left drag pans
     _space_cursor = None
+    #: What the off-screen hint calls the drawing.
+    drawing_name = "The drawing"
 
     def init_canvas(self) -> None:
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -46,6 +59,55 @@ class CanvasPanning:
         self.setSceneRect(QRectF(-EXTENT, -EXTENT, 2 * EXTENT, 2 * EXTENT))
         # The anchor for zooming needs to know where the pointer is.
         self.viewport().setMouseTracking(True)
+        # The hint shown when the drawing is out of view.
+        self.offscreen_hint = QPushButton(self)
+        self.offscreen_hint.setObjectName("offscreenHint")
+        self.offscreen_hint.setCursor(Qt.PointingHandCursor)
+        self.offscreen_hint.setToolTip("Frame the whole drawing again (Fit)")
+        self.offscreen_hint.clicked.connect(self.show_drawing)
+        self.offscreen_hint.hide()
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setSingleShot(True)
+        self._hint_timer.setInterval(30)
+        self._hint_timer.timeout.connect(self.update_offscreen_hint)
+        self.horizontalScrollBar().valueChanged.connect(lambda _value: self._hint_timer.start())
+        self.verticalScrollBar().valueChanged.connect(lambda _value: self._hint_timer.start())
+        if self.scene() is not None:
+            self.scene().changed.connect(lambda _rects: self._hint_timer.start())
+
+    # -- the drawing out of view ------------------------------------------------------
+    def show_drawing(self) -> None:
+        """Frame the whole drawing (the view's own Fit)."""
+        fit = getattr(self, "zoom_to_fit", None) or getattr(self, "fit", None)
+        if fit is not None:
+            fit()
+        self.update_offscreen_hint()
+
+    def update_offscreen_hint(self) -> None:
+        """Show the hint, pointing the right way, while none of the drawing is in view."""
+        hint = getattr(self, "offscreen_hint", None)
+        if hint is None or self.scene() is None:
+            return
+        drawing = self.scene().itemsBoundingRect()
+        visible = self.mapToScene(self.viewport().rect()).boundingRect()
+        if drawing.isEmpty() or visible.intersects(drawing):
+            hint.hide()
+            return
+        offset = self.mapFromScene(drawing.center()) - self.viewport().rect().center()
+        angle = math.degrees(math.atan2(offset.y(), offset.x())) % 360
+        arrow = ARROWS[round(angle / 45) % 8]
+        hint.setText(f"{arrow}   {self.drawing_name} is out of view — show it")
+        hint.adjustSize()
+        area = self.viewport().geometry()
+        hint.move(area.center().x() - hint.width() // 2, area.top() + 12)
+        hint.show()
+        hint.raise_()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        timer = getattr(self, "_hint_timer", None)
+        if timer is not None:
+            timer.start()
 
     # -- dragging -------------------------------------------------------------------
     def _starts_pan(self, event) -> bool:
@@ -158,6 +220,8 @@ class CanvasPanning:
         self.setTransformationAnchor(QGraphicsView.NoAnchor)
         before = self.mapToScene(point.toPoint())
         self.scale(ratio, ratio)
+        if getattr(self, "_hint_timer", None) is not None:
+            self._hint_timer.start()
         after = self.mapFromScene(before)
         self.horizontalScrollBar().setValue(self.horizontalScrollBar().value()
                                             + after.x() - round(point.x()))

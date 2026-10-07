@@ -35,6 +35,8 @@ notice, not how it was done.
   make room to start a new part beside it. Hold Space and drag to pan with
   the mouse. Zooming with ⌘-scroll or a pinch keeps the point under the
   pointer where it is.
+  Pan the net right out of view and a button at the top of the canvas
+  points to where it went; click it to bring it back.
 - **Help ▸ References** lists the books, papers and standards behind every
   notation and algorithm in CPNpy (also in `docs/references.md`).
 
