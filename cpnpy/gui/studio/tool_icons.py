@@ -111,3 +111,24 @@ def sidebar_icon() -> QIcon:
     painter.drawLine(QPointF(8, frame.top()), QPointF(8, frame.bottom()))
     painter.end()
     return QIcon(pixmap)
+
+
+def question_icon() -> QIcon:
+    """A sheet with a question mark: the button that brings back an exercise's question."""
+    pixmap = QPixmap(40, 40)
+    pixmap.setDevicePixelRatio(2.0)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    colour = QColor(style.tokens().text_secondary)
+    pen = QPen(colour, 1.5)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.drawRoundedRect(QRectF(4.5, 2.5, 11, 15), 2.5, 2.5)
+    font = painter.font()
+    font.setBold(True)
+    font.setPixelSize(10)
+    painter.setFont(font)
+    painter.drawText(QRectF(4.5, 2.5, 11, 15), Qt.AlignCenter, "?")
+    painter.end()
+    return QIcon(pixmap)

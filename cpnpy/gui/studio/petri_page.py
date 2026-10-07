@@ -151,7 +151,7 @@ class PetriNetPage(ConcealsResults, CpnPage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         self.inspector_tabs = SegmentedControl(self.INSPECTOR, compact=True)
-        host.setMinimumWidth(max(360, self.inspector_tabs.sizeHint().width() + 24))
+        host.setMinimumWidth(max(300, self.inspector_tabs.sizeHint().width() + 24))
         layout.addLayout(hbox(self.inspector_tabs, None))
         self.inspector_stack = QStackedWidget()
         for build in (self._build_simulation_tab, self._build_element_tab,

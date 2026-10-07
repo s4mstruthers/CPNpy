@@ -207,11 +207,13 @@ class ExercisePanel(QFrame):
 
     check_requested = Signal()
     close_requested = Signal()
+    #: Fold the panel away (the window's rail brings it back).
+    collapse_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("exercisePanel")
-        self.setMinimumWidth(280)
+        self.setMinimumWidth(250)
         self.setMaximumWidth(580)
         self.files = None
         self.concealment = None
@@ -223,32 +225,36 @@ class ExercisePanel(QFrame):
         question_card = Card()
         caption = label("EXERCISE", "sidebarCaption")
         self.title = label("", "exerciseTitle", wrap=True)
-        close = QToolButton()
-        close.setObjectName("exerciseClose")
-        close.setText("✕")
-        close.setToolTip("Close the exercise (results are no longer hidden)")
-        close.setCursor(Qt.PointingHandCursor)
-        close.clicked.connect(self.close_requested.emit)
+        def header_button(text: str, tooltip: str, slot) -> QToolButton:
+            tool = QToolButton()
+            tool.setObjectName("exerciseClose")
+            tool.setText(text)
+            tool.setToolTip(tooltip)
+            tool.setCursor(Qt.PointingHandCursor)
+            tool.clicked.connect(slot)
+            return tool
+        collapse = header_button("‹", "Fold the question away (the ? at the left edge "
+                                 "brings it back)", self.collapse_requested.emit)
+        close = header_button("✕", "Close the exercise (results are no longer hidden)",
+                              self.close_requested.emit)
         heading = QVBoxLayout()
         heading.setSpacing(2)
         heading.addWidget(caption)
         heading.addWidget(self.title)
-        top = hbox(spacing=6)
+        top = hbox(spacing=2)
         top.addLayout(heading, 1)
+        top.addWidget(collapse, 0, Qt.AlignTop)
         top.addWidget(close, 0, Qt.AlignTop)
         question_card.add(top)
         self.question_host = QVBoxLayout()
         self.question_host.setContentsMargins(0, 0, 0, 0)
         question_card.add(self.question_host, 1)
 
-        # Check and Reveal all.
-        actions = Card(padding=12)
+        # Check and Reveal all, at the foot of the question.
         self.check_button = button("Check", self.check_requested.emit, kind="primary")
         self.reveal_button = button("Reveal all", self._reveal_all,
                                     tooltip="Show every analysis result this exercise hides")
-        actions.add(hbox(self.check_button, self.reveal_button, None))
-        self.hint = label("", "muted", wrap=True)
-        actions.add(self.hint)
+        question_card.add(hbox(self.check_button, self.reveal_button, None))
 
         # What Check found (shown once there is something).
         self.result_card = Card("Result", padding=12)
@@ -263,7 +269,6 @@ class ExercisePanel(QFrame):
         lower.setLayout(QVBoxLayout())
         lower.layout().setContentsMargins(0, 0, 0, 0)
         lower.layout().setSpacing(10)
-        lower.layout().addWidget(actions)
         lower.layout().addWidget(self.result_card, 1)
         lower.layout().addStretch(0)
         self.result_card.setHidden(True)
@@ -310,16 +315,14 @@ class ExercisePanel(QFrame):
             self.question_host.addWidget(self.question)
         if files.answer_net is not None:
             self.check_button.setText("Check")
-            self.check_button.setToolTip("Compare your net with the model answer")
-            self.hint.setText("Check compares your net with the model answer on behaviour.")
+            self.check_button.setToolTip("Compare your net with the model answer on what it can do, not how it is drawn")
         elif files.answer_text is not None:
             self.check_button.setText("Show answer")
-            self.check_button.setToolTip("Reveal the worked answer")
-            self.hint.setText("Work it out first, then show the worked answer.")
+            self.check_button.setToolTip("Work it out first, then show the worked answer")
         else:
             self.check_button.setText("Check")
             self.check_button.setEnabled(False)
-            self.hint.setText("This exercise has no answer to check against.")
+            self.check_button.setToolTip("This exercise has no answer to check against")
         if files.answer_net is not None or files.answer_text is not None:
             self.check_button.setEnabled(True)
         self._follow()
