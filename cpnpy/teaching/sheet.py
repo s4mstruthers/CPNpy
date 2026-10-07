@@ -53,7 +53,9 @@ _FENCE = re.compile(r"^(```+|~~~+)\s*answer\s*$", re.I)
 _OPTION = re.compile(r"^-\s*\[( |x|X)\]\s*(.+)$")
 _ITEM = re.compile(r"^-\s+(.+)$")
 _KEY = re.compile(r"^([A-Za-z_]+)\s*:\s?(.*)$")
-_COMMENT = re.compile(r"\s+#\s.*$")
+#: "start: net.pnml   # a comment" -- at least two spaces before the #, because
+#: "a # b" is the α-algorithm's choice relation, often written in an answer.
+_COMMENT = re.compile(r"\s{2,}#\s.*$")
 
 
 class SheetError(ValueError):

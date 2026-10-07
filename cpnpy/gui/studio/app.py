@@ -503,6 +503,8 @@ class StudioWindow(QMainWindow):
         self.exercise_mode = ExerciseMode()
         self.exercise_mode.exit_requested.connect(self.leave_exercises)
         self.exercise_mode.status.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        self.exercise_mode.title_changed.connect(
+            lambda title: self.in_exercises and self.setWindowTitle(title))
         self.modes = QStackedWidget()
         self.modes.addWidget(root)
         self.modes.addWidget(self.exercise_mode)
@@ -3426,6 +3428,7 @@ class StudioWindow(QMainWindow):
         if not self.exercise_mode.open_pack(root, start):
             return False
         self.modes.setCurrentWidget(self.exercise_mode)
+        self.exercise_mode._update_bar()               # the window's title names the exercise
         self.statusBar().showMessage("Answers are saved in each exercise's folder as you go",
                                      6000)
         return True
@@ -3440,6 +3443,7 @@ class StudioWindow(QMainWindow):
         self.modes.setCurrentIndex(0)
         if self.workspace is not None:
             self._rescan_workspace(force=True)
+        self._set_title(self._current_document())    # back to the file you had open
 
     def _petri_of(self, document):
         """The :class:`PetriNet` a document stands for (a drawn net as it is now)."""

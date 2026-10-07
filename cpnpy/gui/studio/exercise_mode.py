@@ -81,6 +81,8 @@ class ExerciseMode(QWidget):
 
     exit_requested = Signal()
     status = Signal(str)
+    #: What the window's title should say: the exercise, or the pack on its overview.
+    title_changed = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -175,6 +177,10 @@ class ExerciseMode(QWidget):
         else:
             self.where.setText(self.pack.title)
         self._fill_dots()
+        if in_exercise:
+            self.title_changed.emit(f"{self.view.exercise.title} — {self.pack.title}")
+        else:
+            self.title_changed.emit(self.pack.title)
 
     def _fill_dots(self) -> None:
         while self.dots.count():

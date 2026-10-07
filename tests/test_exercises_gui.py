@@ -73,6 +73,7 @@ def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
     assert len(rows) == 4
     rows[1].open_it()
     assert mode.index == 1 and "Spot the flaw" in mode.view.title.text()
+    assert window.windowTitle() == "Exercise 2.1 — Spot the flaw — CPNpy demo exercises"
     assert mode.position.text() == "2 / 4"
     mode.step(1)
     assert "α-algorithm" in mode.view.title.text()
@@ -82,6 +83,7 @@ def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
     # Exit: back to the folder, which is as it was.
     mode.exit_button.click()
     assert not window.in_exercises and window.workspace is not None
+    assert "Spot the flaw" not in window.windowTitle()
     window.close()
 
 

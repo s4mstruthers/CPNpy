@@ -219,6 +219,8 @@ def test_an_old_style_exercise_still_works(tmp_path):
 def test_comments_in_a_block():
     (task,) = parse_sheet("```answer\ntype: net\nstart: net.pnml   # where to begin\n```").tasks
     assert task.get("start") == "net.pnml"
+    (task,) = parse_sheet("```answer\ntype: open\nsolution: since a # i and i # i\n```").tasks
+    assert task.solution == "since a # i and i # i"         # the choice relation stays
 
 
 def test_the_command_line_checks_a_pack(tmp_path, capsys):
@@ -231,3 +233,28 @@ def test_the_command_line_checks_a_pack(tmp_path, capsys):
     (broken / "question.md").write_text("```answer\ntype: set\ncompute: alpha.Q\n```\n")
     assert main(["exercises", "check", str(tmp_path)]) == 1
     assert "unknown compute" in capsys.readouterr().out
+
+
+def test_net_properties_of_a_net_that_is_not_a_workflow_net(tmp_path):
+    """free-choice and dead transitions need no WF-net (a cyclic net with a marking)."""
+    from cpnpy.mining.petrinet import Marking, PetriNet
+    from cpnpy.mining.pnml import write_pnml
+    from cpnpy.teaching.sheet import Task
+    from cpnpy.teaching.checks import compute
+    net = PetriNet("cycle")
+    for p in ("p1", "p2", "p3"):
+        net.add_place(p, id=p)
+    for t in ("a", "b", "c"):
+        net.add_transition(t, id=t)
+    for x, y in (("p1", "a"), ("a", "p2"), ("p2", "b"), ("b", "p1"), ("p3", "c"), ("p2", "c"),
+                 ("c", "p1")):
+        net.add_arc(x, y)
+    net.initial_marking = Marking({"p1": 1})
+    folder = tmp_path / "ex"
+    folder.mkdir()
+    (folder / "question.md").write_text("# Q")
+    write_pnml(net, str(folder / "net.pnml"))
+    context = Context(Exercise.at(folder))
+    assert compute(context, Task("set", "x", settings={"compute": "dead transitions"})) == \
+        frozenset({"c"})
+    assert compute(context, Task("yesno", "x", settings={"compute": "free-choice"})) is False

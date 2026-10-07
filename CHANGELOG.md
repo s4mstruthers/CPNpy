@@ -14,6 +14,12 @@ notice, not how it was done.
 - **Older exercises are easier to answer.** A sheet written before answer
   boxes, in parts a., b., c., now has a box under each part, with that part
   of the worked answer behind *Show answer*.
+- **The window's title names the exercise** you are working on.
+- **Fixed:** in an answer block, `a # b` (the α-algorithm's choice relation)
+  was taken for a comment and cut off. A comment now needs two spaces before
+  the `#`.
+- **Computed answers** `free-choice` and `dead transitions` also work for a
+  net that is not a WF-net.
 - **The demo exercises go where you say.** *Open Demo Exercises* asks where
   to put its copy (nothing is copied until you choose), remembers it, and no
   longer switches the folder you are working in.

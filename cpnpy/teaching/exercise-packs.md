@@ -51,6 +51,8 @@ like the paper version. Inside a block:
 
 - `key: value` lines;
 - lines starting with spaces continue the value above (for a long `solution`);
+- a comment starts with at least two spaces and `#` (one space before `#` is
+  kept, since `a # b` is the α-algorithm's choice relation);
 - `- [x] …` / `- [ ] …` lines are the options of a `choice`;
 - `- …` lines are more accepted answers of a `text` question.
 
