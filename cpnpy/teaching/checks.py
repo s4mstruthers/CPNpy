@@ -177,7 +177,7 @@ COMPUTED = {
     "deadlock-free": lambda c, a, t: _properties(c.net(t.get("of"))).deadlock_free,
     "live": lambda c, a, t: _live(c.net(t.get("of"))),
     "reversible": lambda c, a, t: _properties(c.net(t.get("of"))).reversible,
-    "free-choice": lambda c, a, t: _structure(c.net(t.get("of"))).is_free_choice,
+    "free-choice": lambda c, a, t: _free_choice(c.net(t.get("of"))),
     "well-structured": lambda c, a, t: _structure(c.net(t.get("of"))).well_structured,
     "s-coverable": lambda c, a, t: _structure(c.net(t.get("of"))).s_coverable,
     "fitness": lambda c, a, t: _fitness(c, t),
@@ -201,8 +201,14 @@ def _wf(net) -> bool:
 
 
 def _dead(net) -> frozenset:
-    report = _soundness(net)
-    return _labels(net, report.dead_transitions)
+    """Transitions that never fire from the net's marking (a WF-net: from [i])."""
+    return _labels(net, _properties(net).dead_transitions)
+
+
+def _free_choice(net) -> bool:
+    """Structural, so any net (not only a WF-net) has an answer."""
+    from ..mining.structure import free_choice_violations
+    return not free_choice_violations(net)
 
 
 def _live(net):

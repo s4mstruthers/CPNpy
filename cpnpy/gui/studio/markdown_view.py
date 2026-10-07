@@ -70,14 +70,23 @@ def show_document(browser: QTextBrowser, path: Path) -> None:
 
 
 
+#: Pictures wider than this are shown scaled down to it (the worksheet's width).
+IMAGE_WIDTH = 640
+
+
 def _absolute_images(html: str, folder: Path) -> str:
-    """``<img src="figure.png">`` relative to the question's folder."""
+    """``<img src="figure.png">`` relative to the question's folder, scaled
+    down when wider than the worksheet."""
+    from PySide6.QtGui import QImageReader
+
     def absolute(match) -> str:
         source = match.group(2)
         if re.match(r"^[a-z]+:", source):
             return match.group(0)
-        return f"{match.group(1)}{QUrl.fromLocalFile(str(folder / source)).toString()}" \
-               f"{match.group(3)}"
+        path = folder / source
+        width = QImageReader(str(path)).size().width()
+        scaled = f' width="{IMAGE_WIDTH}"' if width > IMAGE_WIDTH else ""
+        return f"{match.group(1)}{QUrl.fromLocalFile(str(path)).toString()}{match.group(3)}{scaled}"
     return re.sub(r'(<img[^>]*src=")([^"]+)(")', absolute, html)
 
 

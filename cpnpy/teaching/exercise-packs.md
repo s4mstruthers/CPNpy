@@ -6,6 +6,54 @@ in the boxes on each sheet, and press **Check**. Most answers are checked by
 the app — often against answers it works out itself from the log, net or
 transition system you give, so you do not have to.
 
+## Making a pack, step by step
+
+1. **Make the folder.** One folder for the pack, with a `pack.md` (its title
+   and a short introduction), and one subfolder per exercise. Name them so they
+   sort in order: `1 Dotted chart`, `2 Process modelling`, …
+2. **Add what each exercise gives.** A log as `log.txt` in the course's notation
+   (or `log.xes` / `log.csv`), a net as `net.pnml`, a transition system as
+   `ts.txt`. To make a net, draw it in CPNpy (*File ▸ New Petri Net*), give it
+   its initial (and final) marking, and save it into the exercise folder as
+   `net.pnml`. Pictures (`.png`) go in the folder too.
+3. **Write `question.md`.** The question as students would read it on paper,
+   with an `answer` block wherever they should answer (see *Choosing a box*
+   below). Give every block a `solution` that explains the answer, or a grading
+   scheme for open questions.
+4. **Check it.** Run `cpnpy exercises check "My pack" --answers` (see
+   *Checking a pack*): it finds mistakes in the blocks and prints every answer
+   the app works out, so you can compare them with your own.
+5. **Try it.** Open the pack in CPNpy, answer a few boxes right and wrong, and
+   look at what Check says. Then delete the `my answers.json`, `my answer.pnml`
+   and `my notes.md` files your try left behind.
+6. **Share it.** Zip the folder or put it in a shared drive. Students open it
+   with *File ▸ Open Exercise Pack…*.
+
+### Choosing a box
+
+- One right answer from a list (true/false, "optimal / sub-optimal / not an
+  alignment", "bounded with k = 1"): `choice`, or `yesno` for yes/no.
+- A property of the given net, log or transition system: `yesno` or `set`
+  with `compute:`, so the app works the answer out and it cannot be wrong.
+- A set, a set of sets, pairs ($Y_L$, regions, dead transitions): `set`.
+- A figure (fitness, costs, counts): `number`, with `tolerance:` when it is
+  rounded (`tolerance: 0.00005` for four decimals).
+- The footprint of the given log: `footprint`.
+- "Give a firing sequence that…": `trace`.
+- "Draw a net" or "correct this net": `net`, with `sound: yes` and, when the
+  behaviour has one right answer, `answer:`. To have students correct a given
+  net, give it as a file and `start:` from it.
+- Explanations, derivations, drawings other than nets: `open`, with the
+  grading scheme as `solution`. Students write in the box (or in Notes) and
+  compare.
+
+### Pictures
+
+`![Model (a)](model-a.png)` shows a picture from the exercise folder.
+Pictures wider than the worksheet are scaled to fit. A picture in a
+`solution` is only shown after *Show answer*, which is the place for model
+answers drawn as pictures.
+
 ## The folder
 
 ```
@@ -26,9 +74,9 @@ Week 3 — Discovery/
   `[<a,b,c>^3, <a,c>]`), `log.xes` or `log.csv`; `net.pnml`; `ts.txt`
   (`s0 -a-> s1`, one per line or comma-separated, plus `initial: s0`). They are
   opened beside the worksheet. Other files can be referred to by name.
-- Students' work is saved next to the question: `my answers.json`, and
-  `my answer.pnml` for a drawn net. Delete them to reset an exercise; leave
-  them out when you share the pack.
+- Students' work is saved next to the question: `my answers.json`,
+  `my answer.pnml` for a drawn net and `my notes.md` for their scratch notes.
+  Delete them to reset an exercise; leave them out when you share the pack.
 
 ## The worksheet
 
@@ -51,6 +99,8 @@ like the paper version. Inside a block:
 
 - `key: value` lines;
 - lines starting with spaces continue the value above (for a long `solution`);
+- a comment starts with at least two spaces and `#` (one space before `#` is
+  kept, since `a # b` is the α-algorithm's choice relation);
 - `- [x] …` / `- [ ] …` lines are the options of a `choice`;
 - `- …` lines are more accepted answers of a `text` question.
 
@@ -136,8 +186,34 @@ It lists every exercise and answer box, works out every computed answer, and
 reports mistakes (an unknown key, a missing file, a compute it cannot do) with
 their line numbers. Add `--answers` to print the right answers.
 
+## Turning a past exam into a pack
+
+- **One exercise per exam question**, in order (`1 …` to `7 …`), with the
+  points in the title: `# 3 · Petri net analysis (19 points)`.
+- **Recreate given nets and logs as files** rather than pictures, so students
+  can play the token game and the app can compute the answers. Check that the
+  computed answers agree with the grading scheme (`--answers`): when they do
+  not, look at the net again — a misread arc is the usual cause, but grading
+  schemes have slips too.
+- **Statements to judge** ("the model is live", "transition a is dead") become
+  `yesno` blocks with `compute:`. A run of questions with the same answer for
+  each transition can become one `set` block (`compute: dead transitions`).
+- **Multiple-choice questions** keep their options. Where the exam accepted
+  two answers, mark the best one and say in the `solution` that the other was
+  accepted too (or make it `open` when both are equally right).
+- **Calculations** become `number` blocks for the result, and one for each
+  intermediate figure worth checking (produced, consumed, missing and remaining
+  tokens), so a student finds where they went wrong.
+- **Modelling questions** become `net` blocks with `sound: yes`, the grading
+  scheme as `solution` and the model answer as a picture in it.
+- **Questions about material that is not in the pack** (a course dataset) can
+  stay, with a sentence saying so and the figures they rely on.
+
 ## Older exercises
 
-An exercise without answer blocks still works: with an `answer.pnml` the
-student draws a net that is compared with it; with only an `answer.md`, that
-file is the worked answer, hidden until asked for.
+An exercise without answer blocks still works. A sheet written in lettered
+parts (`a.`, `b.`, … at the start of a paragraph) gets a box under each part:
+the net editor for the part that asks to draw or change a net, a text box for
+the others, each with the same part of `answer.md` (`**a.** …`) as its model
+answer. Otherwise, with an `answer.pnml` the student draws a net that is
+compared with it, and with only an `answer.md` that file is the worked answer.

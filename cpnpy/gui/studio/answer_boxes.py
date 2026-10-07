@@ -408,7 +408,8 @@ class TaskCard(QFrame):
         self.hint_button.setVisible(bool(task.hint))
         answer_text = "Show model answer" if task.type == "open" else "Show answer"
         self.answer_button = button(answer_text, self.reveal_solution, kind="ghost")
-        self.answer_button.setVisible(task.type != "net" or bool(task.solution))
+        # A drawn net or a free answer has a model answer only when the author wrote one.
+        self.answer_button.setVisible(task.type not in ("net", "open") or bool(task.solution))
         footer = hbox(self.check_button, self.hint_button, self.answer_button, None, spacing=6)
         layout.addLayout(footer)
 

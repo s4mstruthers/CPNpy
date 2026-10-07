@@ -26,6 +26,9 @@ view, the way a log and a net each have a page of their own::
   answer.  Results that would give answers away (soundness, the footprint,
   discovered models, regions …) are hidden until revealed
   (:mod:`.concealment`).
+* **Notes** (✎ in the top bar) opens scratch paper under the worksheet, for
+  working things out: markings, firing sequences, sets.  It is kept with the
+  exercise, in ``my notes.md``.
 * **The top bar** goes back to the pack's overview, steps through the
   exercises, and shows how far you are (one dot per exercise).
 
@@ -40,7 +43,7 @@ from pathlib import Path
 from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QSizePolicy, QSplitter, QStackedWidget,
+    QPlainTextEdit, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QSizePolicy, QSplitter, QStackedWidget,
     QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -78,6 +81,8 @@ class ExerciseMode(QWidget):
 
     exit_requested = Signal()
     status = Signal(str)
+    #: What the window's title should say: the exercise, or the pack on its overview.
+    title_changed = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -119,6 +124,12 @@ class ExerciseMode(QWidget):
         self.next_button = _tool("›", "Next exercise", lambda: self.step(1))
         for widget in (self.previous_button, self.position, self.next_button):
             layout.addWidget(widget)
+        #: Scratch notes: open in every exercise once opened in one.
+        self.notes_open = False
+        self.notes_button = _tool("✎  Notes", "Scratch paper for this exercise, saved with "
+                                  "it", lambda: self.set_notes(not self.notes_open))
+        self.notes_button.setCheckable(True)
+        layout.addWidget(self.notes_button)
         self.more_button = _tool("⋯", "More", lambda: None)
         self.more_button.setPopupMode(QToolButton.InstantPopup)
         self.more_menu = QMenu(self.more_button)
@@ -151,6 +162,9 @@ class ExerciseMode(QWidget):
         self.overview_button.setVisible(in_exercise and count > 1)
         for widget in (self.previous_button, self.position, self.next_button, self.dots_host):
             widget.setVisible(in_exercise and count > 1)
+        self.notes_button.setVisible(in_exercise)
+        if in_exercise:
+            self.notes_button.setChecked(self.view.notes_visible)
         if self.pack is None:
             return
         if in_exercise:
@@ -163,6 +177,10 @@ class ExerciseMode(QWidget):
         else:
             self.where.setText(self.pack.title)
         self._fill_dots()
+        if in_exercise:
+            self.title_changed.emit(f"{self.view.exercise.title} — {self.pack.title}")
+        else:
+            self.title_changed.emit(self.pack.title)
 
     def _fill_dots(self) -> None:
         while self.dots.count():
@@ -213,13 +231,22 @@ class ExerciseMode(QWidget):
         exercise = Exercise(self.pack.exercises[index].files)
         self.pack.exercises[index] = exercise
         self.view = ExerciseView(exercise, self.pack.chapter(exercise),
-                                 has_next=index < len(self.pack.exercises) - 1)
+                                 has_next=index < len(self.pack.exercises) - 1,
+                                 notes=self.notes_open)
+        self.view.notes_closed.connect(lambda: self.set_notes(False))
         self.view.status.connect(self.status.emit)
         self.view.progress_changed.connect(self._update_bar)
         self.view.next_requested.connect(lambda: self.step(1))
         self.stack.addWidget(self.view)
         self.stack.setCurrentWidget(self.view)
         self._update_bar()
+
+    def set_notes(self, show: bool) -> None:
+        """Open or close the Notes pane (and keep it so for the next exercise)."""
+        self.notes_open = show
+        if self.view is not None:
+            self.view.set_notes_visible(show)
+        self.notes_button.setChecked(show)
 
     def step(self, delta: int) -> None:
         if self.index is not None:
@@ -352,9 +379,11 @@ class ExerciseView(QWidget):
     status = Signal(str)
     progress_changed = Signal()
     next_requested = Signal()
+    #: The Notes pane's ✕ was clicked.
+    notes_closed = Signal()
 
     def __init__(self, exercise: Exercise, chapter: str = "", has_next: bool = False,
-                 parent=None) -> None:
+                 notes: bool = False, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("exerciseView")
         self.exercise = exercise
@@ -371,6 +400,20 @@ class ExerciseView(QWidget):
 
         self._build_materials()
         worksheet = self._build_worksheet(chapter, has_next)
+        # The worksheet with the Notes pane under it.
+        self.notes_panel = self._build_notes()
+        left = QSplitter(Qt.Vertical)
+        left.setObjectName("notesSplitter")
+        left.setHandleWidth(6)
+        left.addWidget(worksheet)
+        left.addWidget(self.notes_panel)
+        left.setStretchFactor(0, 3)
+        left.setStretchFactor(1, 2)
+        left.setChildrenCollapsible(False)
+        self.left_splitter = left
+        # Notes written earlier open with the exercise, so they are not forgotten.
+        self.set_notes_visible(notes or bool(self.notes.toPlainText().strip()))
+        worksheet = left
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         if self.materials:
@@ -389,6 +432,47 @@ class ExerciseView(QWidget):
             layout.addWidget(worksheet)
         for card in self.cards.values():
             self._restore(card)
+
+    # -- notes ---------------------------------------------------------------------------------
+    def _build_notes(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("notesPanel")
+        column = QVBoxLayout(panel)
+        column.setContentsMargins(26, 10, 22, 14)
+        column.setSpacing(6)
+        close = _tool("✕", "Close the notes (they are kept)", self.notes_closed.emit)
+        column.addLayout(hbox(label("NOTES", "taskCaption"),
+                              label("Scratch paper for this exercise, saved in its folder",
+                                    "muted"), None, close, spacing=10))
+        self.notes = QPlainTextEdit()
+        self.notes.setObjectName("notesEdit")
+        self.notes.setPlaceholderText("Work things out here: markings, firing sequences, "
+                                      "sets, a footprint…")
+        self.notes.setPlainText(self.exercise.load_notes())
+        self._notes_timer = debounce(self, SAVE_DELAY, self.save_notes)
+        self.notes.textChanged.connect(self._notes_timer.start)
+        column.addWidget(self.notes, 1)
+        panel.setMinimumHeight(120)
+        return panel
+
+    @property
+    def notes_visible(self) -> bool:
+        return not self.notes_panel.isHidden()
+
+    def set_notes_visible(self, show: bool) -> None:
+        self.notes_panel.setHidden(not show)
+        if show:
+            total = sum(self.left_splitter.sizes()) or 800
+            if self.left_splitter.sizes()[1] < 120:
+                self.left_splitter.setSizes([int(total * 0.62), int(total * 0.38)])
+            self.notes.setFocus()
+
+    def save_notes(self) -> None:
+        self._notes_timer.stop()
+        try:
+            self.exercise.save_notes(self.notes.toPlainText())
+        except OSError as error:
+            self.status.emit(f"Could not save your notes: {error}")
 
     # -- materials ----------------------------------------------------------------------------
     def _build_materials(self) -> None:
@@ -591,8 +675,9 @@ class ExerciseView(QWidget):
             card = self._card(block, net_names.get(block.id, "Your net"))
             if card is not None:
                 column.addWidget(card)
+        # The whole worked answer, unless the boxes already carry it part by part.
         if self.exercise.files.answer_text is not None and not any(
-                t.type == "open" and t.id == "answer" for t in sheet.tasks):
+                t.solution for t in sheet.tasks):
             column.addWidget(self._worked_answer())
         self.summary_label = label("", "muted")
         footer = hbox(self.summary_label, None, spacing=8)
@@ -812,6 +897,8 @@ class ExerciseView(QWidget):
         """Save everything now (leaving the exercise or quitting)."""
         if self._save_timer.isActive():
             self.save_progress()
+        if self._notes_timer.isActive():
+            self.save_notes()
         for task_id, timer in self._net_timers.items():
             if timer.isActive():
                 timer.stop()
@@ -820,6 +907,7 @@ class ExerciseView(QWidget):
     def discard(self) -> None:
         """Starting again: nothing pending may be written afterwards."""
         self._save_timer.stop()
+        self._notes_timer.stop()
         for timer in self._net_timers.values():
             timer.stop()
 
