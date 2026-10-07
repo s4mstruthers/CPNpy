@@ -202,6 +202,7 @@ def stylesheet() -> str:
     #sidebarMenuButton:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
     #sidebarMenuButton::menu-indicator {{ image: none; width: 0; }}
     #sidebarToggle {{ background: transparent; border: none; border-radius: 6px; padding: 4px; }}
+    #rail {{ background: {t.sidebar}; border-right: 1px solid {t.border}; }}
     #sidebarToggle:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
     #sidebarFooter QPushButton {{ background: transparent; border: none; color: {t.text_secondary};
         padding: 6px 8px; border-radius: 6px; text-align: left; }}

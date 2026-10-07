@@ -281,3 +281,65 @@ def test_question_markdown_has_maths_and_tables():
                          "$$\\bigcap_{R} R$$\n\nand $\\frobnicate$ stays as written.")
     assert "<table" in html and "<sub>" in html and "⋂" in html
     assert "frobnicate" in html and "MATHX" not in html
+
+
+def test_exercise_layout_fits_a_laptop_window(app, demo):
+    """In a narrow window the exercise folds the sidebar to the rail and the
+    editor's inspector away, so nothing scrolls sideways; the panels come back
+    from the rail and when there is room.  "my answer" is listed under its
+    exercise, not under UNSAVED."""
+    from PySide6.QtWidgets import QScrollArea
+    from cpnpy.gui.studio.app import StudioWindow
+
+    folder = demo / "1 Petri nets" / "Exercise 1.1 Order handling"
+    window = StudioWindow()
+    window.resize(1000, 700)
+    window.show()
+    assert not window.rail.isVisible()               # nothing hidden: no rail
+    window.open_exercise(str(folder))
+    _pump(app, 0.3)
+    page = window.current_page()
+    assert window.sidebar.isHidden() and window.rail.isVisible()
+    assert window.rail_sidebar.isVisible() and not window.rail_question.isVisible()
+    area = page.parentWidget()
+    while not isinstance(area, QScrollArea):
+        area = area.parentWidget()
+    assert area.horizontalScrollBar().maximum() == 0
+    assert not page.inspector_panel.isVisible()      # folded to make room
+
+    # "my answer" (not saved yet) sits under its exercise folder.
+    row = window.items[page.document.id]
+    assert row.parent() is not None and row.parent().text(0) == folder.name
+    assert window.unsaved_section.childCount() == 0
+
+    # Fold the question away and back from the rail.
+    window.exercise_panel.collapse_requested.emit()
+    assert window.exercise_panel.isHidden() and window.rail_question.isVisible()
+    window.rail_question.click()
+    assert not window.exercise_panel.isHidden()
+
+    # A wider window: the inspector comes back by itself.
+    window.resize(1600, 900)
+    _pump(app, 0.3)
+    assert page.inspector_panel.isVisible()
+    assert area.horizontalScrollBar().maximum() == 0
+
+    # Closing the exercise brings back the sidebar it folded away (not saved
+    # as your choice), and the rail goes.
+    window.close_exercise()
+    assert not window.sidebar.isHidden() and not window.rail.isVisible()
+    page.document.dirty = False
+    window.close()
+
+
+def test_sidebar_toggle_sits_on_the_sidebar(app):
+    from cpnpy.gui.studio.app import StudioWindow
+    window = StudioWindow()
+    window.show()
+    assert window.sidebar_hide_button.isVisibleTo(window.sidebar)
+    window.sidebar_hide_button.click()
+    assert window.sidebar.isHidden() and window.rail_sidebar.isVisible()
+    assert not window.sidebar_action.isChecked()
+    window.rail_sidebar.click()
+    assert not window.sidebar.isHidden() and not window.rail.isVisible()
+    window.close()

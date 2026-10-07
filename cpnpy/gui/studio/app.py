@@ -565,15 +565,22 @@ class StudioWindow(QMainWindow):
         self.exercise_panel.setHidden(True)
         self.exercise_panel.check_requested.connect(self.check_exercise)
         self.exercise_panel.close_requested.connect(self.close_exercise)
+        self.exercise_panel.collapse_requested.connect(lambda: self.show_question(False))
         self.work_area = QSplitter()
         self.work_area.setHandleWidth(1)
         self.work_area.addWidget(self.exercise_panel)
         self.work_area.addWidget(self.content)
         self.work_area.setCollapsible(1, False)
         self.work_area.setStretchFactor(1, 1)
-        self.work_area.setSizes([340, 1000])
+        self.work_area.setSizes([310, 1000])
+        self.work_area.splitterMoved.connect(lambda *_: self._schedule_fit())
         right = QWidget()
-        right.setLayout(vbox(self.update_bar, self.work_area, spacing=0))
+        middle = QHBoxLayout()
+        middle.setContentsMargins(0, 0, 0, 0)
+        middle.setSpacing(0)
+        middle.addWidget(self._build_rail())
+        middle.addWidget(self.work_area, 1)
+        right.setLayout(vbox(self.update_bar, middle, spacing=0))
         right.layout().setStretch(1, 1)
         root.addWidget(right)
         root.setStretchFactor(1, 1)
@@ -583,6 +590,42 @@ class StudioWindow(QMainWindow):
         self._build_menus()
         if not self._setting("window/sidebar", True):
             self.toggle_sidebar(False)
+
+    # -- the editor fits the space it gets -----------------------------------------
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._schedule_fit()
+
+    def _schedule_fit(self) -> None:
+        QTimer.singleShot(0, self._fit_page)
+
+    def _fit_page(self) -> None:
+        """Fold the editor's inspector away when the page would not fit beside the
+        sidebar and an exercise's question (it would scroll sideways and pin the
+        canvas divider), and bring it back when there is room again."""
+        page = self.current_page()
+        panel = getattr(page, "inspector_panel", None)
+        if panel is None or not hasattr(page, "_toggle_inspector"):
+            return
+        from PySide6.QtWidgets import QScrollArea
+        area = page.parentWidget()
+        while area is not None and not isinstance(area, QScrollArea):
+            area = area.parentWidget()
+        if area is None:
+            return
+        available = area.viewport().width()
+        if panel.isVisible():
+            if page.minimumSizeHint().width() > available:
+                page._toggle_inspector()
+                page._inspector_auto_hidden = True
+                self.statusBar().showMessage("The inspector is folded away to fit the window: "
+                                             "“⇤ Inspector” brings it back", 6000)
+        elif getattr(page, "_inspector_auto_hidden", False):
+            needed = (page.minimumSizeHint().width() + panel.minimumWidth()
+                      + page.splitter.handleWidth())
+            if needed <= available:
+                page._toggle_inspector()
+                page._inspector_auto_hidden = False
 
     def _fit_to_screen(self) -> None:
         """Start at a size that fits the screen we are on (at most 1440 × 900).
@@ -728,10 +771,19 @@ class StudioWindow(QMainWindow):
         self.workspace_button.setMenu(menu)
         self.workspace_button.setHidden(True)
         row.addWidget(self.workspace_button, 0, Qt.AlignVCenter)
+        # On the sidebar it hides, so what it does is plain to see; when the
+        # sidebar is hidden, the rail at the left edge brings it back.
+        self.sidebar_hide_button = self._rail_button(
+            "sidebar", f"Hide the sidebar ({shortcut_text('Ctrl+Alt+S')})",
+            lambda: self.toggle_sidebar(False))
+        row.addWidget(self.sidebar_hide_button, 0, Qt.AlignVCenter)
         return header
 
-    def toggle_sidebar(self, show: bool | None = None) -> None:
-        """Show or hide the sidebar (hidden, every page gets the full width)."""
+    def toggle_sidebar(self, show: bool | None = None, remember: bool = True) -> None:
+        """Show or hide the sidebar (hidden, every page gets the full width).
+
+        ``remember=False``: a change the app made by itself (opening an
+        exercise in a narrow window), not kept for the next launch."""
         if show is None:
             show = self.sidebar.isHidden()
         self.sidebar.setHidden(not show)
@@ -740,19 +792,60 @@ class StudioWindow(QMainWindow):
             action.blockSignals(True)
             action.setChecked(show)
             action.blockSignals(False)
-        self._set_setting("window/sidebar", show)
+        if remember:
+            self._set_setting("window/sidebar", show)
+            self._sidebar_hidden_for_exercise = False
+        self._update_rail()
+        self._schedule_fit()
 
-    def _sidebar_button(self) -> QToolButton:
-        """The button at the top left of every page that hides or shows the sidebar."""
-        from .tool_icons import sidebar_icon
+    # -- the rail: what brings hidden panels back --------------------------------------
+    def _rail_button(self, icon: str, tooltip: str, slot) -> QToolButton:
+        from .tool_icons import question_icon, sidebar_icon
         toggle = QToolButton()
         toggle.setObjectName("sidebarToggle")
-        toggle.setIcon(sidebar_icon())
+        toggle.setIcon(sidebar_icon() if icon == "sidebar" else question_icon())
         toggle.setIconSize(QSize(20, 20))
         toggle.setCursor(Qt.PointingHandCursor)
-        toggle.setToolTip(f"Show or hide the sidebar ({shortcut_text('Ctrl+Alt+S')})")
-        toggle.clicked.connect(lambda: self.toggle_sidebar())
+        toggle.setToolTip(tooltip)
+        toggle.clicked.connect(slot)
         return toggle
+
+    def _build_rail(self) -> QWidget:
+        """A slim strip at the left edge, shown while the sidebar or an exercise's
+        question is hidden, with the button that brings each back."""
+        self.rail = QFrame()
+        self.rail.setObjectName("rail")
+        self.rail.setFixedWidth(44)
+        layout = QVBoxLayout(self.rail)
+        layout.setContentsMargins(6, 14, 6, 10)
+        layout.setSpacing(6)
+        self.rail_sidebar = self._rail_button(
+            "sidebar", f"Show the sidebar ({shortcut_text('Ctrl+Alt+S')})",
+            lambda: self.toggle_sidebar(True))
+        self.rail_question = self._rail_button("question", "Show the exercise's question",
+                                               lambda: self.show_question(True))
+        layout.addWidget(self.rail_sidebar, 0, Qt.AlignHCenter)
+        layout.addWidget(self.rail_question, 0, Qt.AlignHCenter)
+        layout.addStretch(1)
+        self.rail.setHidden(True)
+        return self.rail
+
+    def _update_rail(self) -> None:
+        if not hasattr(self, "rail"):
+            return
+        sidebar_hidden = self.sidebar.isHidden()
+        question_hidden = self.exercise is not None and self.exercise_panel.isHidden()
+        self.rail_sidebar.setVisible(sidebar_hidden)
+        self.rail_question.setVisible(question_hidden)
+        self.rail.setVisible(sidebar_hidden or question_hidden)
+
+    def show_question(self, show: bool) -> None:
+        """Show or fold away the open exercise's question panel."""
+        if self.exercise is None:
+            show = False
+        self.exercise_panel.setHidden(not show)
+        self._update_rail()
+        self._schedule_fit()
 
     def _section(self, title: str) -> QTreeWidgetItem:
         item = QTreeWidgetItem(self.tree, [title])
@@ -771,7 +864,6 @@ class StudioWindow(QMainWindow):
         page = QWidget()
         outer = QVBoxLayout(page)
         outer.setContentsMargins(20, 16, 32, 32)
-        outer.addLayout(hbox(self._sidebar_button(), None))
         outer.addSpacing(24)
         outer.addStretch(1)
         logo = QLabel()
@@ -1038,6 +1130,9 @@ class StudioWindow(QMainWindow):
             page.inspector_tabs.changed.connect(
                 lambda i, key="petri_inspector" if plain else "cpn_inspector":
                 self.remembered.__setitem__(key, i))
+            # Shown or hidden by hand: the window no longer folds it by itself.
+            page.inspector_toggle.clicked.connect(
+                lambda _=False, p=page: setattr(p, "_inspector_auto_hidden", False))
             if plain:
                 page.open_model.connect(self.add_document)
         else:
@@ -1058,7 +1153,6 @@ class StudioWindow(QMainWindow):
                 lambda doc=document: self.rename_document(doc))
             page.header.title.set_hint("Double-click to rename")
         self.pages[document.id] = page
-        page.header.layout().insertWidget(0, self._sidebar_button(), 0, Qt.AlignTop)
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
         # refusing to shrink (which is what pushed it off the screen).
@@ -1142,6 +1236,7 @@ class StudioWindow(QMainWindow):
         if holder is not None:
             self._restore_tab(self.pages[current.data(0, Qt.UserRole)])
             self.content.setCurrentWidget(holder)
+            self._schedule_fit()
             self._set_title(self._document(current.data(0, Qt.UserRole)))
 
     def _restore_tab(self, page: QWidget) -> None:
@@ -2476,10 +2571,16 @@ class StudioWindow(QMainWindow):
             item = self._file_row(file, display_name(file.path.name))
             parent = parent_row(file.relative)
             (parent.addChild(item) if parent is not None else tops.append(item))
+        exercise_row = None
+        if self.exercise is not None and self.workspace.contains(self.exercise.folder):
+            exercise_row = self.folder_items.get(self.workspace.relative(self.exercise.folder))
         for document in self.documents:
             item = self._document_row(document)
             if isinstance(document, ComparisonDocument):
                 self.compare_section.addChild(item)
+            elif not document.path and exercise_row is not None and \
+                    document.id in self._exercise_ids:
+                exercise_row.addChild(item)          # "my answer", before its first save
             elif not document.path:
                 self.unsaved_section.addChild(item)
             elif not self.workspace.contains(document.path):
@@ -3414,7 +3515,13 @@ class StudioWindow(QMainWindow):
             if self._belongs_to_exercise(document) and hasattr(page, "set_concealment"):
                 page.set_concealment(self.concealment)
         self.exercise_panel.set_exercise(files, self.concealment)
-        self.exercise_panel.setHidden(False)
+        self.show_question(True)
+        # A narrow window cannot fit sidebar, question, net and inspector side by
+        # side: fold the sidebar away (the rail brings it back) until the
+        # exercise is closed.
+        if self.width() < 1500 and not self.sidebar.isHidden():
+            self.toggle_sidebar(False, remember=False)
+            self._sidebar_hidden_for_exercise = True
         relative = self.workspace.relative(location)
         if self.view_mode == "folder" and relative not in self._expanded:
             self._expanded.add(relative)
@@ -3456,6 +3563,10 @@ class StudioWindow(QMainWindow):
         self.exercise, self.concealment = None, None
         self._exercise_ids, self._exercise_net_id = set(), None
         self.exercise_panel.setHidden(True)
+        if getattr(self, "_sidebar_hidden_for_exercise", False):
+            self.toggle_sidebar(True, remember=False)
+            self._sidebar_hidden_for_exercise = False
+        self._update_rail()
         self._rebuild_sidebar()
 
     def _exercise_edited(self, document) -> None:

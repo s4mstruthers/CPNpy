@@ -6,6 +6,21 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.4.1
+
+- **The sidebar button is on the sidebar.** Hide it with the button at its
+  top right; while it is hidden, a slim strip at the left edge of the window
+  has the button that brings it back.
+- **Exercises are tidier on a laptop.** Check and Reveal all sit at the foot
+  of the question. The question folds away with ‹ (and comes back from the
+  left edge). In a narrow window, opening an exercise folds the sidebar away
+  until you close the exercise. *my answer* is listed inside its exercise.
+- **Fixed:** with an exercise open the net editor could again need more room
+  than the window had, so the page scrolled sideways and the divider beside
+  the canvas would not move. When space is short the inspector now folds
+  away by itself (*⇤ Inspector* brings it back) and returns when there is
+  room.
+
 ## 0.4.0
 
 - **Exercises.** A folder with a `question.md` (or `.pdf` / `.png`) is now an
