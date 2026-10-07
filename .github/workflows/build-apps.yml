@@ -1,6 +1,10 @@
 # Test CPNpy, and build the standalone CPNpy Studio app for macOS, Windows and
 # Linux.
 #
+# Nothing here can hang for long: installing Ubuntu's packages retries and
+# gives up quickly when a mirror stalls (it used to hang a run for good),
+# every job has a time limit, and a test that hangs prints where it is stuck.
+#
 # When it runs: on a pull request (the code about to be merged), when a
 # version tag is pushed (the release), and with "Run workflow" on the Actions
 # tab.  Not on pushes to main: a merged pull request was built already, and a
@@ -44,17 +48,22 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-22.04
+    timeout-minutes: 15       # the suite takes about a minute
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip              # reuse downloaded packages between runs
+          cache-dependency-path: pyproject.toml
 
       - name: Install Qt's system libraries
+        timeout-minutes: 6
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
+          apt="sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20"
+          $apt update
+          $apt install -y --no-install-recommends libegl1 libfontconfig1 libxkbcommon-x11-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
 
       - name: Install CPNpy with the app and the test tools
@@ -65,12 +74,14 @@ jobs:
       - name: Run the test suite (the windows are drawn offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        # A test still running after two minutes prints where it is stuck.
+        run: python -m pytest -q -o faulthandler_timeout=120
 
   build:
     name: ${{ matrix.name }}
     needs: tests              # no point building apps from code that fails its tests
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30       # a build takes a few minutes
     strategy:
       fail-fast: false        # one system failing should not cancel the others
       matrix:
@@ -92,14 +103,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip              # reuse downloaded packages between runs
+          cache-dependency-path: pyproject.toml
 
       - name: Install Qt's system libraries (Linux)
         if: runner.os == 'Linux'
         # Installed here so PyInstaller bundles them: users then need fewer
         # libraries of their own.
+        timeout-minutes: 6
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libfontconfig1 libxkbcommon-x11-0 \
+          apt="sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20"
+          $apt update
+          $apt install -y --no-install-recommends libegl1 libfontconfig1 libxkbcommon-x11-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
 
       - name: Check the tag matches the version, and CHANGELOG.md says what is new
