@@ -19,8 +19,9 @@
 | | What you can do | Instead of |
 |---|---|---|
 | **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
-| **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
+| **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner, state-based regions). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
+| **Exercises** | Open a folder with a `question.md` as an exercise: the question sits beside the canvas, the given net or log is loaded, the analysis stays hidden until you reveal it, and **Check** compares your net with the model answer on behaviour. Demo exercises included. | Answer sheets and guesswork |
 | **Folders** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, with its subfolders. The folder and the app stay in step both ways: new nets and edits are saved into it as you go, and changes made in Finder show up by themselves. | Finder windows and *File ▸ Open* every time |
 
 ---
@@ -32,6 +33,7 @@
 - [Folders: one per week](#folders-one-per-week)
 - [Petri nets and WF-nets](#petri-nets-and-wf-nets)
 - [Process mining](#process-mining)
+- [Exercises](#exercises)
 - [Coloured Petri nets](#coloured-petri-nets)
 - [Working on the canvas](#working-on-the-canvas)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -406,7 +408,20 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   - Heuristics Miner, as a dependency graph or as a Petri net: which forks
     are AND and which XOR is learned from the log (a causal net, whose
     bindings are listed). Like in ProM, such a net fits its log but is not
-    always sound.
+    always sound;
+  - **state-based regions**, two-phase: the log becomes a transition system
+    through a state function you choose (the prefix, postfix or both of each
+    event; as a set, multiset or sequence; over the last *k* events or all
+    of them), and its minimal regions become the places. The derivation
+    shows the transition system (pick a trace to light up the states it
+    passes through), the regions, GER and minimal pre- and post-regions of
+    every event, state separation and forward closure, and whether the
+    net's reachability graph is isomorphic to the transition system.
+- **Transition systems** (File ▸ New Transition System…, or a `ts.txt` file):
+  type one as `s0 -a-> s1, s0 -b-> s2` and get the same region analysis and
+  synthesis. *Is this a region?* answers yes or no for any set of states
+  (type it or click the states), and for no names the event and the two
+  transitions that cross it differently.
 - **Models:**
   - token game;
   - soundness and properties;
@@ -418,6 +433,12 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   - alignments per variant.
 - **Compare logs:** key figures, activity and variant shares, and linked
   dotted charts, side by side.
+- **Compare nets** (File ▸ Compare Nets…): do two nets allow the same
+  complete traces? Silent steps are ignored and transitions matched by
+  label, so layout and place names do not matter. You get the shortest
+  traces that differ, both ways, each replayable in the token game. Exact
+  for bounded nets; for unbounded ones, up to a trace length (and it says
+  so).
 
 | Process map | Discovering a model |
 |---|---|
@@ -434,6 +455,48 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 The app follows the system's light or dark appearance:
 
 ![Dark mode](docs/screenshots/studio-alpha-dark.png)
+
+---
+
+## Exercises
+
+An exercise is an ordinary folder with a `question` file. Click it in the
+sidebar (or File ▸ Open Exercise…, or drop the folder on the window):
+
+- **the question** appears in a panel beside the canvas: `question.md`
+  (Markdown with tables and maths between `$…$`), or `question.pdf` /
+  `question.png`;
+- **the given files** are loaded: `net.pnml`, `log.xes` / `log.csv` /
+  `log.txt` (a log in textbook notation, e.g. `[<a,b,e>^10, <a,c,e>^4]`),
+  `ts.txt` (a transition system);
+- **analysis results are hidden**: soundness, properties, invariants,
+  footprint, discovered models, conformance figures, regions. Reveal each
+  with its own button, or all at once with **Reveal all**;
+- **your work** is saved as `my answer.pnml` the first time you edit,
+  starting from a copy of `net.pnml` if there is one, so the given net stays
+  as it was;
+- **Check** compares your net with `answer.pnml` on behaviour (see
+  *Compare nets* above), with your net's soundness, and offers the worked
+  answer `answer.md`. Without `answer.pnml`, Check shows `answer.md`. The
+  wording is "differs from the model answer", not "wrong": a different model
+  can still be a correct reading of the question.
+
+```
+Petri nets/
+  Exercise 2.12 Insurance claims/
+    question.md
+    answer.pnml
+Soundness/
+  Exercise 4.1 N6/
+    question.md
+    net.pnml
+    answer.md
+```
+
+Outside an exercise everything works as before. **File ▸ Open Demo
+Exercises** copies a small set of exercises (modelling, soundness, the
+α-algorithm and regions) to *Documents/CPNpy Exercises* and opens it.
+Exercise folders can be shared as they are.
 
 ---
 
@@ -530,6 +593,8 @@ The app shows each shortcut the way your system writes it.
 | Format | Read | Write |
 |---|---|---|
 | Event logs: `.xes`, `.xes.gz`, `.csv` | ✓ | `.xes`, `.xes.gz`, `.csv` |
+| Logs in textbook notation: `log.txt`, `*.log.txt` | ✓ | |
+| Transition systems: `ts.txt`, `*.ts.txt` (`s0 -a-> s1`) | ✓ | ✓ |
 | Petri nets: `.pnml` (with positions, weights, τ, arc bends) | ✓ | ✓ |
 | CPN Tools models: `.cpn` | ✓ | ✓ |
 | Pictures of nets and charts | | `.png`, `.svg` |
@@ -643,6 +708,10 @@ Plainly stated:
 4. **Alignments are exact but unoptimised**: they can take seconds on
    heavily concurrent models. They run in the background.
 5. **Plain Petri nets live on one page.**
+6. **Regions are found exhaustively**, so only for transition systems of up
+   to 26 states (the result says when this limit is hit), and label
+   splitting for transition systems that are not elementary is not
+   suggested yet. Transition systems are typed, not drawn.
 
 Next up: several instances of a subpage, CPN monitors, and signed apps that
 open without a security prompt.

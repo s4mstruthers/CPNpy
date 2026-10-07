@@ -1,0 +1,5 @@
+s0 -a-> s1, s0 -b-> s2
+s1 -b-> s3, s2 -a-> s3
+s3 -c-> s4, s3 -d-> s5
+s4 -e-> s6, s5 -e-> s6
+initial: s0

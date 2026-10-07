@@ -221,12 +221,28 @@ def stylesheet() -> str:
     #updateBarClose:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
     #card {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: {RADIUS}px; }}
     #cardTitle {{ font-weight: 600; font-size: 13px; }}
+    /* A section inside a card (no second frame around it). */
+    #flatCard {{ background: transparent; border: none; }}
     #cardCaption, #muted {{ color: {t.text_muted}; }}
     #statLabel {{ color: {t.text_muted}; font-size: 12px; }}
     #statValue {{ font-size: 22px; font-weight: 600; }}
     #statSub {{ color: {t.text_muted}; font-size: 11px; }}
     #sectionLabel {{ color: {t.text_muted}; font-size: 11px; font-weight: 700;
                      letter-spacing: 0.6px; }}
+
+    /* ---- exercises -------------------------------------------------------- */
+    #exercisePanel {{ background: {t.page}; border-right: 1px solid {t.border}; }}
+    #exerciseTitle {{ font-weight: 700; font-size: 15px; }}
+    #exerciseClose {{ background: transparent; border: none; border-radius: 6px;
+                      color: {t.text_secondary}; padding: 3px 7px; }}
+    #exerciseClose:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; }}
+    QTextBrowser#plainBrowser {{ background: transparent; border: none; padding: 0; }}
+    /* A result an exercise hides: a soft inset with its Reveal button. */
+    #revealRow {{ background: {qc(t.text, 0.045).name(QColor.HexArgb)};
+                  border: 1px dashed {qc(t.text, 0.18).name(QColor.HexArgb)};
+                  border-radius: 9px; }}
+    #revealRow QLabel {{ background: transparent; }}
+    #revealTitle {{ font-weight: 600; }}
 
     /* ---- segmented control ---------------------------------------------- */
     #segmented {{ background: {qc(t.text, 0.07).name(QColor.HexArgb)}; border-radius: 8px; }}

@@ -15,6 +15,10 @@ Inductive Miner
       partition, every base case and fall-through, nested exactly as the
       algorithm recursed.
 
+State-based regions
+    The transition system, its regions and the elementary checks
+    (:class:`.regions_view.RegionsPanel`).
+
 Rendering uses Qt's rich-text engine (a subset of HTML): subscripts, italics
 and a serif maths font give readable formulas without a browser engine.
 """
@@ -326,6 +330,11 @@ def derivation_view(payload, draw_tree: bool = True) -> QWidget:
         return inductive_view(payload, draw_tree)
     if isinstance(payload, HeuristicsResult):
         return heuristics_view(payload)
+    from ...mining.discovery.state_regions import RegionResult
+    if isinstance(payload, RegionResult):
+        from .regions_view import RegionsPanel
+        # The net is already drawn beside it (Discover tab, model page).
+        return RegionsPanel(payload, show_net=False, flat=True)
     info = getattr(payload, "info", {}) or {}
     return label("\n".join(f"{k}: {v}" for k, v in info.items()) or "No details.", "muted",
                  wrap=True, selectable=True)

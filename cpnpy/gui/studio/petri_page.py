@@ -46,6 +46,7 @@ from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
 from ...model.net import Arc, Place, Transition
 from ...model.plain import to_petri_net, token_count, tokens_text, weight_of
+from .concealment import ConcealsResults
 from .cpn_page import CpnPage
 from .documents import ModelDocument
 from .workspace import atomic_write
@@ -72,7 +73,7 @@ def _math(name: str, status: str, detail: str, definition: str | None = None,
                    instance=instance)
 
 
-class PetriNetPage(CpnPage):
+class PetriNetPage(ConcealsResults, CpnPage):
     """Draw, play and analyse a plain Petri net (see the module docstring)."""
 
     #: The net as a model for conformance checking / the model views.
@@ -325,8 +326,21 @@ class PetriNetPage(CpnPage):
                      self.invariants_card, self.properties_card, self.footprint_card,
                      self.more_card):
             layout.addWidget(card)
+        # Hidden in an exercise until revealed (see concealment.py).
+        for card, key in ((self.soundness_card, "soundness"), (self.theorem_card, "theorem"),
+                          (self.structure_card, "structure"),
+                          (self.invariants_card, "invariants"),
+                          (self.properties_card, "properties"),
+                          (self.footprint_card, "footprint")):
+            self.conceal_card(card, key)
         layout.addStretch(1)
         return page
+
+    def set_concealment(self, concealment) -> None:
+        super().set_concealment(concealment)
+        if concealment is not None:
+            concealment.changed.connect(self._update_sim_status)
+        self._update_sim_status()
 
     def _inspector_tab_changed(self, index: int) -> None:
         if index == 2 and self._analysis_stale:
@@ -782,6 +796,9 @@ class PetriNetPage(CpnPage):
 
     def _update_sim_status(self) -> None:
         if not self.simulating:
+            if self.results_hidden("soundness"):
+                self.sim_status.setText("")          # an exercise may ask exactly this
+                return
             workflow = check_workflow_net(self.petri_net())
             self.sim_status.setText("WF-net ✓" if workflow.is_workflow_net else
                                     "not (yet) a WF-net")

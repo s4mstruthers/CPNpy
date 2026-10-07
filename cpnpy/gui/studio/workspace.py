@@ -13,7 +13,9 @@ calls it a folder.  This module is the part that does not need Qt:
   made for this folder (the sidebar's view, expanded subfolders, what to do
   with files opened from elsewhere);
 * :func:`unique_path` and :func:`atomic_write` -- naming and writing the
-  files the app creates in the folder.
+  files the app creates in the folder;
+* :func:`exercise_files` -- whether a folder is an *exercise* (it has a
+  ``question`` file) and which of its files play which part.
 
 The state lives in a small hidden JSON file, ``.cpnpy``, inside the folder.
 Paths in it are relative to the folder, so the workspace still works after
@@ -37,6 +39,14 @@ KINDS = {
     ".pnml": "petri",
     ".cpn": "cpn",
 }
+
+#: Text files the app opens, by the end of their name: a log in textbook
+#: notation (``log.txt``, ``L1.log.txt``) and a transition system (``ts.txt``,
+#: ``exam.ts.txt``).  Other ``.txt`` files are not listed.
+TEXT_KINDS = {"log.txt": "log", "ts.txt": "ts"}
+
+#: Extensions of more than one part, longest first.
+COMPOUND_SUFFIXES = (".xes.gz", ".log.txt", ".ts.txt")
 
 #: The hidden file holding the workspace's state.
 STATE_FILE = ".cpnpy"
@@ -63,16 +73,24 @@ FORBIDDEN_CHARACTERS = set('/\\:*?"<>|')
 
 
 def file_kind(path: Path) -> str | None:
-    """``"log"``, ``"petri"``, ``"cpn"`` or ``None`` for a file the app cannot open."""
+    """``"log"``, ``"petri"``, ``"cpn"``, ``"ts"`` or ``None`` for a file the app cannot open."""
     name = path.name.lower()
     if name.endswith(".xes.gz"):
         return KINDS[".xes.gz"]
+    for ending, kind in TEXT_KINDS.items():
+        if name == ending or name.endswith("." + ending):
+            return kind
     return KINDS.get(path.suffix.lower())
 
 
 def file_suffix(name: str) -> str:
-    """The whole extension: ``log.xes.gz`` gives ``.xes.gz`` (not just ``.gz``)."""
-    return name[-7:] if name.lower().endswith(".xes.gz") else os.path.splitext(name)[1]
+    """The whole extension: ``log.xes.gz`` gives ``.xes.gz`` (not just ``.gz``),
+    ``L1.log.txt`` gives ``.log.txt``."""
+    lower = name.lower()
+    for suffix in COMPOUND_SUFFIXES:
+        if lower.endswith(suffix) and len(name) > len(suffix):
+            return name[-len(suffix):]
+    return os.path.splitext(name)[1]
 
 
 def file_stem(name: str) -> str:
@@ -143,7 +161,11 @@ def display_name(relative: str) -> str:
     ``"logs/boarding.xes.gz"`` → ``"logs/boarding"``.
     """
     lower = relative.lower()
-    for extension in sorted(KINDS, key=len, reverse=True):     # ".xes.gz" before ".gz"
+    base = lower.rpartition("/")[2]
+    if base in TEXT_KINDS:                                      # "log.txt" → "log"
+        return relative[:-4]
+    extensions = list(KINDS) + list(COMPOUND_SUFFIXES)
+    for extension in sorted(extensions, key=len, reverse=True):     # ".xes.gz" before ".gz"
         if lower.endswith(extension):
             return relative[: len(relative) - len(extension)]
     return relative
@@ -155,7 +177,7 @@ class WorkspaceFile:
 
     path: Path          # absolute
     relative: str       # inside the folder, with "/" separators
-    kind: str           # "log", "petri" or "cpn"
+    kind: str           # "log", "petri", "cpn" or "ts"
     #: Only in iCloud for now ("Optimise Mac Storage"): ``path`` does not exist
     #: yet, a placeholder (:attr:`cloud_placeholder`) stands in for it.
     in_cloud: bool = False
@@ -180,6 +202,8 @@ class WorkspaceFolder:
     #: True (on the top folder) when :data:`MAX_FILES` or :data:`MAX_FOLDERS`
     #: cut the listing short.
     truncated: bool = False
+    #: The folder is an exercise (see :func:`exercise_files`).
+    exercise: bool = False
 
     @property
     def name(self) -> str:
@@ -225,6 +249,7 @@ class Workspace:
             except OSError:
                 return
             names = {entry.name for entry in entries}
+            folder.exercise = _question_file(folder.path, names) is not None
             subfolders = []
             for entry in entries:
                 name = entry.name
@@ -249,6 +274,8 @@ class Workspace:
                 kind = file_kind(path)
                 if kind is None:
                     continue
+                if folder.exercise and name.lower() in ANSWER_FILES:
+                    continue            # the model answer is not a file to open by accident
                 if budget["files"] <= 0:
                     root.truncated = True
                     return
@@ -367,3 +394,81 @@ class Workspace:
         data.setdefault("open", [])
         data.setdefault("selected", None)
         self._write(data)
+
+
+# ---------------------------------------------------------------------------
+# Exercises
+# ---------------------------------------------------------------------------
+#: The question, in the order they are looked for.
+QUESTION_FILES = ("question.md", "question.pdf", "question.png", "question.jpg",
+                  "question.jpeg", "question.txt")
+#: Files that hold the answer (left out of the sidebar in an exercise).
+ANSWER_FILES = {"answer.pnml", "answer.md"}
+#: The file CPNpy creates for your own net.
+MY_ANSWER = "my answer.pnml"
+
+
+def _question_file(folder: Path, names) -> str | None:
+    lower = {name.lower(): name for name in names}
+    for candidate in QUESTION_FILES:
+        if candidate in lower:
+            return lower[candidate]
+    return None
+
+
+@dataclass(frozen=True)
+class ExerciseFiles:
+    """The parts of an exercise folder (None: the folder has no such file).
+
+    ===================  ================================================
+    ``question``         ``question.md`` (or ``.pdf`` / ``.png``): shown beside the canvas
+    ``net``              ``net.pnml``: a given net, loaded when the exercise opens
+    ``log``              ``log.xes``, ``log.csv`` or ``log.txt`` (textbook notation)
+    ``ts``               ``ts.txt``: a given transition system
+    ``answer_net``       ``answer.pnml``: Check compares your net with it
+    ``answer_text``      ``answer.md``: the worked answer, hidden until revealed
+    ``my_answer``        ``my answer.pnml``: your work (it may not exist yet)
+    ===================  ================================================
+    """
+
+    folder: Path
+    question: Path
+    net: Path | None = None
+    log: Path | None = None
+    ts: Path | None = None
+    answer_net: Path | None = None
+    answer_text: Path | None = None
+
+    @property
+    def name(self) -> str:
+        return self.folder.name
+
+    @property
+    def my_answer(self) -> Path:
+        return self.folder / MY_ANSWER
+
+    @property
+    def needs_a_net(self) -> bool:
+        """Is drawing (or editing) a net part of the exercise?"""
+        return self.net is not None or self.answer_net is not None
+
+
+def exercise_files(folder: str | Path) -> ExerciseFiles | None:
+    """The exercise in ``folder``, or None when it has no ``question`` file."""
+    folder = Path(folder)
+    try:
+        names = [entry.name for entry in os.scandir(folder) if entry.is_file()]
+    except OSError:
+        return None
+    question = _question_file(folder, names)
+    if question is None:
+        return None
+    lower = {name.lower(): folder / name for name in names}
+
+    def first(*candidates: str) -> Path | None:
+        return next((lower[c] for c in candidates if c in lower), None)
+
+    return ExerciseFiles(folder, folder / question, net=first("net.pnml"),
+                         log=first("log.xes", "log.xes.gz", "log.csv", "log.txt"),
+                         ts=first("ts.txt"), answer_net=first("answer.pnml"),
+                         answer_text=first("answer.md", "answer.txt"))

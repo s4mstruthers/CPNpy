@@ -54,6 +54,8 @@ include = ["cpnpy*"]
 
 [tool.setuptools.package-data]
 "cpnpy.gui" = ["resources/*.png"]
+# The demo exercises (File ▸ Open Demo Exercises).
+"cpnpy" = ["exercises/*.md", "exercises/*/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

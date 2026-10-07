@@ -37,9 +37,11 @@ else:
 analysis = Analysis(
     [str(PACKAGING / "cpnpy_studio.py")],
     pathex=[str(ROOT)],
-    # Files the code opens by path at run time (the window icon).
+    # Files the code opens by path at run time (the window icon, and the demo
+    # exercises that File ▸ Open Demo Exercises copies to Documents).
     datas=[(str(ROOT / "cpnpy" / "gui" / "resources" / "cpnpy-icon.png"),
-            "cpnpy/gui/resources")],
+            "cpnpy/gui/resources"),
+           (str(ROOT / "cpnpy" / "exercises"), "cpnpy/exercises")],
     # Imported inside functions; listed so they are never missed.  certifi
     # brings its certificate file (PyInstaller's hook), which the update check
     # needs to reach GitHub: the bundled Python cannot use the system's.

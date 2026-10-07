@@ -35,6 +35,11 @@ With a folder open (File ▸ Open Folder…, e.g. "Week 2"; internally a
   edits are saved as you go (autosave), and files can be moved between
   subfolders, renamed or moved to the Bin from the sidebar;
 * files opened from elsewhere can be copied or moved into the folder.
+
+A subfolder with a ``question`` file is an *exercise* (see
+:mod:`.exercise_panel`): clicking it shows the question beside the page,
+loads the given net and log, hides the analysis results until revealed,
+and offers one Check button.
 """
 
 from __future__ import annotations
@@ -71,7 +76,10 @@ from ..canvas import NetScene, NetView
 from .compare_page import ComparePage
 from .cpn_page import CpnPage
 from .petri_page import PetriNetPage
-from .documents import ComparisonDocument, CpnDocument, LogDocument, ModelDocument
+from .concealment import Concealment
+from .documents import (
+    ComparisonDocument, CpnDocument, LogDocument, ModelDocument, TransitionSystemDocument,
+)
 from .file_dialogs import IMPORT_CHOICES, ImportDialog, SettingsDialog, ask_about_clash
 from .graph_view import GraphView, ZoomControls
 from .log_page import LogPage
@@ -82,8 +90,8 @@ from .widgets import (
     round_menus, scroll, set_dialog_folder, shortcut_text, vbox,
 )
 from .workspace import (
-    FORBIDDEN_CHARACTERS, Workspace, WorkspaceFolder, display_name, file_kind, file_stem,
-    file_suffix,
+    FORBIDDEN_CHARACTERS, MY_ANSWER, ExerciseFiles, Workspace, WorkspaceFolder, display_name,
+    exercise_files, file_kind, file_stem, file_suffix,
     made_by_cpnpy, safe_file_name, unique_path,
 )
 from .workers import run_in_background
@@ -92,6 +100,8 @@ APPLICATION_NAME = "CPNpy Studio"
 
 #: Sidebar item data: the iCloud placeholder of a file that is only in iCloud.
 CLOUD_ROLE = Qt.UserRole + 3
+#: Sidebar item data: the folder is an exercise (it has a question file).
+EXERCISE_ROLE = Qt.UserRole + 4
 
 #: How long after the last edit a net in the folder is saved (milliseconds).
 AUTOSAVE_DELAY = 1000
@@ -208,6 +218,21 @@ def _icon_pixmap(kind: str, ink: QColor | None) -> QPixmap:
             painter.drawLine(7, y, 25, y)
         painter.setBrush(colour)
         painter.drawEllipse(4, 7, 1, 1)
+    elif kind == "ts":
+        # Two states and an arrow between them.
+        painter.drawEllipse(QRectF(3, 11, 9, 9))
+        painter.drawEllipse(QRectF(20, 11, 9, 9))
+        painter.drawLine(13, 15, 18, 15)
+        painter.drawLine(15, 12, 18, 15)
+        painter.drawLine(15, 18, 18, 15)
+    elif kind == "exercise":
+        # A sheet with a question mark.
+        painter.drawRoundedRect(QRectF(6, 4, 20, 24), 3, 3)
+        font = painter.font()
+        font.setBold(True)
+        font.setPixelSize(17)
+        painter.setFont(font)
+        painter.drawText(QRectF(6, 4, 20, 24), Qt.AlignCenter, "?")
     else:
         painter.drawEllipse(QRectF(4, 10, 11, 11))
         painter.drawRect(QRectF(19, 9, 9, 13))
@@ -499,6 +524,13 @@ class StudioWindow(QMainWindow):
         #: Counts folder switches (opening or closing one), so a log still
         #: loading from the folder that was left is not added to the new one.
         self._folder_switches = 0
+        #: The open exercise (see open_exercise): its files, what it hides, and the
+        #: documents that belong to it.
+        self.exercise: ExerciseFiles | None = None
+        self.concealment: Concealment | None = None
+        self._exercise_ids: set[int] = set()
+        #: The exercise's own net (yours, or the given one until you edit it).
+        self._exercise_net_id: int | None = None
         #: Software updates: a check is running; the installer to run on quitting.
         self._checking_updates = False
         self._installer: list[str] | None = None
@@ -527,8 +559,21 @@ class StudioWindow(QMainWindow):
             self.update_bar.release, "install"))
         self.update_bar.skip.connect(lambda: self._update_action(
             self.update_bar.release, "skip"))
+        # Beside the pages: the question of an open exercise.
+        from .exercise_panel import ExercisePanel
+        self.exercise_panel = ExercisePanel()
+        self.exercise_panel.setHidden(True)
+        self.exercise_panel.check_requested.connect(self.check_exercise)
+        self.exercise_panel.close_requested.connect(self.close_exercise)
+        self.work_area = QSplitter()
+        self.work_area.setHandleWidth(1)
+        self.work_area.addWidget(self.exercise_panel)
+        self.work_area.addWidget(self.content)
+        self.work_area.setCollapsible(1, False)
+        self.work_area.setStretchFactor(1, 1)
+        self.work_area.setSizes([340, 1000])
         right = QWidget()
-        right.setLayout(vbox(self.update_bar, self.content, spacing=0))
+        right.setLayout(vbox(self.update_bar, self.work_area, spacing=0))
         right.layout().setStretch(1, 1)
         root.addWidget(right)
         root.setStretchFactor(1, 1)
@@ -616,6 +661,8 @@ class StudioWindow(QMainWindow):
         self.petri_section = self._section("PETRI NETS")
         self.models_section = self._section("MODELS")
         self.cpn_section = self._section("COLOURED NETS")
+        self.ts_section = self._section("TRANSITION SYSTEMS")
+        self.exercises_section = self._section("EXERCISES")
         self.elsewhere_section = self._section("OTHER FILES")
         self.elsewhere_section.setToolTip(0, "Open files that are not in the folder")
         self.compare_section = self._section("COMPARISONS")
@@ -645,6 +692,7 @@ class StudioWindow(QMainWindow):
         footer.setLayout(vbox(button("＋  Open file…", self.action_open),
                               button("✎  Log from notation…", self.action_notation),
                               button("⇄  Compare logs…", lambda: self.action_compare()),
+                              button("⇄  Compare nets…", self.action_compare_nets),
                               spacing=0))
         layout.addWidget(footer)
         return sidebar
@@ -822,6 +870,7 @@ class StudioWindow(QMainWindow):
         self._action(file_menu, "New Log from Notation…", "Ctrl+L", self.action_notation)
         self._action(file_menu, "New Petri Net", QKeySequence.New, self.action_new_petri)
         self._action(file_menu, "New Coloured Petri Net", "Ctrl+Shift+N", self.action_new_cpn)
+        self._action(file_menu, "New Transition System…", None, self.action_new_ts)
         examples = file_menu.addMenu("Open Example Log")
         for name, text in EXAMPLES.items():
             examples.addAction(name, lambda n=name, t=text: self.add_document(LogDocument(
@@ -833,8 +882,12 @@ class StudioWindow(QMainWindow):
         self.recent_menu = file_menu.addMenu("Open Recent")
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         file_menu.addSeparator()
+        self._action(file_menu, "Open Exercise…", None, self.action_open_exercise)
+        self._action(file_menu, "Open Demo Exercises", None, self.open_demo_exercises)
+        file_menu.addSeparator()
         self._action(file_menu, "Open Coloured Petri Net…", "Ctrl+Shift+O", self.action_open_cpn)
         self._action(file_menu, "Compare Logs…", "Ctrl+Shift+C", lambda: self.action_compare())
+        self._action(file_menu, "Compare Nets…", None, self.action_compare_nets)
         file_menu.addSeparator()
         self._action(file_menu, "Save", QKeySequence.Save, self.action_save)
         self._action(file_menu, "Save As / Export…", "Ctrl+Shift+S", self.export_selected)
@@ -908,7 +961,7 @@ class StudioWindow(QMainWindow):
         return [d for d in self.documents if isinstance(d, LogDocument)]
 
     def add_document(self, document, options: dict | None = None,
-                     near: str | None = None) -> None:
+                     near: str | None = None, keep_unsaved: bool = False) -> None:
         """Add a document to the window and show it.
 
         Opening a file that is already open just selects it, so the sidebar
@@ -926,8 +979,15 @@ class StudioWindow(QMainWindow):
         self.documents.append(document)
         if options:
             self.open_options[document.id] = options
+        # Made from a document of the open exercise (a discovered model, a
+        # filtered log): it belongs to the exercise too, results hidden.
+        current = self._current_document()
+        if self.exercise is not None and not document.path and current is not None \
+                and self._belongs_to_exercise(current):
+            self._exercise_ids.add(document.id)
         self._make_page(document)
-        self._materialise(document, near)
+        if not keep_unsaved:
+            self._materialise(document, near)
         if document.path:
             key = self._key(document.path)
             self._opening.discard(key)
@@ -959,6 +1019,10 @@ class StudioWindow(QMainWindow):
             page.open_log.connect(lambda log, source=document: self.add_document(
                 log, near=source.path))
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("log_tab", i))
+        elif isinstance(document, TransitionSystemDocument):
+            from .regions_view import TransitionSystemPage
+            page = TransitionSystemPage(document)
+            page.open_model.connect(self.add_document)
         elif isinstance(document, ComparisonDocument):
             page = ComparePage(document)
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("compare_tab", i))
@@ -968,6 +1032,7 @@ class StudioWindow(QMainWindow):
             page.log_generated.connect(lambda log, source=document: self.add_document(
                 LogDocument(log), near=source.path))
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
+            page.edited.connect(lambda doc=document: self._exercise_edited(doc))
             page.edited.connect(lambda doc=document: self._schedule_autosave(doc))
             page.snap_changed.connect(self._snap_changed)
             page.inspector_tabs.changed.connect(
@@ -1005,6 +1070,8 @@ class StudioWindow(QMainWindow):
         self.banners[document.id] = banner
         self.holders[document.id] = holder
         self.content.addWidget(holder)
+        if hasattr(page, "set_concealment") and self._belongs_to_exercise(document):
+            page.set_concealment(self.concealment)
         return page
 
     def _snap_changed(self, on: bool) -> None:
@@ -1319,6 +1386,8 @@ class StudioWindow(QMainWindow):
 
         if isinstance(document, LogDocument):
             document.log.attributes["concept:name"] = name
+        elif isinstance(document, TransitionSystemDocument):
+            document.ts.name = name
         else:
             document.net.name = name
         if isinstance(document, CpnDocument) and not renames_file:
@@ -1447,6 +1516,9 @@ class StudioWindow(QMainWindow):
         in_folder = self.workspace is not None
         if item is not None and item.data(0, FOLDER_ROLE):
             path = item.data(0, FOLDER_ROLE)
+            if item.data(0, EXERCISE_ROLE):
+                menu.addAction("Open Exercise", lambda: self.open_exercise(path))
+                menu.addSeparator()
             menu.addAction("New Folder…", lambda: self.new_folder(path))
             menu.addAction("Rename…", lambda: self.rename_path(path))
             menu.addAction(reveal_label(), lambda: self.reveal(path))
@@ -1473,7 +1545,8 @@ class StudioWindow(QMainWindow):
             kind = {id(self.logs_section): "Logs", id(self.petri_section): "Petri Nets",
                     id(self.models_section): "Models", id(self.unsaved_section): "Unsaved",
                     id(self.elsewhere_section): "Other Files",
-                    id(self.compare_section): "Comparisons"}.get(id(section), "Coloured Nets")
+                    id(self.compare_section): "Comparisons",
+                    id(self.ts_section): "Transition Systems"}.get(id(section), "Coloured Nets")
             ids = [i for i in ids if i is not None]          # not the "not open" rows
             if ids:
                 menu.addAction(f"Close All {kind}", lambda: self.remove_documents(ids))
@@ -1503,6 +1576,8 @@ class StudioWindow(QMainWindow):
                 elif isinstance(document, LogDocument):
                     menu.addAction("Filter…", self.pages[document.id].filter_log)
                     label_text = "Export Log (XES or CSV)…"
+                elif isinstance(document, TransitionSystemDocument):
+                    label_text = "Export as Text…"
                 else:
                     if in_folder and not document.path:
                         menu.addAction("Keep in Folder", lambda d=document: self.keep_model(d))
@@ -1740,6 +1815,8 @@ class StudioWindow(QMainWindow):
                 self.statusBar().showMessage(
                     f"Opened {name}" + (f" — {problems} problem(s), see the Problems tab"
                                         if problems else ""), 10000)
+            elif lower.endswith(".txt") and file_kind(Path(path)) in ("log", "ts"):
+                self.add_document(self._read_text_file(path))
             elif lower.endswith(".csv"):
                 if csv_mapping is not None:          # reopening: reuse the saved mapping
                     mapping = ColumnMapping(**csv_mapping)
@@ -1770,7 +1847,10 @@ class StudioWindow(QMainWindow):
                                   lambda message: self._could_not_open(path, message, size))
             else:
                 QMessageBox.information(self, "Unsupported file",
-                                        f"{name}: open .xes, .csv, .pnml or .cpn files.")
+                                        f"{name}: open .xes, .csv, .pnml or .cpn files (or a "
+                                        "log in textbook notation named log.txt or "
+                                        "….log.txt, a transition system named ts.txt or "
+                                        "….ts.txt).")
         except Exception as error:  # noqa: BLE001 - surface any import problem
             self._could_not_open(path, str(error), size)
 
@@ -1785,6 +1865,18 @@ class StudioWindow(QMainWindow):
                                          "it has finished", 10000)
             return
         QMessageBox.warning(self, "Could not open file", f"{name}\n\n{message}")
+
+    @staticmethod
+    def _read_text_file(path: str):
+        """A log in textbook notation (``log.txt``) or a transition system (``ts.txt``)."""
+        from ...mining.transition_system import parse_transition_system
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+        stem = display_name(Path(path).name)
+        if Path(path).name.lower() in ("log.txt", "ts.txt"):
+            stem = Path(path).parent.name or stem     # "log" says little; its folder more
+        if file_kind(Path(path)) == "ts":
+            return TransitionSystemDocument(parse_transition_system(text, stem), path=path)
+        return LogDocument(EventLog.from_simple_log(parse_simple_log(text), stem), path=path)
 
     @staticmethod
     def _read_net(path: str):
@@ -2080,6 +2172,8 @@ class StudioWindow(QMainWindow):
             self._restoring = False
         self._stop_watching()
         self._folder_switches += 1
+        if self.exercise is not None and not workspace.contains(self.exercise.folder):
+            self.close_exercise()
 
         self.workspace = workspace
         settings = workspace.settings()
@@ -2130,6 +2224,7 @@ class StudioWindow(QMainWindow):
             self._restoring = False
         self._stop_watching()
         self._folder_switches += 1
+        self.close_exercise()
         name, self.workspace = self.workspace.name, None
         self._tree, self._tree_signature = None, ()
         set_dialog_folder(None)
@@ -2190,9 +2285,9 @@ class StudioWindow(QMainWindow):
 
     # -- the sidebar's rows ---------------------------------------------------------
     def _sections(self) -> list[QTreeWidgetItem]:
-        return [self.unsaved_section, self.logs_section, self.petri_section,
-                self.models_section, self.cpn_section, self.elsewhere_section,
-                self.compare_section]
+        return [self.unsaved_section, self.exercises_section, self.logs_section,
+                self.petri_section, self.models_section, self.cpn_section, self.ts_section,
+                self.elsewhere_section, self.compare_section]
 
     def _row_id(self, item: QTreeWidgetItem | None):
         """What a row stands for, so the same row can be found after a rebuild."""
@@ -2287,6 +2382,7 @@ class StudioWindow(QMainWindow):
 
     def _document_row(self, document) -> QTreeWidgetItem:
         kind = ("compare" if isinstance(document, ComparisonDocument) else
+                "ts" if isinstance(document, TransitionSystemDocument) else
                 "log" if isinstance(document, LogDocument) else
                 "cpn" if isinstance(document, CpnDocument)
                 and not getattr(document.net, "plain", False) else "model")
@@ -2299,7 +2395,7 @@ class StudioWindow(QMainWindow):
 
     def _file_row(self, file, text: str) -> QTreeWidgetItem:
         """A file of the folder that is not open: lighter, opens with a click."""
-        kind = {"log": "log", "cpn": "cpn"}.get(file.kind, "model")
+        kind = {"log": "log", "cpn": "cpn", "ts": "ts"}.get(file.kind, "model")
         key = self._key(file.path)
         if file.in_cloud:
             text += "  ☁"
@@ -2320,12 +2416,19 @@ class StudioWindow(QMainWindow):
     def _fill_kind_view(self) -> None:
         """Rows grouped by kind: logs, Petri nets, models, coloured nets, comparisons."""
         tree = self.tree
-        for section in (self.logs_section, self.petri_section, self.models_section,
-                        self.cpn_section, self.compare_section):
+        for section in (self.exercises_section, self.logs_section, self.petri_section,
+                        self.models_section, self.cpn_section, self.ts_section,
+                        self.compare_section):
             tree.addTopLevelItem(section)
+        if self._tree is not None:
+            for folder in self._tree.walk():
+                if folder.exercise:
+                    self.exercises_section.addChild(self._folder_row(folder))
         for document in self.documents:
             if isinstance(document, LogDocument):
                 section = self.logs_section
+            elif isinstance(document, TransitionSystemDocument):
+                section = self.ts_section
             elif isinstance(document, ComparisonDocument):
                 section = self.compare_section
             elif isinstance(document, CpnDocument):
@@ -2340,7 +2443,7 @@ class StudioWindow(QMainWindow):
         short = [display_name(f.path.name) for f in files]
         clashes = {name for name in short if short.count(name) > 1}
         sections = {"log": self.logs_section, "petri": self.petri_section,
-                    "cpn": self.cpn_section}
+                    "cpn": self.cpn_section, "ts": self.ts_section}
         for file, name in zip(files, short):
             sections[file.kind].addChild(self._file_row(file, file.name if name in clashes
                                                         else name))
@@ -2358,10 +2461,7 @@ class StudioWindow(QMainWindow):
         tops: list[QTreeWidgetItem] = []
         if self._tree is not None:
             for folder in list(self._tree.walk())[1:]:
-                item = QTreeWidgetItem([folder.name])
-                item.setIcon(0, _icon("folder"))
-                item.setData(0, FOLDER_ROLE, str(folder.path))
-                item.setToolTip(0, folder.relative)
+                item = self._folder_row(folder)
                 parent = self.folder_items.get(folder.relative.rpartition("/")[0])
                 (parent.addChild(item) if parent is not None else tops.append(item))
                 self.folder_items[folder.relative] = item
@@ -2397,6 +2497,26 @@ class StudioWindow(QMainWindow):
             tree.addTopLevelItem(section)
         tree.addTopLevelItem(self.empty_hint)
 
+    def _folder_row(self, folder) -> QTreeWidgetItem:
+        """A subfolder's row; an exercise gets its own icon and opens with a click."""
+        item = QTreeWidgetItem([folder.name])
+        item.setData(0, FOLDER_ROLE, str(folder.path))
+        if folder.exercise:
+            item.setIcon(0, _icon("exercise"))
+            item.setData(0, EXERCISE_ROLE, True)
+            active = self.exercise is not None and \
+                self._key(self.exercise.folder) == self._key(folder.path)
+            item.setToolTip(0, f"{folder.relative}\nExercise — "
+                            + ("open" if active else "click to open it"))
+            if active:
+                font = item.font(0)
+                font.setBold(True)
+                item.setFont(0, font)
+        else:
+            item.setIcon(0, _icon("folder"))
+            item.setToolTip(0, folder.relative)
+        return item
+
     @staticmethod
     def _sort_key(item: QTreeWidgetItem):
         """Folders first, then by name, ignoring case (as Finder sorts)."""
@@ -2420,7 +2540,13 @@ class StudioWindow(QMainWindow):
     def _open_placeholder(self, item) -> None:
         try:
             path = item.data(0, FILE_ROLE) if item is not None else None
+            exercise = item.data(0, EXERCISE_ROLE) if item is not None else None
         except RuntimeError:                         # a row rebuilt meanwhile
+            return
+        if exercise and not path:
+            folder = item.data(0, FOLDER_ROLE)
+            if self.exercise is None or self._key(self.exercise.folder) != self._key(folder):
+                self.open_exercise(folder)
             return
         if not path:
             return
@@ -2574,7 +2700,7 @@ class StudioWindow(QMainWindow):
         if isinstance(document, ModelDocument):
             page.keep_button.setVisible(True)
             return
-        if not isinstance(document, (LogDocument, CpnDocument)):
+        if not isinstance(document, (LogDocument, CpnDocument, TransitionSystemDocument)):
             return
         folder = self.workspace.folder
         if near and self.workspace.contains(near) and Path(near).parent.is_dir():
@@ -2582,6 +2708,9 @@ class StudioWindow(QMainWindow):
         try:
             if isinstance(document, LogDocument):
                 target = unique_path(folder, safe_file_name(document.name) + ".xes")
+                page.write_to(str(target), quiet=True)
+            elif isinstance(document, TransitionSystemDocument):
+                target = unique_path(folder, safe_file_name(document.name) + ".ts.txt")
                 page.write_to(str(target), quiet=True)
             else:
                 plain = getattr(document.net, "plain", False)
@@ -2632,7 +2761,8 @@ class StudioWindow(QMainWindow):
                 and isinstance(document, CpnDocument) and bool(document.path)
                 and self.workspace.contains(document.path) and not document.missing
                 and (not document.path.lower().endswith(".cpn")
-                     or document.id in self._cpnpy_files))
+                     or document.id in self._cpnpy_files)
+                and not self._is_given_file(document.path))
 
     def _update_autosave(self, document) -> None:
         if not isinstance(document, CpnDocument):
@@ -2873,9 +3003,17 @@ class StudioWindow(QMainWindow):
             self.statusBar().showMessage(message, 8000)
 
         try:
+            if isinstance(document, TransitionSystemDocument):
+                content = self._read_text_file(path)
+                document.ts = content.ts
+                self._replace_page(document)
+                self.statusBar().showMessage(message, 8000)
+                return
             if isinstance(document, LogDocument):
                 lower = path.lower()
-                if lower.endswith(".csv"):
+                if lower.endswith(".txt"):
+                    done(self._read_text_file(path).log)
+                elif lower.endswith(".csv"):
                     mapping = self.open_options.get(document.id, {}).get("csv_mapping")
                     done(read_csv(path, ColumnMapping(**mapping) if mapping
                                   else guess_mapping(sniff(path)[1])))
@@ -3198,6 +3336,327 @@ class StudioWindow(QMainWindow):
         self.restore_action.setChecked(values["restore"])
         self._set_setting("updates/automatic", values["check_updates"])
 
+    # ---------------------------------------------------------------- exercises
+    def action_open_exercise(self) -> None:
+        start = str(self.workspace.folder) if self.workspace else dialog_folder()
+        folder = QFileDialog.getExistingDirectory(self, "Open exercise",
+                                                  start or str(Path.home()))
+        if folder:
+            self.open_exercise(folder)
+
+    @staticmethod
+    def demo_exercises_source() -> Path:
+        """The demo exercises that ship with CPNpy (read-only in an installed app)."""
+        return Path(__file__).resolve().parents[2] / "exercises"
+
+    def demo_exercises_target(self) -> Path:
+        """Where the demo exercises are copied, so your answers can be saved."""
+        documents = Path.home() / "Documents"
+        return (documents if documents.is_dir() else Path.home()) / "CPNpy Exercises"
+
+    def open_demo_exercises(self) -> None:
+        """Copy the demo exercises to Documents (once) and work in that folder."""
+        target = self.demo_exercises_target()
+        if not target.exists():
+            try:
+                shutil.copytree(self.demo_exercises_source(), target)
+            except OSError as error:
+                QMessageBox.warning(self, "Demo exercises", f"Could not copy the demo "
+                                    f"exercises to {target}:\n\n{error}")
+                return
+            self.statusBar().showMessage(f"Copied the demo exercises to {target}", 8000)
+        if self.open_workspace(str(target)):
+            self.set_view_mode("folder")
+
+    def _belongs_to_exercise(self, document) -> bool:
+        """Is ``document`` part of the open exercise (its results then hidden)?"""
+        if self.exercise is None or document is None:
+            return False
+        if document.id in self._exercise_ids:
+            return True
+        if not getattr(document, "path", None):
+            return False
+        try:
+            Path(document.path).resolve().relative_to(self.exercise.folder.resolve())
+        except (ValueError, OSError):
+            return False
+        return True
+
+    def _is_given_file(self, path: str | None) -> bool:
+        """The exercise's given net: never saved over (your edits go to my answer.pnml)."""
+        net = self.exercise.net if self.exercise is not None else None
+        return bool(path) and net is not None and self._key(path) == self._key(net)
+
+    def _document_at(self, path: Path):
+        key = self._key(path)
+        return next((d for d in self.documents if d.path and self._key(d.path) == key), None)
+
+    def open_exercise(self, folder: str | Path) -> bool:
+        """Do the exercise in ``folder``: show its question, load what it gives,
+        hide the analysis results, and offer Check."""
+        files = exercise_files(folder)
+        if files is None:
+            QMessageBox.information(self, "Open exercise", f"{folder}\n\nThis folder is not an "
+                                    "exercise: it needs a question.md (or question.pdf or "
+                                    "question.png).")
+            return False
+        location = files.folder.resolve()
+        if self.workspace is None or not self.workspace.contains(location):
+            if not self.open_workspace(str(location.parent)):
+                return False
+        self.close_exercise()
+        self.exercise = exercise_files(location)
+        files = self.exercise
+        self.concealment = Concealment(self)
+        self._exercise_ids, self._exercise_net_id = set(), None
+        for document in self.documents:            # already open: hide their results too
+            page = self.pages.get(document.id)
+            if self._belongs_to_exercise(document) and hasattr(page, "set_concealment"):
+                page.set_concealment(self.concealment)
+        self.exercise_panel.set_exercise(files, self.concealment)
+        self.exercise_panel.setHidden(False)
+        relative = self.workspace.relative(location)
+        if self.view_mode == "folder" and relative not in self._expanded:
+            self._expanded.add(relative)
+            self.workspace.update_settings(expanded=sorted(self._expanded))
+
+        for given in (files.log, files.ts):
+            if given is not None:
+                self.open_path(str(given))
+        if files.needs_a_net:
+            mine = files.my_answer
+            if mine.exists():
+                self.open_path(str(mine))
+                document = self._document_at(mine)
+            elif files.net is not None:
+                self.open_path(str(files.net))
+                document = self._document_at(files.net)
+            else:
+                # Nothing to start from: an empty net, saved as "my answer.pnml"
+                # the first time you edit it.
+                from ...model.plain import new_plain_net
+                document = CpnDocument(new_plain_net(_file_stem(Path(MY_ANSWER))))
+                self._exercise_ids.add(document.id)
+                self.add_document(document, keep_unsaved=True)
+            if document is not None:
+                self._exercise_net_id = document.id
+                self._select_document(document)
+        self._rebuild_sidebar()
+        self.statusBar().showMessage(
+            f"Exercise “{files.name}”: analysis results are hidden until you reveal them", 10000)
+        return True
+
+    def close_exercise(self) -> None:
+        """Leave the exercise: the question goes, and no result is hidden any more."""
+        if self.exercise is None:
+            return
+        for page in self.pages.values():
+            if getattr(page, "concealment", None) is not None:
+                page.set_concealment(None)
+        self.exercise, self.concealment = None, None
+        self._exercise_ids, self._exercise_net_id = set(), None
+        self.exercise_panel.setHidden(True)
+        self._rebuild_sidebar()
+
+    def _exercise_edited(self, document) -> None:
+        """The first edit of the exercise's net: from now on it is "my answer.pnml"
+        (the given net.pnml stays as it was)."""
+        if self.exercise is None or document.id != self._exercise_net_id:
+            return
+        if document.path and not self._is_given_file(document.path):
+            return
+        target = self.exercise.my_answer
+        if target.exists():
+            target = unique_path(self.exercise.folder, MY_ANSWER)
+        page = self.pages[document.id]
+        page._take_file_name(target)
+        if not page._write(target, quiet=True):
+            self.statusBar().showMessage(f"Could not save {target.name}: "
+                                         f"{getattr(page, 'save_error', 'unknown error')}", 10000)
+            return
+        self._created.add(self._key(target))
+        self._exercise_ids.add(document.id)
+        self._rebuild_sidebar()
+        self.statusBar().showMessage(f"Your work is saved as “{target.name}” in the exercise "
+                                     "folder" + (" (the given net stays as it was)"
+                                                 if self.exercise.net else ""), 8000)
+
+    def _petri_of(self, document):
+        """The :class:`PetriNet` a document stands for (a drawn net as it is now)."""
+        if isinstance(document, ModelDocument):
+            return document.net
+        from ...model.plain import to_petri_net
+        return to_petri_net(document.net)
+
+    def check_exercise(self, mapping: dict | None = None) -> None:
+        """Check: compare your net with answer.pnml, or show answer.md."""
+        files = self.exercise
+        if files is None:
+            return
+        panel = self.exercise_panel
+        if files.answer_net is None:
+            if files.answer_text is not None:
+                panel.show_result(panel.answer_widget())
+            return
+        document = self._document(self._exercise_net_id) \
+            if self._exercise_net_id is not None else None
+        if document is not None and document in self.documents:
+            mine = self._petri_of(document)
+        elif files.my_answer.exists() or files.net is not None:
+            mine = read_pnml(str(files.my_answer if files.my_answer.exists() else files.net))
+        else:
+            panel.show_result(label("Draw your net first.", "muted", wrap=True))
+            return
+        try:
+            answer = read_pnml(str(files.answer_net))
+        except Exception as error:  # noqa: BLE001
+            panel.show_result(label(f"Could not read answer.pnml: {error}", "muted", wrap=True))
+            return
+        mine.name, answer.name = "your net", "the model answer"
+        panel.show_result(label("Comparing…", "muted"))
+        from ...mining.analysis import check_soundness
+        from ...mining.compare_nets import compare_nets
+        self._exercise_mapping = mapping or {}
+
+        def compute():
+            return compare_nets(mine, answer, mapping), check_soundness(mine, max_states=50_000)
+
+        def done(result) -> None:
+            if self.exercise is not files:
+                return
+            comparison, soundness = result
+            from .exercise_panel import NetComparisonView
+            view = NetComparisonView(comparison, "yours", "the model answer",
+                                     replay=self._replay_exercise_trace,
+                                     recompare=self.check_exercise, soundness=soundness)
+            self.last_comparison = view
+            widgets = [view]
+            if files.answer_text is not None:
+                widgets.append(button("Show the worked answer", lambda: panel.show_result(
+                    view, panel.answer_widget()), kind="ghost"))
+            panel.show_result(*widgets)
+
+        run_in_background(compute, done, lambda message: panel.show_result(
+            label(f"The comparison failed: {message}", "muted", wrap=True)))
+
+    def _replay_exercise_trace(self, trace, _in_mine: bool = True) -> None:
+        document = self._document(self._exercise_net_id) \
+            if self._exercise_net_id is not None else None
+        if document is not None and document in self.documents:
+            self.replay_trace(document, trace, getattr(self, "_exercise_mapping", None))
+
+    def replay_trace(self, document, trace, mapping: dict | None = None) -> None:
+        """Fire as much of ``trace`` (labels) as the net allows, in its token game."""
+        page = self.pages.get(document.id)
+        if not isinstance(page, PetriNetPage):
+            return
+        from ...mining.analysis import check_workflow_net
+        from ...mining.compare_nets import replayable_prefix
+        petri = page.petri_net()
+        source = None
+        if not petri.initial_marking:
+            workflow = check_workflow_net(petri)
+            source = workflow.source if workflow.is_workflow_net else None
+        path, done = replayable_prefix(petri, trace, mapping)
+        self._select_document(document)
+        page.replay(path, source)
+        shown = "⟨" + ", ".join(trace) + "⟩"
+        if done < len(trace):
+            self.statusBar().showMessage(
+                f"{shown}: your net can do the first {done} step(s), then not "
+                f"“{trace[done]}” — this is where it differs", 12000)
+        else:
+            self.statusBar().showMessage(f"{shown}: replayed on your net", 8000)
+
+    # ---------------------------------------------------------------- comparing nets
+    def _nets(self) -> list:
+        return [d for d in self.documents if isinstance(d, ModelDocument) or
+                (isinstance(d, CpnDocument) and getattr(d.net, "plain", False))]
+
+    def action_compare_nets(self) -> None:
+        """Compare two open Petri nets on behaviour (complete traces)."""
+        nets = self._nets()
+        if len(nets) < 2:
+            QMessageBox.information(self, "Compare nets", "Open at least two Petri nets to "
+                                    "compare them.")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Compare nets")
+        form = QFormLayout(dialog)
+        first, second = QComboBox(), QComboBox()
+        for box in (first, second):
+            for document in nets:
+                box.addItem(document.name, document.id)
+        selected = [i for i in self.selected_ids() if any(d.id == i for d in nets)]
+        if selected:
+            first.setCurrentIndex(first.findData(selected[0]))
+        second.setCurrentIndex(1 if first.currentIndex() == 0 else 0)
+        form.addRow(label("Do the two nets allow the same complete traces (silent steps "
+                          "ignored, transitions matched by label)?", "muted", wrap=True))
+        form.addRow("Net", first)
+        form.addRow("Compare with", second)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Compare")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() != QDialog.Accepted or first.currentData() == second.currentData():
+            return
+        self.compare_nets(self._document(first.currentData()),
+                          self._document(second.currentData()))
+
+    def compare_nets(self, first, second, mapping: dict | None = None) -> None:
+        from ...mining.compare_nets import compare_nets
+        mine, other = self._petri_of(first), self._petri_of(second)
+        self.statusBar().showMessage(f"Comparing {first.name} with {second.name}…")
+
+        def done(comparison) -> None:
+            from .exercise_panel import NetComparisonView
+            dialog = getattr(self, "net_comparison_dialog", None)
+            if dialog is None:
+                dialog = QDialog(self)
+                dialog.resize(560, 420)
+                dialog.setLayout(QVBoxLayout())
+                self.net_comparison_dialog = dialog
+            while dialog.layout().count():
+                item = dialog.layout().takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            dialog.setWindowTitle(f"{first.name} vs {second.name}")
+            view = NetComparisonView(
+                comparison, f"“{first.name}”", f"“{second.name}”",
+                replay=(lambda trace, _f: self.replay_trace(first, trace, mapping))
+                if isinstance(self.pages.get(first.id), PetriNetPage) else None,
+                recompare=lambda m: self.compare_nets(first, second, m))
+            dialog.layout().addWidget(scroll(view), 1)
+            self.statusBar().showMessage(comparison.summary(first.name, second.name), 8000)
+            dialog.show()
+            dialog.raise_()
+
+        run_in_background(lambda: compare_nets(mine, other, mapping), done,
+                          lambda message: self.statusBar().showMessage(
+                              f"Comparison failed: {message}", 8000))
+
+    def action_new_ts(self) -> None:
+        """Type a transition system to study its regions."""
+        from ...mining.transition_system import parse_transition_system
+        text, ok = QInputDialog.getMultiLineText(
+            self, "New transition system", "Transitions, as  s0 -a-> s1  (one per line or "
+            "separated by commas). Optional: initial: s0",
+            "s0 -a-> s1, s0 -b-> s2\ns1 -b-> s3, s2 -a-> s3\ninitial: s0")
+        if not ok or not text.strip():
+            return
+        names = {d.name for d in self.documents}
+        number = 1
+        while f"Transition system {number}" in names:
+            number += 1
+        try:
+            ts = parse_transition_system(text, f"Transition system {number}")
+        except ValueError as error:
+            QMessageBox.warning(self, "New transition system", str(error))
+            return
+        self.add_document(TransitionSystemDocument(ts))
+
     # ---------------------------------------------------------------- drag & drop
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if event.mimeData().hasUrls():
@@ -3209,7 +3668,9 @@ class StudioWindow(QMainWindow):
 
     def _open_dropped(self, paths: list[str]) -> None:
         folders = [p for p in paths if Path(p).is_dir()]
-        if folders:
+        if folders and exercise_files(folders[0]) is not None:
+            self.open_exercise(folders[0])                # an exercise: do it
+        elif folders:
             self.open_workspace(folders[0])               # a folder: work in it
         self.open_files([p for p in paths if not Path(p).is_dir()])
 

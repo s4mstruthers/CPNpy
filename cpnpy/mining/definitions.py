@@ -66,10 +66,17 @@ SECTIONS = [
     ("footprint", "Footprints",
      "The ordering relations of the α-algorithm, for an event log or for the behaviour "
      "of a net."),
+    ("regions", "Transition systems and regions",
+     "Two-phase discovery: an event log becomes a transition system, and the transition "
+     "system's regions become the places of a Petri net. Throughout, "
+     "$TS = (S, E, T, s_{in})$ is a transition system."),
 ]
 
 MURATA_1989 = ("T. Murata, *Petri Nets: Properties, Analysis and Applications*, "
                "Proceedings of the IEEE 77(4) (1989)")
+CORTADELLA_1998 = ("J. Cortadella, M. Kishinevsky, L. Lavagno and A. Yakovlev, *Deriving Petri "
+                   "Nets from Finite Transition Systems*, IEEE Transactions on Computers 47(8) "
+                   "(1998)")
 
 
 DEFINITIONS: tuple[Definition, ...] = (
@@ -380,6 +387,107 @@ DEFINITIONS: tuple[Definition, ...] = (
          "only). Comparing a log's footprint with a model's is a simple conformance "
          "check.",),
         f"{AALST_2016}, Section 6.2", "footprint"),
+
+    # -- transition systems and regions ------------------------------------------------
+    Definition(
+        "transition_system", "Transition system",
+        "States, and arrows between them labelled with events. The simplest model of a "
+        "process: it has no concurrency, so two events in either order make a diamond.",
+        (r"TS = (S, E, T, s_{in})",
+         r"T \subseteq S \times E \times S, \quad s_{in} \in S"),
+        ("From an event log, the *state function* decides the state an event happens in: "
+         "it looks at the events before it (the prefix), after it (the postfix) or both, "
+         "keeps the last $k$ of them (the horizon) or all, and forgets their order (a "
+         "multiset) or also their frequency (a set). Every trace then walks from state to "
+         "state, one event at a time: with the prefix, $s_k = "
+         "\\text{rep}(\\text{last}_h \\langle e_1, \\ldots, e_k \\rangle)$ and "
+         "$(s_{k-1}, e_k, s_k) \\in T$.",
+         "A coarser abstraction (a set, a short horizon) merges states and so generalises; "
+         "the full sequence gives a tree that allows exactly the log."),
+        f"{AALST_2016}, Section 7.4.1", "regions"),
+    Definition(
+        "region", "Region",
+        "A set of states that every event treats the same way each time: all its arrows "
+        "enter the set, all exit it, or none crosses it.",
+        (r"R \subseteq S \text{ is a region} \iff \forall e \in E \colon "
+         r"\text{enter}(e, R) \lor \text{exit}(e, R) \lor \text{nocross}(e, R)",
+         r"\text{enter}(e, R) \iff \forall (s, e, s') \in T \colon s \notin R \land s' \in R",
+         r"\text{exit}(e, R) \iff \forall (s, e, s') \in T \colon s \in R \land s' \notin R",
+         r"\text{nocross}(e, R) \iff \forall (s, e, s') \in T \colon "
+         r"(s \in R \Leftrightarrow s' \in R)"),
+        ("$\\emptyset$ and $S$ are the *trivial* regions. The complement $S \\setminus R$ of "
+         "a region is a region too, with enter and exit swapped.",
+         "A region is a place in disguise: it is marked exactly in its states, an event "
+         "that enters it puts a token in, one that exits it takes the token out."),
+        f"{CORTADELLA_1998}; {AALST_2016}, Section 7.4.2", "regions", ("transition_system",)),
+    Definition(
+        "minimal_region", "Minimal region",
+        "A non-empty region with no smaller non-empty region inside it. The synthesised "
+        "net has one place per minimal region.",
+        (r"R \text{ is minimal} \iff R \neq \emptyset \land \neg \exists \text{ region } "
+         r"R' \colon \emptyset \neq R' \subsetneq R",),
+        (),
+        CORTADELLA_1998, "regions", ("region",)),
+    Definition(
+        "pre_region", "Pre-region and post-region",
+        "The regions an event leaves (its input places) and the regions it enters (its "
+        "output places).",
+        (r"R \in \text{pre}(e) \iff \text{exit}(e, R)",
+         r"R \in \text{post}(e) \iff \text{enter}(e, R)"),
+        ("Exam questions often ask for the *minimal* pre-regions: the minimal regions that "
+         "are pre-regions, i.e. the input places of $e$ in the synthesised net.",),
+        CORTADELLA_1998, "regions", ("region",)),
+    Definition(
+        "ger", "Generalised excitation region",
+        "The states in which an event is enabled.",
+        (r"\text{GER}(e) = \lbrace s \in S \mid \exists s' \colon (s, e, s') \in T \rbrace",),
+        ("Every pre-region of $e$ contains $\\text{GER}(e)$: $e$ exits it, so it starts "
+         "inside.",),
+        CORTADELLA_1998, "regions", ("transition_system",)),
+    Definition(
+        "state_separation", "State separation",
+        "Any two states are told apart by some region: in the net they will be different "
+        "markings.",
+        (r"\forall s_1, s_2 \in S \colon s_1 \neq s_2 \Rightarrow \exists \text{ region } "
+         r"R \colon s_1 \in R \land s_2 \notin R",),
+        ("Since the complement of a region is a region, it does not matter which of the two "
+         "is inside. Two states with the same event to the same state, as in "
+         "$s_1 \\xrightarrow{e} s$ and $s_2 \\xrightarrow{e} s$, can never be separated: a "
+         "region with $s_1$ but not $s_2$ would have one $e$-arrow cross it and the other "
+         "not.",),
+        CORTADELLA_1998, "regions", ("region",)),
+    Definition(
+        "forward_closure", "Forward closure",
+        "An event's input places are all marked only where the event really is enabled.",
+        (r"\forall e \in E \colon \bigcap_{R \in \text{pre}(e)} R = \text{GER}(e)",),
+        ("Also called *event/state separation*. When it fails, the net would enable $e$ in "
+         "a state where the transition system does not. With no pre-region at all, the "
+         "intersection is all of $S$.",),
+        CORTADELLA_1998, "regions", ("pre_region", "ger")),
+    Definition(
+        "elementary_ts", "Elementary transition system",
+        "A transition system that a Petri net can mimic exactly, with one place per "
+        "region.",
+        (r"TS \text{ is elementary} \iff \text{state separation} \land "
+         r"\text{forward closure}",),
+        ("A transition system that is not elementary can be made so by *label splitting*: "
+         "renaming some occurrences of an event (e.g. $a$ into $a_1$ and $a_2$), which the "
+         "net then shows as two transitions with the same label.",),
+        CORTADELLA_1998, "regions", ("state_separation", "forward_closure")),
+    Definition(
+        "region_synthesis", "Synthesis from regions",
+        "The Petri net of a transition system: a place per minimal region, the events as "
+        "transitions, and arcs from pre-regions and to post-regions.",
+        (r"P = \lbrace p_R \mid R \text{ is a minimal region} \rbrace, \quad T = E",
+         r"F = \lbrace (p_R, e) \mid R \in \text{pre}(e) \rbrace \cup "
+         r"\lbrace (e, p_R) \mid R \in \text{post}(e) \rbrace",
+         r"M_0 = [\, p_R \mid s_{in} \in R \,]",
+         r"TS \text{ elementary} \Rightarrow RG(N, M_0) \cong TS"),
+        ("$\\cong$: the reachability graph is the transition system with its states "
+         "renamed (isomorphic). For a transition system that is not elementary the net can "
+         "allow more.",),
+        f"{CORTADELLA_1998}; {AALST_2016}, Section 7.4.2", "regions",
+        ("minimal_region", "pre_region", "elementary_ts")),
 )
 
 BY_KEY = {definition.key: definition for definition in DEFINITIONS}
@@ -401,6 +509,11 @@ FOR_TITLE = {
     "S-coverable": "s_coverable", "State machine": "state_machine",
     "Covered by P-invariants": "p_invariant", "Covered by T-invariants": "t_invariant",
     "Incidence matrix": "incidence_matrix",
+    "Transition system": "transition_system", "Region": "region", "Not a region": "region",
+    "Minimal regions": "minimal_region", "State separation": "state_separation",
+    "Forward closure": "forward_closure", "Elementary": "elementary_ts",
+    "Not elementary": "elementary_ts", "Reachability graph ≅ transition system":
+    "region_synthesis", "Reachability graph ≇ transition system": "region_synthesis",
 }
 
 
@@ -450,7 +563,7 @@ def markdown() -> str:
             if definition.source:
                 lines += [f"*Source: {definition.source.replace('*', '')}.*", ""]
     lines += ["## Sources", "",
-              f"- {AALST_2000}.", f"- {AALST_2016}.", ""]
+              f"- {AALST_2000}.", f"- {AALST_2016}.", f"- {CORTADELLA_1998}.", ""]
     return "\n".join(lines)
 
 

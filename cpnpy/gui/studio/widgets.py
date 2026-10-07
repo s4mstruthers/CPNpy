@@ -138,7 +138,72 @@ class Card(QFrame):
             self.body.addWidget(item, stretch)
         else:
             self.body.addLayout(item, stretch)
+        if self.concealed:
+            _set_visible(item, False)
         return item
+
+    # -- hidden in an exercise (see concealment.py) ---------------------------------
+    concealed = False
+
+    def set_concealment(self, concealment, key: str) -> None:
+        """Follow ``concealment`` (None: never hidden) for the result ``key``."""
+        previous = getattr(self, "_concealment", None)
+        if previous is not None and previous is not concealment:
+            try:
+                previous.changed.disconnect(self._follow_concealment)
+            except (RuntimeError, TypeError):
+                pass
+        if concealment is not None and concealment is not previous:
+            concealment.changed.connect(self._follow_concealment)
+        self._concealment, self._conceal_key = concealment, key
+        self._follow_concealment()
+
+    def _follow_concealment(self) -> None:
+        concealment = getattr(self, "_concealment", None)
+        hidden = concealment is not None and concealment.hidden(self._conceal_key)
+        if hidden == self.concealed:
+            return
+        if hidden and not hasattr(self, "reveal_row"):
+            from .concealment import RESULTS
+            what = RESULTS.get(self._conceal_key, "this result")
+            self.reveal_row = QFrame()
+            self.reveal_row.setObjectName("revealRow")
+            reveal = button("Reveal", lambda: self._concealment and self._concealment.reveal(
+                self._conceal_key), tooltip=f"Show {what}")
+            reveal.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            self.reveal_button = reveal
+            text = QVBoxLayout()
+            text.setSpacing(1)
+            text.addWidget(label("Hidden in this exercise", "revealTitle"))
+            text.addWidget(label(f"Work out {what} yourself first.", "muted", wrap=True))
+            row = hbox(spacing=10, margins=(12, 9, 10, 9))
+            row.addLayout(text, 1)
+            row.addWidget(reveal, 0, Qt.AlignVCenter)
+            self.reveal_row.setLayout(row)
+            self.body.insertWidget(self.fixed_count, self.reveal_row)
+            self.fixed_count += 1
+        self.concealed = hidden
+        if hasattr(self, "reveal_row"):
+            self.reveal_row.setVisible(hidden)
+        for index in range(self.fixed_count, self.body.count()):
+            _set_visible(self.body.itemAt(index), not hidden)
+
+
+def _set_visible(item, visible: bool) -> None:
+    """Show or hide a widget, or every widget in a layout (or layout item)."""
+    if isinstance(item, QWidget):
+        item.setVisible(visible)
+        return
+    widget = item.widget() if hasattr(item, "widget") else None
+    if widget is not None:
+        widget.setVisible(visible)
+        return
+    layout = item.layout() if hasattr(item, "layout") and not hasattr(item, "count") \
+        else item
+    if layout is None or not hasattr(layout, "count"):
+        return
+    for index in range(layout.count()):
+        _set_visible(layout.itemAt(index), visible)
 
 
 def _delete_layout(layout) -> None:

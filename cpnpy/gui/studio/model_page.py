@@ -37,6 +37,7 @@ from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
 from .. import theme
 from . import instances, style
+from .concealment import ConcealsResults
 from .documents import ModelDocument
 from .graph_builders import petri_net_specs, state_graph_specs
 from .graph_view import GraphView
@@ -88,7 +89,7 @@ class AlignmentStrip(QWidget):
         paint_chips(painter, QRectF(self.rect()).adjusted(0, 4, 0, -4), chips, font, 140)
 
 
-class ModelPage(QWidget):
+class ModelPage(ConcealsResults, QWidget):
     status = Signal(str)
     #: A play-out produced a new event log (the window adds it to the sidebar).
     log_generated = Signal(object)
@@ -442,6 +443,8 @@ class ModelPage(QWidget):
         layout.addWidget(self.soundness_card)
         layout.addWidget(self.properties_card)
         layout.addStretch(1)
+        self.conceal_card(self.soundness_card, "soundness")
+        self.conceal_card(self.properties_card, "properties")
         self._run_analysis()
         return page
 
@@ -543,9 +546,11 @@ class ModelPage(QWidget):
         grid.setSpacing(10)
         for index, tile in enumerate(self.metric_tiles.values()):
             grid.addWidget(tile, index // 2, index % 2)
-        metrics = QWidget()
-        metrics.setLayout(grid)
+        metrics = Card(padding=0)
+        metrics.setObjectName("plain")
+        metrics.add(grid)
         layout.addWidget(metrics)
+        self.conceal_card(metrics, "conformance")
 
         overlay = Card("Show on model")
         self.overlay_switch = SegmentedControl(["Nothing", "Token replay", "Alignments"])
@@ -573,6 +578,8 @@ class ModelPage(QWidget):
         variants.add(legend)
         self.variant_table.selectionModel().currentRowChanged.connect(self._show_alignment)
         layout.addWidget(variants)
+        self.conceal_card(overlay, "conformance")
+        self.conceal_card(variants, "conformance")
         layout.addStretch(1)
         return page
 
