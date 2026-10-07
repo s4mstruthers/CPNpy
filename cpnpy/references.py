@@ -7,6 +7,10 @@ source.  This module lists them once:
 * :data:`TOPICS` -- what CPNpy does, grouped as in the app, with the works it
   follows and the module that implements it.
 
+Every detail given (pages, DOIs, links) was checked against the publisher, a
+bibliography database or the paper itself; anything that could not be
+confirmed is left out rather than guessed.
+
 The app shows this as *Help ▸ References*, and ``docs/references.md`` is
 generated from it with ``python -m cpnpy.references > docs/references.md``
 (a test checks the two agree).  Module docstrings cite the same works at the
@@ -64,7 +68,7 @@ REFERENCES: tuple[Reference, ...] = (
               "2010.", "10.1007/s10270-008-0106-z"),
     Reference("leemans2019", "S.J.J. Leemans, E. Poppe and M.T. Wynn. *Directly "
               "Follows-Based Process Mining: Exploration & a Case Study*. International "
-              "Conference on Process Mining (ICPM 2019). IEEE, 2019."),
+              "Conference on Process Mining (ICPM 2019), 2019."),
     Reference("song2007", "M. Song and W.M.P. van der Aalst. *Supporting Process Mining by "
               "Showing Events at a Glance*. 17th Annual Workshop on Information Technologies "
               "and Systems (WITS 2007), pp. 139–145, 2007."),
@@ -90,14 +94,14 @@ REFERENCES: tuple[Reference, ...] = (
               "Management: Models, Techniques, and Empirical Studies, LNCS 1806, "
               "pp. 161–183. Springer, 2000.", "10.1007/3-540-45594-9_11"),
     Reference("murata1989", "T. Murata. *Petri Nets: Properties, Analysis and Applications*. "
-              "Proceedings of the IEEE 77(4):541–580, 1989.", "10.1109/5.24143"),
+              "Proceedings of the IEEE 77(4):541–580, 1989."),
     Reference("karp1969", "R.M. Karp and R.E. Miller. *Parallel Program Schemata*. Journal of "
               "Computer and System Sciences 3(2):147–195, 1969."),
     Reference("desel1995", "J. Desel and J. Esparza. *Free Choice Petri Nets*. Cambridge "
               "Tracts in Theoretical Computer Science 40. Cambridge University Press, 1995."),
     Reference("cortadella1998", "J. Cortadella, M. Kishinevsky, L. Lavagno and A. Yakovlev. "
               "*Deriving Petri Nets from Finite Transition Systems*. IEEE Transactions on "
-              "Computers 47(8):859–882, 1998.", "10.1109/12.707587"),
+              "Computers 47(8):859–882, 1998."),
     Reference("ehrenfeucht1990", "A. Ehrenfeucht and G. Rozenberg. *Partial (Set) "
               "2-Structures. Part I: Basic Notions and the Representation Problem*, Acta "
               "Informatica 27(4):315–342, 1990; *Part II: State Spaces of Concurrent "
@@ -110,8 +114,7 @@ REFERENCES: tuple[Reference, ...] = (
               "(revised as IEEE Std 1849-2023).", "https://xes-standard.org"),
     Reference("pnml", "ISO/IEC 15909-2:2011. *Systems and software engineering — High-level "
               "Petri nets — Part 2: Transfer format*."),
-    Reference("cpntools", "CPN Tools and its model file format (`.cpn`).",
-              "https://cpntools.org"),
+    Reference("cpntools", "CPN Tools and its model file format (`.cpn`)."),
     Reference("sugiyama1981", "K. Sugiyama, S. Tagawa and M. Toda. *Methods for Visual "
               "Understanding of Hierarchical System Structures*. IEEE Transactions on "
               "Systems, Man, and Cybernetics 11(2):109–125, 1981.",
