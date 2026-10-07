@@ -473,3 +473,14 @@ def test_old_style_parts_get_boxes_and_notes_are_kept(app, tmp_path):
     mode.open_index(0)
     assert mode.view.notes_visible and "register" in mode.view.notes.toPlainText()
     window.close()
+
+
+def test_wide_pictures_are_scaled_to_the_worksheet(app, tmp_path):
+    from PySide6.QtGui import QImage
+    from cpnpy.gui.studio.markdown_view import MarkdownLabel
+    picture = QImage(1600, 400, QImage.Format_RGB32)
+    picture.fill(0)
+    picture.save(str(tmp_path / "wide.png"))
+    QImage(200, 100, QImage.Format_RGB32).save(str(tmp_path / "small.png"))
+    text = MarkdownLabel("![w](wide.png) ![s](small.png)", tmp_path).text()
+    assert 'wide.png" width="640"' in text and 'small.png" width' not in text

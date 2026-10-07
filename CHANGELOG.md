@@ -15,6 +15,10 @@ notice, not how it was done.
   boxes, in parts a., b., c., now has a box under each part, with that part
   of the worked answer behind *Show answer*.
 - **The window's title names the exercise** you are working on.
+- **Pictures in worksheets** wider than the sheet are scaled to fit.
+- **Writing Exercise Packs** (Help menu) now walks through making a pack step
+  by step, which box suits which kind of question, and turning a past exam
+  into a pack.
 - **Fixed:** in an answer block, `a # b` (the α-algorithm's choice relation)
   was taken for a comment and cut off. A comment now needs two spaces before
   the `#`.
