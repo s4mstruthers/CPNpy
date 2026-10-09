@@ -268,9 +268,11 @@ def stylesheet() -> str:
     #notesOverlayButton {{ background: transparent; border: none; border-radius: 6px;
         padding: 2px 7px; color: {t.text_secondary}; font-size: 14px; }}
     #notesOverlayButton:hover {{ background: {qc(t.text, 0.08).name(QColor.HexArgb)}; color: {t.text}; }}
-    #notesOverlayPill {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 14px;
-        padding: 5px 12px; color: {t.text_secondary}; font-weight: 600; }}
-    #notesOverlayPill:hover {{ color: {t.text}; border-color: {t.accent}; }}
+    QToolButton#notesStatusButton {{ background: {t.surface}; border: 1px solid {t.border};
+        border-radius: 7px; padding: 2px 10px; margin: 2px 6px; color: {t.text_secondary}; }}
+    QToolButton#notesStatusButton:hover {{ color: {t.text}; }}
+    QToolButton#notesStatusButton:checked {{ background: {t.accent_soft}; color: {t.text};
+        border-color: {qc(t.accent, 0.45).name(QColor.HexArgb)}; }}
     #exerciseBarButton:checked {{ background: {t.accent_soft}; color: {t.text}; }}
     #taskCard {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 12px; }}
     #taskCard[state="good"] {{ border-color: {qc(STATUS["good"], 0.55).name(QColor.HexArgb)}; }}

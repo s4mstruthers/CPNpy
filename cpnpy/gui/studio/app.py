@@ -518,6 +518,18 @@ class StudioWindow(QMainWindow):
         self.modes.addWidget(self.exercise_mode)
         self.setCentralWidget(self.modes)
         self.statusBar().showMessage("Ready")
+        # ✎ Notes in the status bar: it never covers the page (see toggle_notes).
+        self.notes_button = QToolButton()
+        self.notes_button.setObjectName("notesStatusButton")
+        self.notes_button.setText("✎  Notes")
+        self.notes_button.setToolTip(f"Scratch paper, kept with the folder "
+                                     f"({shortcut_text('Ctrl+Alt+N')})")
+        self.notes_button.setCheckable(True)
+        self.notes_button.setCursor(Qt.PointingHandCursor)
+        self.notes_button.setFocusPolicy(Qt.NoFocus)
+        self.notes_button.clicked.connect(lambda: self.toggle_notes())
+        self.statusBar().addPermanentWidget(self.notes_button)
+        self.modes.currentChanged.connect(lambda _index: self._update_notes_button())
         self._build_menus()
         if not self._setting("window/sidebar", True):
             self.toggle_sidebar(False)
@@ -745,31 +757,41 @@ class StudioWindow(QMainWindow):
         self.notes.set_open(not self.notes.is_open if show is None else show)
 
     def _sync_notes_action(self) -> None:
-        """Tick Show Notes for the notes in view: the exercise's, or the window's."""
+        """Tick Show Notes (and ✎ Notes) for the notes in view: the exercise's, or
+        the window's."""
         if self.in_exercises:
             view = self.exercise_mode.view
             self._notes_opened(view is not None and view.notes_visible, remember=False)
             self.notes_action.setEnabled(view is not None)
+            self.notes_button.setEnabled(view is not None)
         else:
             self._notes_opened(self.notes.is_open, remember=False)
             self.notes_action.setEnabled(True)
+            self.notes_button.setEnabled(True)
 
     def _notes_opened(self, show: bool, remember: bool = True) -> None:
         if self.notes_action.isChecked() != show:
             self.notes_action.blockSignals(True)
             self.notes_action.setChecked(show)
             self.notes_action.blockSignals(False)
+        self.notes_button.setChecked(show)
         if remember:
             self._set_setting("notes/open", show)
 
     def set_notes_button(self, show: bool) -> None:
-        """Show the ✎ Notes button in the corner while the notes are folded away."""
-        self.notes.set_button_visible(show)
+        """Show the ✎ Notes button in the status bar (or rely on ⌘⌥N alone)."""
+        self._notes_button_wanted = show
+        self._update_notes_button()
         if self.notes_button_action.isChecked() != show:
             self.notes_button_action.blockSignals(True)
             self.notes_button_action.setChecked(show)
             self.notes_button_action.blockSignals(False)
         self._set_setting("notes/button", show)
+
+    def _update_notes_button(self) -> None:
+        """Exercise mode has a ✎ Notes of its own, in its top bar."""
+        self.notes_button.setVisible(getattr(self, "_notes_button_wanted", True)
+                                     and not self.in_exercises)
 
     def _save_notes(self, text: str) -> None:
         """Keep the notes: with the open folder, or in the app's settings."""
@@ -994,7 +1016,7 @@ class StudioWindow(QMainWindow):
         self.notes_action = self._action(view_menu, "Show Notes", "Ctrl+Alt+N",
                                          lambda on: self.toggle_notes(on))
         self.notes_action.setCheckable(True)
-        self.notes_button_action = self._action(view_menu, "Show Notes Button", None,
+        self.notes_button_action = self._action(view_menu, "Show Notes in Status Bar", None,
                                                 lambda on: self.set_notes_button(on))
         self.notes_button_action.setCheckable(True)
         self.notes_button_action.setChecked(True)
