@@ -2213,3 +2213,37 @@ def test_process_tree_drawn_top_down(app):
     assert not any(e.arrow for e in edges)
     assert all(n.kind != "silent" for n in nodes)
     assert any(n.text == "τ" for n in nodes)
+
+
+def test_log_tabs_fit_the_window(app):
+    """Canvases on a log's tabs fill the window instead of asking for their whole
+    graph's height (which made the page scroll), and the drawn process tree
+    keeps its zoom bar inside the card."""
+    from PySide6.QtWidgets import QComboBox, QScrollArea
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.derivation_view import TreeView
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.mining import read_xes
+
+    window = StudioWindow()
+    window.resize(1200, 760)
+    window.show()
+    window.add_document(LogDocument(read_xes(DATA / "plane_wilma_10.xes"),
+                                    path=str(DATA / "plane_wilma_10.xes")))
+    page = window.current_page()
+    area = page.parentWidget()
+    while not isinstance(area, QScrollArea):
+        area = area.parentWidget()
+    names = [b.text() for b in page.tabs.buttons]
+    for name in ("Process map", "Discover"):
+        page.tabs.set_index(names.index(name))
+        _pump(app, 0.3)
+    for box in page.findChildren(QComboBox):
+        if box.findData("im") >= 0:
+            box.setCurrentIndex(box.findData("im"))
+    _pump(app, 2.0)
+    assert page.height() <= area.viewport().height()
+    tree = page.findChildren(TreeView)[0]
+    bar = tree.zoom_controls
+    assert bar.isVisible() and tree.viewport().geometry().contains(bar.geometry())
+    window.close()

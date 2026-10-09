@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from html import escape
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAbstractTextDocumentLayout, QColor, QPalette, QTextDocument
 from PySide6.QtWidgets import (
     QFrame, QLabel, QSizePolicy, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QTreeWidget,
@@ -153,6 +153,8 @@ def tree_formula(tree: ProcessTree) -> str:
 #: Space between neighbouring subtrees, and between one level and the next.
 TREE_SIBLING_GAP = 18.0
 TREE_LEVEL_GAP = 56.0
+#: The drawn tree's height on the Discover tab: at least, at most (pixels).
+TREE_VIEW_HEIGHT = (160, 420)
 
 
 def tree_specs(tree: ProcessTree) -> tuple[list[NodeSpec], list[EdgeSpec],
@@ -230,6 +232,34 @@ def tree_specs(tree: ProcessTree) -> tuple[list[NodeSpec], list[EdgeSpec],
 
     place(root, 0.0)
     return nodes, edges, positions
+
+
+class TreeView(GraphView):
+    """The drawn process tree: as tall as the tree is at the width it gets.
+
+    Stretched to fill the column instead, the canvas ran past the bottom of
+    the card (taking its zoom bar with it), with the tree a sliver in the
+    middle.
+    """
+
+    def fit_height(self) -> None:
+        rect = self.graph.sceneRect()
+        if rect.isEmpty():
+            return
+        scale = min(self.viewport().width() / rect.width(), 1.4) if self.width() > 1 else 1.0
+        height = rect.height() * scale + 2 * self.frameWidth()
+        height = int(min(max(height, TREE_VIEW_HEIGHT[0]), TREE_VIEW_HEIGHT[1]))
+        if height != self.height():
+            self.setFixedHeight(height)
+            # The zoom bar is placed for the old height until the layout has
+            # applied the new one: place it again once it has.
+            QTimer.singleShot(0, self._place_controls)
+        self.fit()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self.fit_height()
 
 
 # ---------------------------------------------------------------------------
@@ -311,11 +341,10 @@ def inductive_view(result: InductiveResult, draw_tree: bool = True) -> QWidget:
     layout.addWidget(label("PROCESS TREE", "sectionLabel"))
     layout.addWidget(_rich(tree_formula(result.tree), 15))
     if draw_tree:
-        view = GraphView()
-        view.setMinimumHeight(220)
+        view = TreeView()
         nodes, edges, positions = tree_specs(result.tree)
         view.graph.populate(nodes, edges, positions=positions)
-        view.fit()
+        view.fit_height()
         layout.addWidget(view)
 
     layout.addWidget(label("RECURSION", "sectionLabel"))
