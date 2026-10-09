@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFileDialog, QGridLayout, QHeaderView, QLabel,
-    QGraphicsOpacityEffect, QLineEdit, QPlainTextEdit, QSlider, QSpinBox, QSplitter, QStackedWidget, QTableView,
+    QGraphicsOpacityEffect, QLineEdit, QPlainTextEdit, QSizePolicy, QSlider, QSpinBox, QSplitter, QStackedWidget, QTableView,
     QVBoxLayout, QWidget,
 )
 
@@ -435,6 +435,8 @@ class LogPage(ConcealsResults, QWidget):
     def _build_map(self, layout) -> None:
         dfg = discover_dfg(self.document.log, self.document.classifier)
         view = GraphView()
+        # Fill the window rather than ask for the whole map's height (see Discover).
+        view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         mode = SegmentedControl(["Frequency", "Performance"])
         has_time = bool(dfg.durations)
         mode.buttons[1].setEnabled(has_time)
@@ -622,6 +624,9 @@ class LogPage(ConcealsResults, QWidget):
         caption = result_card.caption_label
         preview = GraphView()
         preview.setMinimumHeight(140)
+        # Fill the space there is, as the editors do: asked for the whole net's
+        # height instead, the page grew past the window and had to be scrolled.
+        preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         result_card.add(preview, 1)
         derivation_body = QWidget()
         steps_host = QVBoxLayout(derivation_body)
