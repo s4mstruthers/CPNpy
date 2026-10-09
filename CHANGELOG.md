@@ -6,6 +6,14 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.5.4
+
+- **Discover and Process map fit the window.** The model, the process map and
+  their zoom bars stay in view without scrolling the page, and the canvases
+  grow and shrink with the window, as in the editors.
+- **The drawn process tree is sized to the tree**, so it no longer leaves a
+  tall empty canvas, and its zoom bar is always visible.
+
 ## 0.5.3
 
 - **Process trees read top-down.** *Discover ▸ Inductive Miner ▸ How it was
