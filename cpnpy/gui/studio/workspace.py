@@ -17,7 +17,8 @@ calls it a folder.  This module is the part that does not need Qt:
 * :func:`exercise_files` -- whether a folder is an *exercise* (it has a
   ``question`` file) and which of its files play which part.
 
-The state lives in a small hidden JSON file, ``.cpnpy``, inside the folder.
+The state lives in a small hidden JSON file, ``.cpnpy``, inside the folder;
+the folder's scratch notes (✎ Notes) in another, ``.cpnpy notes.md``.
 Paths in it are relative to the folder, so the workspace still works after
 the folder is moved, renamed or synced to another computer (iCloud, a USB
 stick, a Git repository).
@@ -50,6 +51,9 @@ COMPOUND_SUFFIXES = (".xes.gz", ".log.txt", ".ts.txt")
 
 #: The hidden file holding the workspace's state.
 STATE_FILE = ".cpnpy"
+
+#: The hidden file holding the folder's scratch notes (the ✎ Notes overlay).
+NOTES_FILE = ".cpnpy notes.md"
 
 #: How deep into subfolders to look ("Week 2/logs/boarding.xes" is depth 1).
 MAX_DEPTH = 3
@@ -394,6 +398,27 @@ class Workspace:
         data.setdefault("open", [])
         data.setdefault("selected", None)
         self._write(data)
+
+    # -- scratch notes -------------------------------------------------------------
+    @property
+    def notes_path(self) -> Path:
+        return self.folder / NOTES_FILE
+
+    def load_notes(self) -> str:
+        try:
+            return self.notes_path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def save_notes(self, text: str) -> None:
+        """Keep the notes (an empty pad leaves no file behind).  Raises OSError."""
+        if not text.strip():
+            try:
+                self.notes_path.unlink()
+            except FileNotFoundError:
+                pass
+            return
+        atomic_write(self.notes_path, lambda path: path.write_text(text, encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
