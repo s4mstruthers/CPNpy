@@ -2191,3 +2191,25 @@ def test_notes_overlay(app, tmp_path):
     window.set_notes_button(False)
     assert not window.notes_button.isVisible()
     window.close()
+
+
+def test_process_tree_drawn_top_down(app):
+    """The Inductive Miner's tree reads as in the course: root on top, children
+    left to right in order, plain lines, τ a leaf (not a black bar)."""
+    from collections import Counter
+    from cpnpy.gui.studio.derivation_view import tree_specs
+    from cpnpy.mining.discovery.inductive import inductive_miner
+
+    log = Counter({("a", "b", "d"): 3, ("a", "c", "d"): 2, ("a", "d"): 1})
+    tree = inductive_miner(log).tree
+    nodes, edges, positions = tree_specs(tree)
+    root = nodes[0].id
+    children = [e.target for e in edges if e.source == root]
+    assert len(children) == len(tree.children)
+    xs = [positions[c][0] for c in children]
+    assert xs == sorted(xs)                                      # in order, left to right
+    assert all(positions[c][1] > positions[root][1] for c in children)   # below the root
+    assert min(xs) < positions[root][0] < max(xs)                # centred over them
+    assert not any(e.arrow for e in edges)
+    assert all(n.kind != "silent" for n in nodes)
+    assert any(n.text == "τ" for n in nodes)
