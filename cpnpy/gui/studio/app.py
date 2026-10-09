@@ -494,6 +494,14 @@ class StudioWindow(QMainWindow):
         middle.addWidget(self.content, 1)
         right.setLayout(vbox(self.update_bar, middle, spacing=0))
         right.layout().setStretch(1, 1)
+        # Scratch notes floating over the pages (exercise mode has its own).
+        from .notes_overlay import NotesOverlay
+        self.notes = NotesOverlay(self.content)
+        self.notes.edited.connect(self._save_notes)
+        self.notes.open_changed.connect(self._notes_opened)
+        #: The notes kept outside a folder (in the settings; only in memory in tests).
+        self._loose_notes = self._setting("notes/text", "")
+        self.notes.set_text(self._loose_notes)
         root.addWidget(right)
         root.setStretchFactor(1, 1)
         root.setSizes([220, 1260])
@@ -513,6 +521,9 @@ class StudioWindow(QMainWindow):
         self._build_menus()
         if not self._setting("window/sidebar", True):
             self.toggle_sidebar(False)
+        self.set_notes_button(self._setting("notes/button", True))
+        if self._setting("notes/open", False):
+            self.notes.set_open(True)
 
     # -- the editor fits the space it gets -----------------------------------------
     def resizeEvent(self, event) -> None:  # noqa: N802
@@ -720,6 +731,62 @@ class StudioWindow(QMainWindow):
         self._update_rail()
         self._schedule_fit()
 
+    # -- notes: scratch paper over every page (see notes_overlay) --------------------------
+    def toggle_notes(self, show: bool | None = None) -> None:
+        """Open or fold away the notes (in exercise mode: the exercise's own)."""
+        if self.in_exercises:
+            if self.exercise_mode.view is None:
+                self.notes_action.setChecked(False)
+                return
+            if show is None:
+                show = not self.exercise_mode.view.notes_visible
+            self.exercise_mode.set_notes(show)
+            return
+        self.notes.set_open(not self.notes.is_open if show is None else show)
+
+    def _sync_notes_action(self) -> None:
+        """Tick Show Notes for the notes in view: the exercise's, or the window's."""
+        if self.in_exercises:
+            view = self.exercise_mode.view
+            self._notes_opened(view is not None and view.notes_visible, remember=False)
+            self.notes_action.setEnabled(view is not None)
+        else:
+            self._notes_opened(self.notes.is_open, remember=False)
+            self.notes_action.setEnabled(True)
+
+    def _notes_opened(self, show: bool, remember: bool = True) -> None:
+        if self.notes_action.isChecked() != show:
+            self.notes_action.blockSignals(True)
+            self.notes_action.setChecked(show)
+            self.notes_action.blockSignals(False)
+        if remember:
+            self._set_setting("notes/open", show)
+
+    def set_notes_button(self, show: bool) -> None:
+        """Show the ✎ Notes button in the corner while the notes are folded away."""
+        self.notes.set_button_visible(show)
+        if self.notes_button_action.isChecked() != show:
+            self.notes_button_action.blockSignals(True)
+            self.notes_button_action.setChecked(show)
+            self.notes_button_action.blockSignals(False)
+        self._set_setting("notes/button", show)
+
+    def _save_notes(self, text: str) -> None:
+        """Keep the notes: with the open folder, or in the app's settings."""
+        if self.workspace is not None:
+            try:
+                self.workspace.save_notes(text)
+            except OSError as error:
+                self.statusBar().showMessage(f"Could not save your notes: {error}", 8000)
+        else:
+            self._loose_notes = text
+            self._set_setting("notes/text", text)
+
+    def _show_notes_of_folder(self) -> None:
+        """The notes of the folder now open (or the loose ones, outside a folder)."""
+        self.notes.set_text(self.workspace.load_notes() if self.workspace is not None
+                            else self._loose_notes)
+
     # -- the rail: what brings hidden panels back --------------------------------------
     def _rail_button(self, icon: str, tooltip: str, slot) -> QToolButton:
         from .tool_icons import question_icon, sidebar_icon
@@ -916,6 +983,7 @@ class StudioWindow(QMainWindow):
         settings.setMenuRole(QAction.PreferencesRole)      # the app menu, on macOS
 
         view_menu = self.menuBar().addMenu("&View")
+        view_menu.aboutToShow.connect(self._sync_notes_action)
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
                      lambda: (self.in_exercises and self.leave_exercises(),
                               self.content.setCurrentIndex(0)))
@@ -923,6 +991,13 @@ class StudioWindow(QMainWindow):
                                            lambda on: self.toggle_sidebar(on))
         self.sidebar_action.setCheckable(True)
         self.sidebar_action.setChecked(True)
+        self.notes_action = self._action(view_menu, "Show Notes", "Ctrl+Alt+N",
+                                         lambda on: self.toggle_notes(on))
+        self.notes_action.setCheckable(True)
+        self.notes_button_action = self._action(view_menu, "Show Notes Button", None,
+                                                lambda on: self.set_notes_button(on))
+        self.notes_button_action.setCheckable(True)
+        self.notes_button_action.setChecked(True)
         view_menu.addSeparator()
         zoom_in = self._action(view_menu, "Zoom In", QKeySequence.ZoomIn,
                                lambda: self._zoom("zoom_in"))
@@ -1969,6 +2044,7 @@ class StudioWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._flush_autosaves()
+        self.notes.flush()
         if self.exercise_mode.view is not None:
             self.exercise_mode.view.flush()
         dirty = [d for d in self.documents if isinstance(d, CpnDocument) and d.dirty]
@@ -2171,6 +2247,7 @@ class StudioWindow(QMainWindow):
             return False
         if self.workspace is not None and self.workspace.folder == workspace.folder:
             return True
+        self.notes.flush()                      # the old folder's notes, as they were
         self._save_session()                    # the old folder, as it was
         outside = [d.id for d in self.documents
                    if not (d.path and workspace.contains(d.path))]
@@ -2184,6 +2261,7 @@ class StudioWindow(QMainWindow):
         self._folder_switches += 1
 
         self.workspace = workspace
+        self._show_notes_of_folder()
         settings = workspace.settings()
         self.view_mode = "kind" if settings.get("view") == "kind" else "folder"
         self._expanded = {e for e in settings.get("expanded", []) if isinstance(e, str)}
@@ -2223,6 +2301,7 @@ class StudioWindow(QMainWindow):
         """Close every document and go back to working with loose files."""
         if self.workspace is None:
             return True
+        self.notes.flush()
         self._save_session()
         self._restoring = True
         try:
@@ -2233,6 +2312,7 @@ class StudioWindow(QMainWindow):
         self._stop_watching()
         self._folder_switches += 1
         name, self.workspace = self.workspace.name, None
+        self._show_notes_of_folder()
         self._tree, self._tree_signature = None, ()
         set_dialog_folder(None)
         self.statusBar().showMessage(f"Closed {name}", 5000)
