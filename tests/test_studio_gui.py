@@ -2152,8 +2152,9 @@ def test_net_editor_fits_a_laptop_window_and_the_sidebar_hides(app):
 
 
 def test_notes_overlay(app, tmp_path):
-    """✎ Notes floats over the pages: it opens, moves, resizes, and its text is
-    kept with the folder that is open (outside a folder, in the settings)."""
+    """✎ Notes (in the status bar) opens a card over the pages that moves and
+    resizes; its text is kept with the folder that is open (outside a folder,
+    in the settings)."""
     from PySide6.QtCore import QPoint
     from cpnpy.gui.studio.app import StudioWindow
     from cpnpy.gui.studio.workspace import NOTES_FILE
@@ -2163,10 +2164,10 @@ def test_notes_overlay(app, tmp_path):
     window.show()
     _pump(app, 0.05)
     notes = window.notes
-    assert notes.button.isVisible() and not notes.is_open
+    assert window.notes_button.isVisible() and not notes.is_open
 
-    window.notes_action.trigger()
-    assert notes.is_open and not notes.button.isVisible()
+    window.notes_button.click()
+    assert notes.is_open and window.notes_button.isChecked()
     notes._drag(QPoint(80, -60))
     notes._resize(QPoint(-40, 50))
     moved = notes.card.geometry()
@@ -2186,7 +2187,7 @@ def test_notes_overlay(app, tmp_path):
     assert notes.text() == "M0 = [p1]"
 
     window.notes_action.trigger()
-    assert not notes.is_open and notes.button.isVisible()
+    assert not notes.is_open and not window.notes_button.isChecked()
     window.set_notes_button(False)
-    assert not notes.button.isVisible()
+    assert not window.notes_button.isVisible()
     window.close()

@@ -10,14 +10,16 @@ same idea for the rest of the app::
     | | Work things out here …        |                            |
     | |                               |                            |
     | +-------------------------------+              [− 100% + Fit]|
-    | [✎ Notes]                                                    |
+    +--------------------------------------------------------------+
+    | Ready                                             [✎ Notes]  |
     +--------------------------------------------------------------+
 
-* Collapsed, it is a small **✎ Notes** button in the bottom-left corner
-  (the canvases keep their zoom bar in the bottom-right one).
-* Open, it is a card with the notes; **⤢** makes it larger, **–** folds it
-  back into the button.  Drag its header to move it out of the way, and the
-  grip in its bottom-right corner to resize it.
+* The **✎ Notes** button lives in the status bar (the window puts it there),
+  so nothing floats over the page while the notes are folded away.
+* Open, it is a card with the notes, in the bottom-left corner of the page
+  (the canvases keep their zoom bar in the bottom-right one); **⤢** makes it
+  larger and **–** folds it away.  Drag its header to move it out of the
+  way, and the grip in its bottom-right corner to resize it.
 
 The window decides where the text is kept (with the folder that is open, or
 in the app's settings): :class:`NotesOverlay` only reports edits, a moment
@@ -118,11 +120,11 @@ class _Grip(_Header):
 
 
 class NotesOverlay(QObject):
-    """The ✎ Notes button and the card it opens, floating over ``host``."""
+    """The notes card, floating over ``host`` (see the module docstring)."""
 
     #: The text, a moment after it was edited (see :meth:`flush`).
     edited = Signal(str)
-    #: The card was opened or folded away.
+    #: The card was opened or folded away (the ✎ Notes button follows it).
     open_changed = Signal(bool)
 
     def __init__(self, host: QWidget) -> None:
@@ -133,13 +135,6 @@ class NotesOverlay(QObject):
         self._moved_to: QPoint | None = None
         #: The size the card was resized to with its grip; None: the usual size.
         self._resized_to: tuple[int, int] | None = None
-        #: False: the button is hidden too (View ▸ Show Notes Button).
-        self._button_wanted = True
-
-        self.button = _tool("✎  Notes", "Scratch paper (it is kept)", lambda: self.set_open(True))
-        self.button.setObjectName("notesOverlayPill")
-        self.button.setParent(host)
-        self.button.adjustSize()
 
         self.card = QFrame(host)
         self.card.setObjectName("notesOverlay")
@@ -225,11 +220,6 @@ class NotesOverlay(QObject):
         self.expand_button.setToolTip("Smaller" if expanded else "Larger")
         self._place()
 
-    def set_button_visible(self, show: bool) -> None:
-        """Show the ✎ Notes button while the card is folded (or never)."""
-        self._button_wanted = show
-        self._place()
-
     # -- where it goes ---------------------------------------------------------------------------
     def _card_size(self) -> tuple[int, int]:
         width, height = self.host.width() - 2 * MARGIN, self.host.height() - 2 * MARGIN
@@ -244,9 +234,6 @@ class NotesOverlay(QObject):
 
     def _place(self) -> None:
         host = self.host.rect()
-        self.button.setVisible(self._button_wanted and not self.is_open)
-        self.button.move(MARGIN, host.height() - self.button.height() - MARGIN)
-        self.button.raise_()
         if not self.is_open:
             return
         width, height = self._card_size()
