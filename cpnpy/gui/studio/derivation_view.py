@@ -38,7 +38,7 @@ from ...mining.discovery.alpha import AlphaResult
 from ...mining.discovery.inductive import InductiveResult
 from ...mining.processtree import Operator, ProcessTree
 from . import style
-from .graph_view import EdgeSpec, GraphView, NodeSpec
+from .graph_view import EdgeSpec, GraphView, NodeSpec, node_size
 from .widgets import Verdict, label
 
 MATH_FONT = ("'STIX Two Math', 'STIX Two Text', 'Cambria Math', 'Latin Modern Math', "
@@ -150,11 +150,27 @@ def tree_formula(tree: ProcessTree) -> str:
     return render(tree)
 
 
-def tree_specs(tree: ProcessTree) -> tuple[list[NodeSpec], list[EdgeSpec]]:
-    """Nodes and edges for drawing the tree with the graph canvas."""
+#: Space between neighbouring subtrees, and between one level and the next.
+TREE_SIBLING_GAP = 18.0
+TREE_LEVEL_GAP = 56.0
+
+
+def tree_specs(tree: ProcessTree) -> tuple[list[NodeSpec], list[EdgeSpec],
+                                           dict[str, tuple[float, float]]]:
+    """Nodes, edges and positions for drawing the tree with the graph canvas.
+
+    Drawn the way a process tree is in the course: the root at the top, each
+    operator's children in a row underneath it, in order (left to right is the
+    order of a sequence), each parent centred over its children, with plain
+    lines and τ as a leaf like any other (not the Petri net's black bar).
+    """
     t = style.tokens()
     nodes: list[NodeSpec] = []
     edges: list[EdgeSpec] = []
+    #: Each node's children, and how wide its subtree is.
+    children: dict[str, list[str]] = {}
+    widths: dict[str, float] = {}
+    sizes: dict[str, tuple[float, float]] = {}
     counter = [0]
 
     def visit(node: ProcessTree) -> str:
@@ -162,22 +178,58 @@ def tree_specs(tree: ProcessTree) -> tuple[list[NodeSpec], list[EdgeSpec]]:
         node_id = f"n{counter[0]}"
         if node.is_leaf:
             if node.label is None:
-                nodes.append(NodeSpec(node_id, "silent", tooltip="τ (silent step)"))
+                spec = NodeSpec(node_id, "transition", text="τ", tooltip="τ (silent step)")
             else:
-                nodes.append(NodeSpec(node_id, "transition", text=node.label,
-                                      tooltip=f"activity {node.label}"))
+                spec = NodeSpec(node_id, "transition", text=node.label,
+                                tooltip=f"activity {node.label}")
         else:
             symbol = node.operator.value
-            nodes.append(NodeSpec(node_id, "operator", text=symbol, fill=t.accent_soft,
-                                  stroke=t.accent,
-                                  tooltip=f"{symbol}  {OPERATOR_NAMES[symbol]}"))
-            for child in node.children:
-                edges.append(EdgeSpec(node_id, visit(child), width=1.2,
-                                      colour=t.text_muted))
+            spec = NodeSpec(node_id, "operator", text=symbol, fill=t.accent_soft,
+                            stroke=t.accent, tooltip=f"{symbol}  {OPERATOR_NAMES[symbol]}")
+        nodes.append(spec)
+        sizes[node_id] = node_size(spec)
+        children[node_id] = []
+        for child in node.children:
+            child_id = visit(child)
+            children[node_id].append(child_id)
+            # A plain line: a tree's edge means "contains", not "goes to".
+            edges.append(EdgeSpec(node_id, child_id, width=1.2, colour=t.text_muted,
+                                  arrow=False))
+        below = [widths[c] for c in children[node_id]]
+        widths[node_id] = max(sizes[node_id][0],
+                              sum(below) + TREE_SIBLING_GAP * max(0, len(below) - 1))
         return node_id
 
-    visit(tree)
-    return nodes, edges
+    root = visit(tree)
+    # Each level is as tall as its tallest node, so rows line up.
+    depth_of: dict[str, int] = {}
+    heights: dict[int, float] = {}
+
+    def depths(node_id: str, depth: int) -> None:
+        depth_of[node_id] = depth
+        heights[depth] = max(heights.get(depth, 0.0), sizes[node_id][1])
+        for child in children[node_id]:
+            depths(child, depth + 1)
+
+    depths(root, 0)
+    tops, y = {}, 0.0
+    for depth in sorted(heights):
+        tops[depth] = y
+        y += heights[depth] + TREE_LEVEL_GAP
+    positions: dict[str, tuple[float, float]] = {}
+
+    def place(node_id: str, left: float) -> None:
+        depth = depth_of[node_id]
+        positions[node_id] = (left + widths[node_id] / 2, tops[depth] + heights[depth] / 2)
+        below = children[node_id]
+        span = sum(widths[c] for c in below) + TREE_SIBLING_GAP * max(0, len(below) - 1)
+        x = left + (widths[node_id] - span) / 2
+        for child in below:
+            place(child, x)
+            x += widths[child] + TREE_SIBLING_GAP
+
+    place(root, 0.0)
+    return nodes, edges, positions
 
 
 # ---------------------------------------------------------------------------
@@ -261,8 +313,8 @@ def inductive_view(result: InductiveResult, draw_tree: bool = True) -> QWidget:
     if draw_tree:
         view = GraphView()
         view.setMinimumHeight(220)
-        nodes, edges = tree_specs(result.tree)
-        view.graph.populate(nodes, edges, layer_gap=40)
+        nodes, edges, positions = tree_specs(result.tree)
+        view.graph.populate(nodes, edges, positions=positions)
         view.fit()
         layout.addWidget(view)
 

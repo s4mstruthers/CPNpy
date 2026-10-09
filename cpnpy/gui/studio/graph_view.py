@@ -63,6 +63,7 @@ class EdgeSpec:
     colour: str | None = None
     dashed: bool = False
     tooltip: str = ""
+    arrow: bool = True              # False: a plain line (a tree's "contains")
 
 
 def _font(size: float = 11.5, bold: bool = False) -> QFont:
@@ -340,8 +341,13 @@ class EdgeItem(QGraphicsPathItem):
         """A filled triangle at the end, and a copy of the path that stops at its base.
 
         Stopping the line at the arrow's base (rather than at the tip) keeps
-        thick lines from bulging out around the arrowhead.
+        thick lines from bulging out around the arrowhead.  An edge without an
+        arrow (``spec.arrow`` False) is just the path.
         """
+        if not self.spec.arrow:
+            self.arrow = QPainterPath()
+            self.draw_path = path
+            return
         size = 7.0 + 0.9 * min(self.stroke_width, 4.0)
         length = max(path.length(), 1.0)
         tip = path.pointAtPercent(1.0)
