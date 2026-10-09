@@ -6,6 +6,17 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.5.3
+
+- **Process trees read top-down.** *Discover ▸ Inductive Miner ▸ How it was
+  derived* now draws the tree as in the course: the root on top, each
+  operator's children underneath it in order (left to right, as in the
+  written form), joined by plain lines. A silent step is a leaf labelled τ
+  rather than a black bar.
+- **✎ Notes has moved to the status bar**, bottom right, so it no longer sits
+  on top of your net or log. It lights up while the notes are open. The notes
+  themselves still open over the page, where you can move and resize them.
+
 ## 0.5.2
 
 - **Notes everywhere.** ✎ *Notes* in the bottom-left corner opens scratch
