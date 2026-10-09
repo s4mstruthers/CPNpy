@@ -6,6 +6,17 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.5.2
+
+- **Notes everywhere.** ✎ *Notes* in the bottom-left corner opens scratch
+  paper over whatever you are working on: a log, a net, the welcome page.
+  Drag its header to move it out of the way and its corner to resize it;
+  ⤢ makes it larger, and – folds it back into the button. *View ▸ Show
+  Notes* (⌘⌥N) opens and closes it, and *View ▸ Show Notes Button* hides the
+  button if you would rather just use the shortcut.
+- **Each folder keeps its own notes**, so they travel with the folder (iCloud,
+  Git). Outside a folder you have one set of notes, kept by the app.
+
 ## 0.5.1
 
 - **Notes in exercises.** ✎ *Notes* in the top bar opens scratch paper under
