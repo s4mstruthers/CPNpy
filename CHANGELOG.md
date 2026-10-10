@@ -6,6 +6,42 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.8.0
+
+A calmer Workflows page. Nothing is gone; what you rarely need has moved out
+of the way.
+
+- **The page opens with the workflow alone.** No box list on the left, no
+  empty side panel on the right, and three header buttons instead of five:
+  *+ Add box*, *Run ▶*, and *⋯* for Re-run, Record, Export experiment and
+  Save.
+- **+ Add box** (or a double-click on the canvas) opens every box by group:
+  the six core groups side by side (Input, Filter, Discover, Check, Compare,
+  Output) and one line for the rest (Science, Predict, Coloured nets, Sweep,
+  your own boxes) with *Show all*. Typing searches them all, and "alpha"
+  now finds the α-algorithm. Enter adds the first match.
+- **The side panel appears when you click a box**, on its *Result*, and the
+  tab you pick stays while it is open. *✕*, or a click on the canvas, puts
+  it away. *View ▸ Show Box List* and *Show Box Panel* are gone with the
+  panels they toggled; *Reset Workflow Layout* stays, for the panel's width.
+- **A log box says where the dotted chart is.** Its *Result* now has one
+  *Open as log ›* card above the variants: dotted chart, process map,
+  footprint, variants and cases, on the log page.
+- **One way into workflows: File ▸ New Workflow** (and the welcome page).
+  The *As a workflow* buttons on a log's Discover tab and a model's
+  Conformance tab, and *Use in a workflow* on the net canvas, are gone: they
+  built workflows nobody asked for, and the templates do the same thing with
+  a name.
+- **A box that needs a file waits for it.** *Open log*, *Open net* and the
+  other boxes that read a file used to run the moment they were added, and
+  fail in red with a traceback about a missing path. They now wait, say
+  "Choose the file in Settings", and the Settings tab opens by itself when
+  you add one.
+- **Fixed: adding a box to an opened workflow could fail** with "There is
+  already a box with id 'n3'". Box ids are numbered per app session, so a
+  workflow opened from a file made earlier could already hold the next
+  number; a new box now takes the first number the workflow does not have.
+
 ## 0.7.2
 
 - **A failed box says what went wrong in its own words first.** *Open

@@ -55,7 +55,7 @@ What the decorator reads, and nothing else:
 | `Literal["a", "b"]` | a setting that is a choice |
 | `Path` | a setting that is a file in the workflow's folder |
 | the docstring | the help text; a `name: text` line in it is the help of that setting |
-| `@box(name=…, group=…)` | the name on the canvas and the group in the box list (default: the function's name, and *Other*) |
+| `@box(name=…, group=…)` | the name on the canvas and the group under *+ Add box* (default: the function's name, and *Other*, which is listed under *Show all*) |
 | `@box(needs="pandas")` | the box is listed greyed out with "needs pandas" when the module is not installed |
 | `@box(heavy=True)` | the box may take minutes: the app runs it where it can be stopped |
 

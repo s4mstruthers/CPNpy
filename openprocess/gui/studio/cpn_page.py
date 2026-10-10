@@ -170,8 +170,6 @@ class CpnPage(QWidget):
     dirty_changed = Signal(bool)
     #: Any edit at all (the window's autosave timer restarts on each one).
     edited = Signal()
-    #: "Use in a workflow": the window puts this net on a workflow canvas.
-    workflow_requested = Signal()
     #: A simulation run was exported as an event log.
     log_generated = Signal(object)
     #: The Snap to grid box was ticked or unticked (one setting for every editor).
@@ -208,9 +206,6 @@ class CpnPage(QWidget):
         self.header.actions.addWidget(self.save_button)
         self.header.actions.addWidget(button("Save As…", self.export))
         self.header.actions.addWidget(button("Export image…", self._export_image))
-        self.header.actions.addWidget(button("Use in a workflow  ⧉", self.workflow_requested.emit,
-                                             tooltip="Put this net on a workflow canvas, with a log and a "
-                                                     "Check fit box (or a Simulate box for a coloured net)"))
         root.addWidget(self.header)
 
         splitter = QSplitter()

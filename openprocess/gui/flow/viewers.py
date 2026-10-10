@@ -24,7 +24,7 @@ from pathlib import Path
 from PySide6.QtCore import QRegularExpression, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QHBoxLayout, QLabel,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLayout, QLineEdit, QPlainTextEdit, QProgressBar, QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -75,6 +75,31 @@ def _graph(nodes, edges, positions=None, layer_gap: float = 48.0, height: int = 
     view.graph.populate(nodes, edges, positions, layer_gap=layer_gap)
     QTimer.singleShot(0, view.fit)
     return view
+
+
+class _OpenCard(QFrame):
+    """A card that is one big link: *Open as log ›* with a line on what the page has."""
+
+    def __init__(self, title: str, caption: str, slot) -> None:
+        super().__init__()
+        self.setObjectName("openCard")
+        self.setCursor(Qt.PointingHandCursor)
+        self.slot = slot
+        self.setToolTip(caption)
+        heading = label(title, "openCardTitle")
+        text = label(caption, wrap=True)
+        self.setLayout(vbox(heading, text, spacing=2, margins=(14, 10, 14, 10)))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self.slot()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+def _open_card(title: str, caption: str, slot) -> QWidget:
+    return _OpenCard(title, caption, slot)
 
 
 def _meter(name: str, value) -> QWidget:
@@ -157,14 +182,16 @@ def result_widget(value, page=None) -> QWidget:
         add_layout = QWidget()
         add_layout.setLayout(tiles)
         add(add_layout)
+        if page is not None:
+            # The log page has the views a workflow box does not draw: the
+            # dotted chart, the process map, the footprint, variants and cases.
+            add(_open_card("Open as log  ›", "Dotted chart, process map, footprint, variants and cases, "
+                           "on the log page.", lambda: page.open_as_log(value)))
         rows = [["⟨" + ", ".join(v.sequence) + "⟩", v.count] for v in summary.variants[:200]]
         add(_table(["variant", "cases"], rows))
         if summary.start:
             add(label(f"From {summary.start:%Y-%m-%d} to {summary.end:%Y-%m-%d}; median case duration "
                       f"{format_duration(summary.median_case_duration)}", "muted", wrap=True))
-        if page is not None:
-            add(hbox(button("Open as log", lambda: page.open_as_log(value),
-                            tooltip="Open it as a log page: dotted chart, process map, filters"), None))
     elif isinstance(value, SimpleLog):
         from ...mining.log import format_simple_log
         text = QPlainTextEdit(format_simple_log(value))

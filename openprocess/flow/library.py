@@ -28,7 +28,8 @@ from typing import Iterable
 
 from .box import Box, BoxError, BoxSpec
 
-#: The modules of the standard library, in the order the box list shows their groups.
+#: The modules of the standard library, in the order *+ Add box* shows their groups
+#: (the first six are the core groups it shows before *Show all*).
 STANDARD_MODULES = ("input", "filter", "discover", "check", "compare", "output",
                     "science", "predict", "cpn", "sweeps")
 GROUP_ORDER = ("Input", "Filter", "Discover", "Check", "Compare", "Output", "Science",

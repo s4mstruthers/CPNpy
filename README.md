@@ -715,19 +715,26 @@ Miner, a fitness check), *Compare discovery* (three miners side by side),
 confidence* (bootstrap intervals, a test and a plot; needs the `science`
 extra) and *Predict the next activity*. Or start empty.
 
-- **Boxes** are listed on the left in groups (Input, Filter, Discover, Check,
-  Compare, Output, Science, Predict, Coloured nets, Sweep, Yours) with a
-  search field. Click one to add it, or double-click the canvas.
+- **The page is the canvas.** Three buttons in its header: **+ Add box**,
+  **Run ▶**, and **⋯** for Re-run, Record, Export experiment and Save.
+- **+ Add box** (or a double-click on the canvas) opens every box, by group:
+  the six core groups side by side (Input, Filter, Discover, Check, Compare,
+  Output) and one line for the rest (Science, Predict, Coloured nets, Sweep,
+  your own boxes) with *Show all*. Type to search them all: "alpha" finds the
+  α-algorithm; Enter adds the first match.
 - **Connect** by dragging from the dot on the right of a box: while you drag,
   only the inputs that take that kind of result light up, so a wrong
   connection cannot be made. Click a wire and press Delete to remove it.
-- **Click a box** for the side panel: **Result** (the net, the log's figures,
-  the table, the figure), **How** (what the box reported: notes, intermediate
-  values, the derivation), **Code** (the box's few lines and, under them, the
-  actual algorithm it calls: the α-algorithm's eight steps, the Inductive
-  Miner's cuts, with the work each follows and *Whole file* for the module)
-  and **Settings** (a control per setting; *Sweep* a number over a range).
-  **⤢** opens the tab in a window of its own.
+- **Click a box** and the side panel appears beside the canvas, on
+  **Result** (the net, the log's figures, the table, the figure; a log's
+  Result has *Open as log ›* for the dotted chart, process map, footprint,
+  variants and cases). Its other tabs: **How** (what the box reported: notes,
+  intermediate values, the derivation), **Code** (the box's few lines and,
+  under them, the actual algorithm it calls: the α-algorithm's eight steps,
+  the Inductive Miner's cuts, with the work each follows and *Whole file* for
+  the module) and **Settings** (a control per setting; *Sweep* a number over
+  a range). **⤢** opens the tab in a window of its own; **✕**, or a click
+  on the canvas, puts the panel away.
 - **Only what changed runs again.** Every box shows a status dot: waiting,
   running, done, failed (the error is on the Result tab; the rest keeps
   working), or waiting for your OK.
@@ -741,16 +748,12 @@ extra) and *Predict the next activity*. Or start empty.
   connections that reach outside; double-click it to open its own canvas,
   ⇧⌘G to ungroup. *Save as a box* in the side panel writes the group to
   `boxes/`, so it is listed under *Yours* and can be used in any workflow.
-- **From a page**: *As a workflow* on a log's Discover tab or a model page,
-  and *Use in a workflow* on the net canvas, open a workflow with that file
-  as its source.
-- **Export experiment** writes a zip with the workflow file and its record,
+- **Export experiment** (under ⋯) writes a zip with the workflow file and its record,
   the inputs, your boxes, every result as a file (CSV, PNML, SVG, XES), a
   `requirements.lock` and a README that says what was run: supplementary
   material for a paper, which `openprocess run --check` can verify.
-- **The three panels** (box list, canvas, side panel) resize by dragging the
-  gaps, hide with *⇤ Boxes* / *Panel ⇥* or the View menu, and come back with
-  *View ▸ Reset Workflow Layout*.
+- **The side panel** resizes by dragging the gap beside it; double-click the
+  gap, or *View ▸ Reset Workflow Layout*, for its default width.
 
 ## Workflows from Python
 

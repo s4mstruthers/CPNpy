@@ -1071,14 +1071,8 @@ class StudioWindow(QMainWindow):
         self.notes_button_action.setCheckable(True)
         self.notes_button_action.setChecked(True)
         view_menu.addSeparator()
-        # The Workflows page's panels (the actions act on the current page).
-        self.box_list_action = self._action(view_menu, "Show Box List", "Ctrl+Alt+B",
-                                            lambda on: self._workflow_panel("box_list", on))
-        self.box_list_action.setCheckable(True)
-        self.panel_action = self._action(view_menu, "Show Box Panel", "Ctrl+Alt+P",
-                                         lambda on: self._workflow_panel("panel", on))
-        self.panel_action.setCheckable(True)
-        self._action(view_menu, "Reset Workflow Layout", None, lambda: self._workflow_panel("reset", True))
+        # The Workflows page's side panel (the action acts on the current page).
+        self.reset_layout_action = self._action(view_menu, "Reset Workflow Layout", None, self._reset_workflow_layout)
         view_menu.aboutToShow.connect(self._sync_workflow_actions)
         view_menu.addSeparator()
         zoom_in = self._action(view_menu, "Zoom In", QKeySequence.ZoomIn,
@@ -1106,26 +1100,15 @@ class StudioWindow(QMainWindow):
                      lambda: self.check_for_updates(manual=True))
         self._action(help_menu, f"About {APPLICATION_NAME}", None, self._about)
 
-    def _workflow_panel(self, which: str, show: bool) -> None:
+    def _reset_workflow_layout(self) -> None:
         page = self.current_page()
         if not isinstance(page, WorkflowPage):
-            self.statusBar().showMessage("Open a workflow first: these panels belong to the Workflows page", 6000)
+            self.statusBar().showMessage("Open a workflow first: the side panel belongs to the Workflows page", 6000)
             return
-        if which == "box_list":
-            page.toggle_box_list(show)
-        elif which == "panel":
-            page.toggle_panel(show)
-        else:
-            page.reset_layout()
+        page.reset_layout()
 
     def _sync_workflow_actions(self) -> None:
-        page = self.current_page()
-        is_workflow = isinstance(page, WorkflowPage)
-        for action, key in ((self.box_list_action, "box_list"), (self.panel_action, "panel")):
-            action.setEnabled(is_workflow)
-            action.blockSignals(True)
-            action.setChecked(bool(page.layout_state()[key]) if is_workflow else False)
-            action.blockSignals(False)
+        self.reset_layout_action.setEnabled(isinstance(self.current_page(), WorkflowPage))
 
     def _action(self, menu, text, shortcut, slot) -> QAction:
         action = QAction(text, self)
@@ -1213,7 +1196,6 @@ class StudioWindow(QMainWindow):
                 log, near=source.path))
             page.edited.connect(lambda doc=document: self._log_edited(doc))
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("log_tab", i))
-            page.workflow_requested.connect(lambda spec, doc=document: self.workflow_from_log(doc, spec))
         elif isinstance(document, TransitionSystemDocument):
             from .regions_view import TransitionSystemPage
             page = TransitionSystemPage(document)
@@ -1243,7 +1225,6 @@ class StudioWindow(QMainWindow):
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
             page.edited.connect(lambda doc=document: self._schedule_autosave(doc))
             page.snap_changed.connect(self._snap_changed)
-            page.workflow_requested.connect(lambda doc=document: self.workflow_from_net(doc))
             page.inspector_tabs.changed.connect(
                 lambda i, key="petri_inspector" if plain else "cpn_inspector":
                 self.remembered.__setitem__(key, i))
@@ -1263,7 +1244,6 @@ class StudioWindow(QMainWindow):
                                                        if source.source_log else None)))
             page.edit_requested.connect(self.edit_petri_net)
             page.keep_requested.connect(lambda doc=document: self.keep_model(doc))
-            page.workflow_requested.connect(lambda log, doc=document: self.workflow_from_model(doc, log))
         page.status.connect(lambda message: self.statusBar().showMessage(message, 8000))
         page.saved.connect(lambda doc=document: self._document_saved(doc))
         if not isinstance(document, ComparisonDocument):
@@ -2207,109 +2187,7 @@ class StudioWindow(QMainWindow):
             workflow.name = self._unique_name(workflow.name)
         self.add_document(WorkflowDocument(workflow))
         self.statusBar().showMessage("New workflow: click a box to see what it gives, drag from a dot to "
-                                     "connect boxes, double-click the canvas to add one", 10000)
-
-    # -- quick actions: the pages make workflows ----------------------------------
-    def _log_box(self, workflow, document, position=(0.0, 150.0)):
-        """An Open log box for a log of the folder, else a Typed log of its notation."""
-        from ...mining.log import format_simple_log
-        if document.path and self.workspace is not None and self.workspace.contains(document.path):
-            relative = self.workspace.relative(document.path)
-            return workflow.add("open_log", {"file": relative}, position)
-        if document.path and Path(document.path).is_file():
-            return workflow.add("open_log", {"file": document.path}, position)
-        text = document.notation or format_simple_log(document.simple_log())
-        self.statusBar().showMessage("The log has no file, so the workflow holds it as typed notation "
-                                     "(activities only)", 8000)
-        return workflow.add("typed_log", {"text": text, "name": document.name}, position)
-
-    def workflow_from_log(self, document, spec: dict) -> None:
-        """The Discover tab's choice as a workflow: log → miner → Check fit."""
-        from ...flow.workflow import Workflow
-        workflow = Workflow(self._unique_name(f"{document.name} discovery"), self.library())
-        log = self._log_box(workflow, document)
-        algorithm = spec.get("algorithm", "im")
-        if algorithm == "alpha":
-            miner = workflow.add("alpha_miner", {}, (240.0, 150.0))
-        elif algorithm == "imf":
-            miner = workflow.add("inductive_miner", {"noise": spec.get("noise", 0.2)}, (240.0, 150.0))
-        elif algorithm in ("heuristics", "heuristics_net"):
-            miner = workflow.add("heuristics_miner", {"dependency": spec.get("dependency", 0.9)}, (240.0, 150.0))
-        elif algorithm == "regions":
-            states = workflow.add("classical_states", {
-                "direction": spec.get("direction", "prefix"), "representation": spec.get("representation", "set"),
-                "horizon": str(spec["horizon"]) if spec.get("horizon") in (1, 2, 3) else "all"}, (240.0, 150.0))
-            workflow.connect(log, states)
-            miner = workflow.add("regions_to_net", {}, (480.0, 150.0))
-            workflow.connect(states, miner)
-        else:
-            miner = workflow.add("inductive_miner", {"noise": 0.0}, (240.0, 150.0))
-        if algorithm != "regions":
-            workflow.connect(log, miner)
-        fit = workflow.add("check_fit", {}, (720.0 if algorithm == "regions" else 480.0, 130.0))
-        workflow.connect(miner, fit, "model")
-        workflow.connect(log, fit, "log")
-        self.add_document(WorkflowDocument(workflow), near=document.path)
-
-    def workflow_from_model(self, document, log_document) -> None:
-        """A model and a log as a workflow with a Check fit box."""
-        from ...flow.workflow import Workflow
-        from ...mining.discovery.alpha import AlphaResult
-        from ...mining.discovery.heuristics import HeuristicsResult
-        from ...mining.discovery.inductive import InductiveResult
-        workflow = Workflow(self._unique_name(f"{document.name} fit"), self.library())
-        if document.path and Path(document.path).is_file():
-            file = self.workspace.relative(document.path) if self.workspace is not None and \
-                self.workspace.contains(document.path) else document.path
-            model = workflow.add("open_net", {"file": file}, (240.0, 60.0))
-        elif isinstance(document.derivation, (AlphaResult, InductiveResult, HeuristicsResult)) \
-                and document.source_log is not None:
-            source = self._log_box(workflow, document.source_log, (0.0, 60.0))
-            box, settings = {"AlphaResult": ("alpha_miner", {}),
-                             "InductiveResult": ("inductive_miner", {}),
-                             "HeuristicsResult": ("heuristics_miner", {})}[type(document.derivation).__name__]
-            model = workflow.add(box, settings, (240.0, 60.0))
-            workflow.connect(source, model)
-        else:
-            self.statusBar().showMessage("Keep the model first (so it has a file), then use it in a workflow",
-                                         8000)
-            return
-        fit = workflow.add("check_fit", {}, (480.0, 130.0))
-        workflow.connect(model, fit, "model")
-        if log_document is not None:
-            log = self._log_box(workflow, log_document, (240.0, 220.0))
-            workflow.connect(log, fit, "log")
-        self.add_document(WorkflowDocument(workflow), near=document.path)
-
-    def workflow_from_net(self, document) -> None:
-        """A drawn net on the workflow canvas: Open net, a log, Check fit (a coloured net: Simulate CPN)."""
-        from ...flow.workflow import Workflow
-        if not document.path or not Path(document.path).is_file():
-            self.statusBar().showMessage("Save the net first (so it has a file), then use it in a workflow", 8000)
-            return
-        self._flush_autosaves([document.id])
-        file = self.workspace.relative(document.path) if self.workspace is not None and \
-            self.workspace.contains(document.path) else document.path
-        workflow = Workflow(self._unique_name(f"{document.name} workflow"), self.library())
-        if getattr(document.net, "plain", False):
-            net = workflow.add("open_net", {"file": file}, (0.0, 60.0))
-            fit = workflow.add("check_fit", {}, (480.0, 130.0))
-            workflow.connect(net, fit, "model")
-            logs = self.logs()
-            if logs:
-                log = self._log_box(workflow, logs[0], (0.0, 220.0))
-                workflow.connect(log, fit, "log")
-            else:
-                log = workflow.add("simulate_log", {"cases": 100, "seed": 0}, (240.0, 220.0))
-                workflow.connect(net, log)
-                workflow.connect(log, fit, "log")
-        else:
-            net = workflow.add("open_cpn", {"file": file}, (0.0, 120.0))
-            simulate = workflow.add("simulate_cpn", {"steps": 500, "seed": 0}, (240.0, 120.0))
-            miner = workflow.add("inductive_miner", {}, (480.0, 120.0))
-            workflow.connect(net, simulate)
-            workflow.connect(simulate, miner)
-        self.add_document(WorkflowDocument(workflow), near=document.path)
+                                     "connect boxes, + Add box (or a double-click on the canvas) to add one", 10000)
 
     def _unique_name(self, base: str) -> str:
         names = {d.name for d in self.documents}

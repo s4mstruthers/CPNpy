@@ -1,11 +1,14 @@
-"""The Workflows page: the box list, the canvas and the side panel.
+"""The Workflows page: the canvas, *+ Add box*, and a side panel on demand.
 
-Click a box to see its result in the side panel, with four tabs: *Result*
-(the viewer for its output type), *How* (what it reported while it ran:
-notes, intermediate values, the derivation), *Code* (its source) and
-*Settings* (one control per setting).  Change a setting and only the boxes
-after it run again.  Every box shows a status dot: waiting, running, done,
-failed, or waiting for your OK (a custom box).
+The page opens with the workflow alone on its canvas.  *+ Add box* in the
+header (or a double-click on the canvas) opens the box picker
+(:mod:`.picker`).  Click a box and the side panel appears beside the
+canvas, on *Result* (the viewer for its output type); its other tabs are
+*How* (what it reported while it ran: notes, intermediate values, the
+derivation), *Code* (its source) and *Settings* (one control per setting).
+Click the canvas, or the panel's ✕, and the panel goes again.  Change a
+setting and only the boxes after it run again.  Every box shows a status
+dot: waiting, running, done, failed, or waiting for your OK (a custom box).
 
 Boxes run on a worker thread (:mod:`openprocess.gui.studio.workers`); the runner
 reports each box's status through a signal, so the canvas updates while
@@ -26,12 +29,11 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QDialog, QFileDialog, QFrame, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QSplitter, QStackedWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QDialog, QFileDialog, QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ...flow import record as records
-from ...flow.library import GROUP_ORDER, Library
+from ...flow.library import Library
 from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING, Cache, Result, Run, Runner
 from ...flow.types import EventLog, Figure, PetriNet, Scores, Table
 from ...flow.workflow import Edge, Workflow, group_to_python, to_python
@@ -40,9 +42,11 @@ from ..studio import style
 from ..studio.widgets import Card, NoticeBar, PageHeader, SegmentedControl, button, hbox, label, scroll, vbox
 from ..studio.workers import run_in_background
 from .canvas import WorkflowScene, WorkflowView
+from .picker import BoxPicker
 from .viewers import SettingsWidget, code_widget, how_widget, pop_out, result_widget, status_text
 
 TABS = ["Result", "How", "Code", "Settings"]
+HINT = "Click a box to see what it gives. Drag from the dot on its right to connect it to another."
 
 
 class _Relay(QObject):
@@ -96,12 +100,12 @@ class WorkflowPage(QWidget):
     keep_requested = Signal()
     #: The user allowed the folder's custom boxes to run.
     custom_allowed_changed = Signal()
-    #: The panels were shown, hidden or resized (the window remembers the layout).
+    #: The side panel was resized (the window remembers its width).
     layout_changed = Signal()
 
     #: The layout every new Workflows page starts with; the window restores a
-    #: saved one into it.  ``sizes`` are the splitter's: box list, canvas, panel.
-    LAYOUT: dict = {"box_list": True, "panel": True, "sizes": [220, 760, 380]}
+    #: saved one into it.  ``sizes`` are the splitter's: canvas, side panel.
+    LAYOUT: dict = {"sizes": [820, 380]}
 
     def __init__(self, document, library: Library, folder: str | Path | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -119,6 +123,8 @@ class WorkflowPage(QWidget):
         self._relay.finished.connect(self._run_finished)
         self.selected: str | None = None
         self.tab = 0
+        self._opening_tab: int | None = None
+        self._selecting = False
         self.custom_allowed = False
         self._setting_timer = QTimer(self)
         self._setting_timer.setSingleShot(True)
@@ -134,16 +140,26 @@ class WorkflowPage(QWidget):
                                   tooltip="Save this workflow into the folder")
         self.keep_button.setVisible(False)
         self.header.actions.addWidget(self.keep_button)
+        # Three buttons: add, run, and a menu for the rest (re-run, record, export, save).
+        self.add_button = button("+ Add box", self.add_box_menu, kind="primary",
+                                 tooltip="Every box, by group; or double-click the canvas")
+        self.header.actions.addWidget(self.add_button)
         self.run_button = button("Run ▶", lambda: self.run_from(None), tooltip="Run every box")
         self.header.actions.addWidget(self.run_button)
-        self.header.actions.addWidget(button("Re-run", self.rerun,
-                                             tooltip="Run again, after checking the record for changed inputs"))
-        self.header.actions.addWidget(button("Record", self.show_record,
-                                             tooltip="The workflow as Python, and the file with its record"))
-        self.header.actions.addWidget(button("Export experiment…", self.export_experiment,
-                                             tooltip="A zip with the workflow, its inputs, your boxes, every "
-                                                     "result and a README: supplementary material for a paper"))
-        self.header.actions.addWidget(button("Save", self.save, tooltip="Save the workflow and its record"))
+        self.more_menu = QMenu(self)
+        self.more_menu.addAction("Re-run", self.rerun).setToolTip(
+            "Run again, after checking the record for changed inputs")
+        self.more_menu.addAction("Record…", self.show_record).setToolTip(
+            "The workflow as Python, and the file with its record")
+        self.more_menu.addAction("Export experiment…", self.export_experiment).setToolTip(
+            "A zip with the workflow, its inputs, your boxes, every result and a README: "
+            "supplementary material for a paper")
+        self.more_menu.addSeparator()
+        self.more_menu.addAction("Save", self.save).setToolTip("Save the workflow and its record")
+        self.more_button = button("⋯", self._show_more_menu, tooltip="Re-run, Record, Export experiment, Save")
+        self.more_button.setObjectName("moreButton")
+        self.more_button.setFixedWidth(40)
+        self.header.actions.addWidget(self.more_button)
         root.addWidget(self.header)
         self.custom_bar = NoticeBar()
         root.addWidget(self.custom_bar)
@@ -158,20 +174,19 @@ class WorkflowPage(QWidget):
         self.scene.refused.connect(lambda text: self.status.emit(text))
         self.scene.open_group.connect(self.open_group)
 
-        # Three panels on a splitter: drag the gaps to resize, the toggles (or
-        # the View menu) hide a side panel, double-click a gap for the default.
+        # The canvas, and a side panel that appears when a box is clicked.
+        # Drag the gap to resize the panel; double-click it for the default.
         splitter = _Splitter()
-        splitter.addWidget(self._build_box_list())
         canvas = Card()
-        self.box_list_toggle = _tool("⇤ Boxes", "Show or hide the box list", self.toggle_box_list)
-        self.panel_toggle = _tool("Panel ⇥", "Show or hide the side panel (Result, How, Code, Settings)",
-                                  self.toggle_panel)
         self.back_button = button("← Back", self.close_group, tooltip="Back to the whole workflow")
-        self.back_button.setVisible(False)
         self.group_crumb = label("", "muted")
-        canvas.add(hbox(self.box_list_toggle, 6, self.back_button, self.group_crumb, None, self.panel_toggle))
+        self.group_bar = QWidget()
+        self.group_bar.setObjectName("plain")
+        self.group_bar.setLayout(hbox(self.back_button, self.group_crumb, None))
+        self.group_bar.setVisible(False)
+        canvas.add(self.group_bar)
         canvas.add(self.view, 1)
-        self.legend = label("", "muted", wrap=True)
+        self.legend = label(HINT, "muted", wrap=True)
         canvas.add(self.legend)
         splitter.addWidget(canvas)
         self.panel_host = QWidget()
@@ -180,18 +195,17 @@ class WorkflowPage(QWidget):
         self.panel = scroll(self.panel_host)
         self.panel.setMinimumWidth(280)
         splitter.addWidget(self.panel)
-        splitter.setStretchFactor(1, 1)
-        splitter.setCollapsible(1, False)
+        splitter.setStretchFactor(0, 1)
+        splitter.setCollapsible(0, False)
         self.splitter = splitter
-        self.box_list_card.setVisible(bool(self.LAYOUT.get("box_list", True)))
-        self.panel.setVisible(bool(self.LAYOUT.get("panel", True)))
-        splitter.setSizes([int(v) for v in self.LAYOUT.get("sizes") or [220, 760, 380]])
+        self.panel.setVisible(False)
+        splitter.setSizes(_sizes(self.LAYOUT.get("sizes")))
         splitter.splitterMoved.connect(lambda *_: self._layout_changed())
         splitter.reset_requested.connect(self.reset_layout)
-        self._sync_toggles()
         wrapper = QWidget()
         wrapper.setLayout(vbox(splitter, margins=(20, 0, 20, 16)))
         root.addWidget(wrapper, 1)
+        self._picker: BoxPicker | None = None
 
         QShortcut(QKeySequence(Qt.Key_Delete), self.view, self.scene.remove_selected)
         QShortcut(QKeySequence(Qt.Key_Backspace), self.view, self.scene.remove_selected)
@@ -203,51 +217,38 @@ class WorkflowPage(QWidget):
         self._render_panel()
         QTimer.singleShot(0, self.view.fit)
         if not self.workflow.nodes:
-            self.status.emit("An empty workflow: double-click the canvas or click a box in the list to add one")
+            self.status.emit("An empty workflow: press + Add box, or double-click the canvas")
 
-    # -- the layout: panels shown, hidden, resized ---------------------------------------
-    def toggle_box_list(self, show: bool | None = None) -> None:
-        """Show or hide the box list (hidden, the canvas takes its width)."""
-        if show is None:
-            show = not self.box_list_card.isVisible()
-        self.box_list_card.setVisible(show)
-        self._layout_changed()
-
-    def toggle_panel(self, show: bool | None = None) -> None:
-        """Show or hide the side panel."""
-        if show is None:
-            show = not self.panel.isVisible()
+    # -- the layout: the side panel shown, hidden, resized ------------------------------
+    def show_panel(self, show: bool) -> None:
+        """Show or hide the side panel (the canvas takes its width when hidden)."""
+        if show == self.panel.isVisible():
+            return
         self.panel.setVisible(show)
+        if show:
+            self.splitter.setSizes(_sizes(WorkflowPage.LAYOUT.get("sizes")))
         self._layout_changed()
+
+    def close_panel(self) -> None:
+        """The panel's ✕: nothing selected, the canvas alone."""
+        self.select(None)
 
     def reset_layout(self) -> None:
-        """Both side panels back, at the default widths."""
-        self.box_list_card.setVisible(True)
-        self.panel.setVisible(True)
-        self.splitter.setSizes([220, max(400, self.splitter.width() - 600), 380])
+        """The side panel at its default width."""
+        self.splitter.setSizes([max(400, self.splitter.width() - 380), 380])
         self._layout_changed()
 
     def layout_state(self) -> dict:
-        return {"box_list": self.box_list_card.isVisible(), "panel": self.panel.isVisible(),
-                "sizes": [max(s, 1) if i != 1 else s for i, s in enumerate(self.splitter.sizes())]}
+        sizes = self.splitter.sizes()
+        if not self.panel.isVisible():                # keep the width the panel had, for when it is back
+            sizes = [sizes[0], _sizes(WorkflowPage.LAYOUT.get("sizes"))[1]]
+        return {"sizes": [max(int(s), 1) for s in sizes]}
 
     def _layout_changed(self) -> None:
-        self._sync_toggles()
-        state = self.layout_state()
-        sizes = state["sizes"]
-        if not state["box_list"]:                     # keep the width the panel had, for when it is back
-            sizes[0] = WorkflowPage.LAYOUT.get("sizes", [220])[0]
-        if not state["panel"]:
-            sizes[2] = WorkflowPage.LAYOUT.get("sizes", [220, 760, 380])[2]
-        WorkflowPage.LAYOUT = {**state, "sizes": sizes}
+        WorkflowPage.LAYOUT = self.layout_state()
         if self.view.auto_fit:
             QTimer.singleShot(0, self.view.fit)
         self.layout_changed.emit()
-
-    def _sync_toggles(self) -> None:
-        boxes, panel = self.box_list_card.isVisible(), self.panel.isVisible()
-        self.box_list_toggle.setText("⇤ Boxes" if boxes else "Boxes ⇥")
-        self.panel_toggle.setText("Panel ⇥" if panel else "⇤ Panel")
 
     # -- header --------------------------------------------------------------------------
     def _subtitle(self) -> str:
@@ -260,82 +261,49 @@ class WorkflowPage(QWidget):
     def refresh_title(self) -> None:
         self.header.set_text(self.workflow.name, self._subtitle())
 
-    # -- the box list -----------------------------------------------------------------------
-    def _build_box_list(self) -> QWidget:
-        self.box_list_card = self._make_box_list()
-        return self.box_list_card
+    # -- adding boxes: the picker ---------------------------------------------------------------
+    def picker(self) -> BoxPicker:
+        """The *+ Add box* popover, built fresh each time (the library may have changed)."""
+        if self._picker is not None:
+            self._picker.deleteLater()
+        self._picker = BoxPicker(self.library, self)
+        return self._picker
 
-    def _make_box_list(self) -> QWidget:
-        card = Card("Boxes")
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Search boxes")
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._fill_box_list)
-        card.add(self.search)
-        self.box_tree = QTreeWidget()
-        self.box_tree.setObjectName("boxList")
-        self.box_tree.setHeaderHidden(True)
-        self.box_tree.setIndentation(6)
-        self.box_tree.setRootIsDecorated(False)
-        self.box_tree.itemClicked.connect(self._box_list_clicked)
-        self.box_tree.setToolTip("Click a box to add it to the canvas")
-        card.add(self.box_tree, 1)
-        card.add(label("Click a box to add it. Your own boxes come from the folder's boxes/ subfolder.",
-                       "muted", wrap=True))
-        self._fill_box_list()
-        return card
+    def add_box_menu(self) -> None:
+        """*+ Add box*: the picker under the button; the box lands in free space on the canvas."""
+        picker = self.picker()
+        picker.chosen.connect(self.add_box_in_view)
+        corner = self.add_button.mapToGlobal(QPoint(0, self.add_button.height() + 4))
+        picker.open_at(QPoint(corner.x() + self.add_button.width() - picker.sizeHint().width(), corner.y()))
 
-    def _fill_box_list(self) -> None:
-        wanted = self.search.text().strip().lower()
-        self.box_tree.clear()
-        t = style.tokens()
-        from PySide6.QtGui import QBrush, QColor
-        for group, specs in self.library.by_group().items():
-            shown = [s for s in specs if not wanted or wanted in s.name.lower() or wanted in group.lower()]
-            if not shown:
-                continue
-            head = QTreeWidgetItem([group.upper()])
-            head.setFlags(Qt.ItemIsEnabled)
-            head.setForeground(0, QBrush(QColor(t.text_muted)))
-            font = theme.ui_font(10, theme.QFont.DemiBold)
-            head.setFont(0, font)
-            self.box_tree.addTopLevelItem(head)
-            for spec in shown:
-                item = QTreeWidgetItem([spec.name + ("  (Yours)" if spec.custom else "")])
-                item.setData(0, Qt.UserRole, spec.id)
-                tip = _paragraphs(spec.help).split("\n\n")[0]
-                if not spec.available:
-                    tip += f"\n({spec.unavailable_reason})"
-                    item.setForeground(0, QBrush(QColor(t.text_muted)))
-                item.setToolTip(0, tip)
-                head.addChild(item)
-            head.setExpanded(True)
-        for broken in self.library.broken:
-            head = QTreeWidgetItem([f"{Path(broken.file).name}: {broken.reason}"])
-            head.setFlags(Qt.ItemIsEnabled)
-            head.setForeground(0, QBrush(QColor(style.STATUS["critical"])))
-            head.setToolTip(0, "This box file could not be loaded; fix it and it reloads when saved")
-            self.box_tree.addTopLevelItem(head)
-
-    def _box_list_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        box_id = item.data(0, Qt.UserRole)
-        if not box_id:
-            return
+    def add_box_in_view(self, box_id: str) -> None:
+        """Add ``box_id`` where it can be seen: bottom-left of the view, staggered."""
         count = len(self.workflow.nodes) % 6
         rect = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
         self.add_box(box_id, QPointF(rect.left() + 30 + count * 24, rect.bottom() - 150 - count * 12))
 
+    def quick_add(self, where: QPointF) -> None:
+        """A double-click (or *Add box here…*) at ``where`` (scene coordinates): the picker there."""
+        picker = self.picker()
+        picker.chosen.connect(lambda box_id: self.add_box(box_id, QPointF(where.x() - 89, where.y() - 30)))
+        picker.open_at(self.view.mapToGlobal(self.view.mapFromScene(where)))
+
     def add_box(self, box_id: str, where: QPointF) -> None:
         node = self.scene.add_node(box_id, where)
-        self.status.emit(f"Added {self.workflow.spec(node).name}: drag from a dot on the right of a box to "
-                         "connect it")
+        spec = self.workflow.spec(node)
+        unchosen = [s for s in spec.settings if s.kind == "path" and node.settings.get(s.name) in (None, "")]
+        if unchosen:
+            # A box that needs a file: open its Settings, where the file is chosen.
+            self.select(node.id, 3)
+            self.status.emit(f"Added {spec.name}: choose its {unchosen[0].name} in Settings, on the right")
+        else:
+            self.status.emit(f"Added {spec.name}: drag from a dot on the right of a box to connect it")
         self.refresh_title()
 
     def reload_library(self) -> None:
         """The folder's boxes changed: load them again and refresh the list."""
         if self.folder is not None:
             self.library.load_folder(self.folder / "boxes")
-        self._fill_box_list()
         self._refresh_custom_bar()
         self.scene.rebuild()
         self.run_from(None)
@@ -507,7 +475,7 @@ class WorkflowPage(QWidget):
         if group_id not in self.workflow.groups:
             return
         self.scene.show_group(group_id)
-        self.back_button.setVisible(True)
+        self.group_bar.setVisible(True)
         self.group_crumb.setText(f"{self.workflow.name} › {self.workflow.groups[group_id].name}")
         self.selected = None
         self._render_panel()
@@ -516,7 +484,7 @@ class WorkflowPage(QWidget):
     def close_group(self) -> None:
         group_id = self.scene.view_group
         self.scene.show_group(None)
-        self.back_button.setVisible(False)
+        self.group_bar.setVisible(False)
         self.group_crumb.setText("")
         self.select(group_id if group_id in self.workflow.groups else None)
         QTimer.singleShot(0, self.view.fit)
@@ -545,6 +513,9 @@ class WorkflowPage(QWidget):
         self.status.emit(f"Saved {target.name}: “{group.name}” is in the box list under Yours")
 
     def _select(self, node_id: str | None) -> None:
+        """The canvas's selection changed (a click)."""
+        if self._selecting:                 # select() is at work: it renders once, at the end
+            return
         if node_id != self.selected:
             self.selected = node_id
             self._render_panel()
@@ -552,11 +523,19 @@ class WorkflowPage(QWidget):
     def select(self, node_id: str | None, tab: int | None = None) -> None:
         if tab is not None:
             self.tab = tab
-        self.scene.select(node_id)
+            self._opening_tab = tab
+        # The scene clears its selection before selecting: without the guard,
+        # the panel would close and reopen (back on Result) at every select.
+        self._selecting = True
+        try:
+            self.scene.select(node_id)
+        finally:
+            self._selecting = False
         self.selected = node_id
         self._render_panel()
 
     def _render_panel(self) -> None:
+        """The side panel for what is selected; hidden when nothing is."""
         layout = self.panel_layout
         while layout.count():
             item = layout.takeAt(0)
@@ -571,18 +550,25 @@ class WorkflowPage(QWidget):
         group = self.workflow.groups.get(self.selected) if self.selected else None
         if group is None and node is None and self.scene.view_group:
             group = self.workflow.groups.get(self.scene.view_group)
+        if group is None and node is None:
+            self.show_panel(False)
+            return
+        if not self.panel.isVisible():
+            # The panel opens on Result, unless select() asked for a tab (a new
+            # file box opens on Settings).  While it stays open, the tab sticks.
+            self.tab = self._opening_tab if self._opening_tab is not None else 0
+            self.show_panel(True)
+        self._opening_tab = None
         if group is not None:
             self._render_group_panel(group)
-            return
-        if node is None:
-            layout.addWidget(label("Click a box to see its result, how it got there, its code and its settings. "
-                                   "Shift-click several boxes and press ⌘G to make them one.", "muted", wrap=True))
-            layout.addStretch(1)
             return
         spec = self.workflow.spec(node)
         result = self.run.result(node) if self.run else None
         title = label(node.title or spec.name, "pageTitle")
-        layout.addWidget(title)
+        close = button("✕", self.close_panel, tooltip="Close the panel (click the canvas does too)")
+        close.setObjectName("panelClose")
+        close.setFixedWidth(32)
+        layout.addLayout(hbox(title, None, close))
         chip_text, chip_kind = status_text(result)
         colour = {"good": style.STATUS["good"], "critical": style.STATUS["critical"], "warning": style.STATUS["warning"],
                   "accent": style.tokens().accent, "muted": style.tokens().text_muted}[chip_kind]
@@ -611,7 +597,10 @@ class WorkflowPage(QWidget):
     def _render_group_panel(self, group) -> None:
         layout = self.panel_layout
         inside = self.scene.view_group == group.id
-        layout.addWidget(label(group.name, "pageTitle"))
+        close = button("✕", self.close_panel, tooltip="Close the panel")
+        close.setObjectName("panelClose")
+        close.setFixedWidth(32)
+        layout.addLayout(hbox(label(group.name, "pageTitle"), None, close))
         statuses = [self.scene.statuses.get(m, ("waiting", "", ""))[0] for m in group.members]
         state = ("failed" if "failed" in statuses else "running" if "running" in statuses else
                  "done" if statuses and all(s == "done" for s in statuses) else "waiting")
@@ -789,43 +778,6 @@ class WorkflowPage(QWidget):
             menu.addAction("Fit to window", self.view.fit)
         menu.exec(QPoint(int(screen_pos.x()), int(screen_pos.y())) if hasattr(screen_pos, "x") else screen_pos)
 
-    def quick_add(self, where: QPointF) -> None:
-        """A small search list at ``where`` (scene coordinates): pick a box to add."""
-        popup = QFrame(self.view, Qt.Popup)
-        popup.setObjectName("card")
-        edit = QLineEdit()
-        edit.setPlaceholderText("Add a box…")
-        listing = QListWidget()
-        listing.setMinimumWidth(240)
-        popup.setLayout(vbox(edit, listing, spacing=4, margins=(6, 6, 6, 6)))
-
-        def fill() -> None:
-            listing.clear()
-            wanted = edit.text().strip().lower()
-            for spec in self.library:
-                if not wanted or wanted in spec.name.lower() or wanted in spec.group.lower():
-                    item = QListWidgetItem(f"{spec.name}   ·  {spec.group}")
-                    item.setData(Qt.UserRole, spec.id)
-                    listing.addItem(item)
-            if listing.count():
-                listing.setCurrentRow(0)
-
-        def choose(item=None) -> None:
-            item = item or listing.currentItem()
-            popup.close()
-            if item is not None:
-                self.add_box(item.data(Qt.UserRole), QPointF(where.x() - 89, where.y() - 30))
-
-        edit.textChanged.connect(fill)
-        edit.returnPressed.connect(choose)
-        listing.itemClicked.connect(choose)
-        fill()
-        point = self.view.mapFromScene(where)
-        popup.move(self.view.mapToGlobal(point))
-        popup.show()
-        edit.setFocus()
-        self._quick = popup
-
     # -- the record, saving ------------------------------------------------------------------
     def show_record(self) -> None:
         python = to_python(self.workflow)
@@ -903,8 +855,25 @@ class WorkflowPage(QWidget):
             return
         self.status.emit(f"Exported the experiment to {Path(target).name}")
 
+    def _show_more_menu(self) -> None:
+        self.more_menu.exec(self.more_button.mapToGlobal(QPoint(0, self.more_button.height() + 4)))
+
     def stop(self) -> None:
         self._stop.set()
+
+
+def _sizes(saved) -> list[int]:
+    """The splitter's sizes from a saved layout: canvas, panel.  A layout saved
+    before 0.8 had three (box list, canvas, panel); its last two are kept."""
+    try:
+        sizes = [int(v) for v in saved or []]
+    except (TypeError, ValueError):
+        sizes = []
+    if len(sizes) == 3:
+        sizes = sizes[1:]
+    if len(sizes) != 2 or min(sizes) < 1:
+        sizes = [820, 380]
+    return sizes
 
 
 def _box_file_header(workflow, group) -> str:
@@ -925,19 +894,9 @@ def _box_file_header(workflow, group) -> str:
     return "\n".join(lines) + "\n\n\n"
 
 
-def _tool(text: str, tooltip: str, slot) -> QToolButton:
-    tool = QToolButton()
-    tool.setObjectName("canvasTool")
-    tool.setText(text)
-    tool.setToolTip(tooltip)
-    tool.setCursor(Qt.PointingHandCursor)
-    tool.clicked.connect(lambda: slot())
-    return tool
-
-
 class _Splitter(QSplitter):
-    """The page's splitter: wide, quiet handles that light up under the
-    mouse; double-click one to get the default layout back."""
+    """The page's splitter: a wide, quiet handle that lights up under the
+    mouse; double-click it to get the default panel width back."""
     reset_requested = Signal()
 
     def __init__(self) -> None:

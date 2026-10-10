@@ -1120,7 +1120,7 @@ def run_box(context: Context, box_id: str, task: Task, settings: dict | None = N
             spec = candidate
             break
     if spec is None:
-        raise TaskError(f"no box called “{box_id}” (see the box list)")
+        raise TaskError(f"no box called “{box_id}” (see + Add box on a workflow)")
     wf = Workflow("Exercise", library)
     inputs = []
     for port in spec.inputs:
