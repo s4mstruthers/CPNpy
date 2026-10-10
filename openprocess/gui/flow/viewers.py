@@ -680,6 +680,10 @@ class SettingsWidget(QWidget):
         path typed or pasted (quotes and shell escapes are tolerated)."""
         control = QComboBox()
         control.setEditable(True)
+        # Sized by the panel, not by its longest entry: a folder with long
+        # paths would otherwise push Choose… (and the whole panel) off the edge.
+        control.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        control.setMinimumContentsLength(12)
         control.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         control.lineEdit().setPlaceholderText("Choose… or type a name in the workflow's folder")
         for name in self._files():
