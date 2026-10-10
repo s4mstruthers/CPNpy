@@ -6,6 +6,15 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.7.2
+
+- **A failed box says what went wrong in its own words first.** *Open
+  dataset* without the file in the cache, for example, now shows "Sepsis
+  cases is not in the cache. Download … and put it in …" at the top of its
+  Result tab, with the download page and the cache folder as links, and the
+  traceback underneath for whoever fixes the box. Before, the traceback came
+  first and the message was below the fold.
+
 ## 0.7.1
 
 - **Fixed: *New workflow* did nothing in the downloaded app.** The app was
