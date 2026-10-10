@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from ...flow.box import BoxSpec, Setting
+from ...flow.box import BoxSpec, Called, Setting, algorithm_calls
 from ...flow.explain import Explanation
 from ...flow.runner import Result
 from ...flow.sweep import Sweep, is_sweep
@@ -388,34 +388,124 @@ class PythonHighlighter(QSyntaxHighlighter):
             start = text.find('"""', end + 3)
 
 
-def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
-    host = QWidget()
-    layout = QVBoxLayout(host)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(8)
-    where = spec.file if spec.custom else f"cpnpy/flow/boxes/{spec.module.rsplit('.', 1)[-1]}.py"
-    layout.addWidget(label(f"{where}:{spec.line}" if spec.line else where, "muted", wrap=True, selectable=True))
-    editor = QPlainTextEdit(spec.source or "(the source is not available)")
+def _code_view(source: str, compact: bool, placeholder: str = "(the source is not available)") -> QPlainTextEdit:
+    """Read-only, highlighted Python; in the panel sized to the code (120–420 px)."""
+    editor = QPlainTextEdit(source or placeholder)
     editor.setReadOnly(True)
     editor.setFont(theme.mono_font(11))
     editor.setLineWrapMode(QPlainTextEdit.NoWrap)
     PythonHighlighter(editor.document())
-    lines = (spec.source or "").count("\n") + 1
+    lines = (source or "").count("\n") + 1
     if compact:
         editor.setMinimumHeight(min(max(lines * 18 + 20, 120), 420))
         editor.setMaximumHeight(min(max(lines * 18 + 20, 120), 420))
-    layout.addWidget(editor, 1)
+    return editor
+
+
+def _open_in_editor(file: str) -> None:
+    QDesktopServices.openUrl(__import__("PySide6.QtCore", fromlist=["QUrl"]).QUrl.fromLocalFile(file))
+
+
+def show_file(called: Called, parent=None) -> QDialog:
+    """The whole file an algorithm lives in, in a window of its own, scrolled to
+    the function: the module's docstring at its top says what the algorithm
+    does and where it comes from."""
+    from PySide6.QtGui import QTextCursor
+
+    def make() -> QWidget:
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        try:
+            text = Path(called.file).read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            text = f"(could not read {called.file}: {error})"
+        layout.addWidget(label(f"{called.where}  ·  the whole file; <b>{escape(called.name)}</b> starts at "
+                               f"line {called.line}", "muted", wrap=True, selectable=True))
+        editor = _code_view(text, compact=False)
+        editor.setMinimumHeight(560)
+        layout.addWidget(editor, 1)
+        if Path(called.file).is_file():
+            layout.addLayout(hbox(button("Open in your editor", lambda: _open_in_editor(called.file)), None))
+
+        def scroll_to_function() -> None:
+            block = editor.document().findBlockByNumber(max(called.line - 1, 0))
+            cursor = QTextCursor(block)
+            editor.setTextCursor(cursor)
+            editor.centerCursor()
+        QTimer.singleShot(0, scroll_to_function)
+        return host
+    return pop_out(f"{Path(called.file).name} · {called.name}", make, parent)
+
+
+def _follows(called: Called) -> QLabel | None:
+    """The published work(s) the algorithm follows, from the app's References
+    (*Help ▸ References*), so the code can be checked against its source."""
+    import re
+    from ...references import reference, topics_for_module
+    lines = []
+    for topic in topics_for_module(called.module):
+        works = []
+        for key in topic.sources:
+            work = reference(key)
+            if work is None:
+                continue
+            citation = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escape(work.citation))
+            works.append(f"<a href=\"{work.url}\">{citation}</a>" if work.url else citation)
+        if works:
+            lines.append(f"<b>Follows</b> ({escape(topic.name)}): " + " · ".join(works))
+    if not lines:
+        return None
+    text = label("<br>".join(lines), "muted", wrap=True)
+    text.setObjectName("algorithmFollows")
+    text.setTextFormat(Qt.RichText)
+    text.setOpenExternalLinks(True)
+    return text
+
+
+def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
+    """The box's own source and, under it, the code of every algorithm it
+    calls (see :func:`cpnpy.flow.box.algorithm_calls`): the box is a thin
+    wrapper, so the code to read when assessing correctness is the latter."""
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    calls = algorithm_calls(spec)
+    where = spec.file if spec.custom else f"cpnpy/flow/boxes/{spec.module.rsplit('.', 1)[-1]}.py"
+    if calls:
+        layout.addWidget(label("THE BOX", "sectionLabel"))
+    layout.addWidget(label(f"{where}:{spec.line}" if spec.line else where, "muted", wrap=True, selectable=True))
+    layout.addWidget(_code_view(spec.source, compact), 1)
     actions = []
     if spec.file and Path(spec.file).is_file():
-        actions.append(button("Open in your editor", lambda: QDesktopServices.openUrl(
-            __import__("PySide6.QtCore", fromlist=["QUrl"]).QUrl.fromLocalFile(spec.file)),
-            tooltip="Open the file in the editor your system uses for .py files; the box reloads when you save"))
+        actions.append(button("Open in your editor", lambda: _open_in_editor(spec.file),
+                              tooltip="Open the file in the editor your system uses for .py files; the box "
+                                      "reloads when you save"))
     if spec.needs:
         actions.append(label("Needs " + ", ".join(spec.needs)
                              + ("" if spec.available else " (not installed: the box is greyed out)"), "muted"))
     if actions:
-        layout.addWidget(QWidget())
         layout.addLayout(hbox(*actions, None))
+    if calls:
+        layout.addSpacing(6)
+        layout.addWidget(label("THE ALGORITHM", "sectionLabel"))
+        layout.addWidget(label("The box only wraps these: the actual work is in the functions it calls, "
+                               "shown here in the order they are called. <i>Whole file</i> opens the module "
+                               "they live in, whose docstring explains the algorithm and names its source.",
+                               "muted", wrap=True))
+        for called in calls:
+            title = label(f"<b>{escape(called.name)}</b>  ·  {escape(called.where)}", "muted", wrap=True,
+                          selectable=True)
+            whole = button("Whole file ⤢", lambda _checked=False, c=called: show_file(c, host.window()),
+                           tooltip="The module this function lives in, in a window of its own")
+            whole.setObjectName("algorithmFile")
+            layout.addLayout(hbox(title, None, whole))
+            follows = _follows(called)
+            if follows:
+                layout.addWidget(follows)
+            layout.addWidget(_code_view(called.source, compact))
     layout.addWidget(label("The function is the box: call it from a script or a notebook and it runs the same way.",
                            "muted", wrap=True))
     return host

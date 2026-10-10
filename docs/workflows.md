@@ -17,7 +17,11 @@ page is for people who write boxes, read the code, or want to know what a
    every seed, the versions and the installed packages.
 3. **Every box shows how it got there.** A box reports notes, intermediate
    values and derivation steps while it runs; the app shows them on the
-   *How* tab, next to the box's *Code*.
+   *How* tab, next to the box's *Code*. A box is a thin wrapper, so the
+   *Code* tab shows the box's few lines and, under them, the code of every
+   algorithm it calls (`algorithm_calls(spec)` finds them: what the
+   function calls outside the framework and the standard library), the
+   published source it follows, and *Whole file* for the module itself.
 
 ## Writing a box
 

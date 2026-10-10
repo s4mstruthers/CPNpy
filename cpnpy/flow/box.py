@@ -361,6 +361,87 @@ def make_spec(function: Callable, name: str | None = None, group: str = "Other",
                    needs=tuple(needs or ()), heavy=heavy, custom=custom, result_type=result_type)
 
 
+@dataclass(frozen=True)
+class Called:
+    """A function a box calls that holds the actual work: the algorithm the
+    box is a thin wrapper around (see :func:`algorithm_calls`)."""
+
+    name: str                        # "alpha_miner"
+    module: str                      # "cpnpy.mining.discovery.alpha"
+    file: str
+    line: int
+    source: str
+
+    @property
+    def where(self) -> str:
+        """The file as shown: ``cpnpy/mining/discovery/alpha.py:86``."""
+        path = Path(self.file)
+        parts = path.parts
+        shown = "/".join(parts[parts.index("cpnpy"):]) if "cpnpy" in parts else path.name
+        return shown + (f":{self.line}" if self.line else "")
+
+
+def _resolve(expression, namespace: dict):
+    """The object a call's target names, through the box's globals: ``name``
+    or ``module.attribute``; None when it is not a global (a parameter, a
+    result's method)."""
+    import ast
+    if isinstance(expression, ast.Name):
+        return namespace.get(expression.id)
+    if isinstance(expression, ast.Attribute):
+        base = _resolve(expression.value, namespace)
+        if isinstance(base, (types.ModuleType, type)):
+            return getattr(base, expression.attr, None)
+    return None
+
+
+def algorithm_calls(spec: BoxSpec) -> list[Called]:
+    """The functions the box's code calls that are defined outside the
+    workflow framework and the standard library, in the order they are
+    called: the algorithms the box delegates to.  The α-algorithm box, for
+    example, calls ``cpnpy.mining.discovery.alpha.alpha_miner``; that is
+    the code to read when assessing correctness, so the Code tab shows it
+    under the box's own few lines."""
+    import ast
+    import sysconfig
+    import textwrap
+    if not spec.source:
+        return []
+    try:
+        tree = ast.parse(textwrap.dedent(spec.source))
+    except SyntaxError:
+        return []
+    namespace = getattr(spec.function, "__globals__", {})
+    stdlib = sysconfig.get_paths().get("stdlib", "")
+    calls: list[tuple[int, int, Called]] = []
+    seen: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        target = _resolve(node.func, namespace)
+        if target is None:
+            continue
+        target = inspect.unwrap(target)
+        if not inspect.isfunction(target):
+            continue                                   # classes, builtins and C code are not algorithms
+        module = getattr(target, "__module__", "") or ""
+        if not module or module.startswith("cpnpy.flow") or module == "builtins":
+            continue
+        key = (module, target.__qualname__)
+        if key in seen:
+            continue
+        try:
+            file = inspect.getsourcefile(target) or ""
+            lines, line = inspect.getsourcelines(target)
+        except (OSError, TypeError):
+            continue
+        if stdlib and file.startswith(stdlib):
+            continue
+        seen.add(key)
+        calls.append((node.lineno, node.col_offset, Called(target.__name__, module, file, line, "".join(lines))))
+    return [called for _line, _column, called in sorted(calls, key=lambda item: item[:2])]
+
+
 def box(function: Callable | None = None, *, name: str | None = None, group: str = "Other",
         needs: str | tuple[str, ...] | None = None, heavy: bool = False):
     """Turn a function into a box.  Use it bare (``@box``) or with options

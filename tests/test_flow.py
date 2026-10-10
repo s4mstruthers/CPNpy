@@ -18,7 +18,7 @@ import pytest
 
 import cpnpy.flow as flow
 from cpnpy.flow import (Box, BoxError, Runner, Sweep, Workflow, WorkflowError, box, check, differences,
-                        load, save, to_python, workflow)
+                        load, save, standard_library, to_python, workflow)
 from cpnpy.flow.boxes.check import check_fit, soundness, token_replay
 from cpnpy.flow.boxes.compare import compare
 from cpnpy.flow.boxes.discover import alpha_miner, classical_states, heuristics_miner, inductive_miner, regions_to_net
@@ -475,3 +475,29 @@ def test_simulate_cpn_and_state_space_boxes():
     assert len(log) >= 1 and log.event_count >= 1
     scores = state_space(net, max_nodes=500)
     assert scores.metrics["nodes"] >= 1 and scores.metrics["complete"] == "Yes"
+
+
+def test_a_box_lists_the_algorithms_it_calls():
+    """The Code tab shows the algorithm, not just the wrapper: what a box
+    calls outside the framework and the standard library, in call order."""
+    from cpnpy.flow.box import algorithm_calls
+    library = standard_library()
+    alpha = algorithm_calls(library.get("cpnpy.flow.boxes.discover.alpha_miner"))
+    names = [(c.module, c.name) for c in alpha]
+    assert names[0] == ("cpnpy.mining.discovery.alpha", "alpha_miner")
+    assert ("cpnpy.mining.footprint", "footprint_of_log") in names
+    assert all(not c.module.startswith("cpnpy.flow") for c in alpha)     # flow.show, flow.steps are left out
+    found = alpha[0]
+    assert "def alpha_miner(log: SimpleLog" in found.source and found.line > 0
+    assert found.where.startswith("cpnpy/mining/discovery/alpha.py:")
+    inductive = algorithm_calls(library.get("cpnpy.flow.boxes.discover.inductive_miner"))
+    assert any(c.module == "cpnpy.mining.discovery.inductive" and c.name == "inductive_miner" for c in inductive)
+    assert all(c.module != "builtins" for c in inductive)
+
+
+def test_references_know_which_module_implements_what():
+    from cpnpy.references import reference, topics_for_module
+    (alpha,) = topics_for_module("cpnpy.mining.discovery.alpha")
+    assert alpha.name == "α-algorithm" and "aalst2004" in alpha.sources
+    assert "Weijters" in reference("aalst2004").citation and reference("aalst2004").url.startswith("https://doi.org/")
+    assert topics_for_module("cpnpy.nowhere") == [] and reference("nobody") is None

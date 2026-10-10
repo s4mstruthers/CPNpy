@@ -13,7 +13,9 @@ notice, not how it was done.
   miner, a fitness check; or three miners compared; or a setting swept over
   a range; or the prediction pipeline). Click a box to see its **Result**,
   **How** it got there (the α-algorithm's eight steps, the Inductive Miner's
-  cuts, the replay per variant), its **Code** and its **Settings**; every tab
+  cuts, the replay per variant), its **Code** (the box's own lines and the
+  algorithm it calls, with the published source it follows) and its
+  **Settings**; every tab
   opens in a window of its own. Change a setting and only the boxes after
   it run again. Drag from the dot on the right of a box to connect it: only
   the inputs that fit light up. Workflows live in the folder like logs and

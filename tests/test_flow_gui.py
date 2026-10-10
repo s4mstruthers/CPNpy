@@ -72,11 +72,23 @@ def test_workflow_page_runs_and_shows_every_tab(app):
     assert "T_L" in html and "Footprint" in html.upper() or "FOOTPRINT" in html.upper()
     page.select(_node(page, "alpha_miner").id, 2)                 # Code
     _pump(app, 0.1)
-    from PySide6.QtWidgets import QPlainTextEdit
-    assert "def alpha_miner" in page.panel_host.findChild(QPlainTextEdit).toPlainText()
+    from PySide6.QtWidgets import QPlainTextEdit, QPushButton
+    edits = [w.toPlainText() for w in page.panel_host.findChildren(QPlainTextEdit)]
+    assert "def alpha_miner(log: EventLog)" in edits[0]                 # the box: a thin wrapper
+    labels = " ".join(w.text() for w in page.panel_host.findChildren(QLabel))
+    assert "THE ALGORITHM" in labels and "cpnpy/mining/discovery/alpha.py" in labels
+    assert "Follows" in labels and "Weijters" in labels                 # the work the code follows
+    assert any("def alpha_miner(log: SimpleLog" in text for text in edits)   # the algorithm itself
+    assert any("def footprint_of_log" in text for text in edits)
+    from cpnpy.gui.flow import viewers
+    whole = next(b for b in page.panel_host.findChildren(QPushButton) if b.objectName() == "algorithmFile")
+    whole.click()
+    _pump(app, 0.1)
+    assert viewers._windows and viewers._windows[-1].isVisible()
+    shown = viewers._windows[-1].findChild(QPlainTextEdit).toPlainText()
+    assert shown.startswith('"""The α-algorithm') and "def alpha_miner(log: SimpleLog" in shown
     page.pop_out_tab()
     _pump(app, 0.1)
-    from cpnpy.gui.flow import viewers
     assert viewers._windows and viewers._windows[-1].isVisible()
     for dialog in list(viewers._windows):          # leave no window behind for the next test
         dialog.close()

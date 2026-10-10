@@ -698,7 +698,9 @@ extra) and *Predict the next activity*. Or start empty.
   connection cannot be made. Click a wire and press Delete to remove it.
 - **Click a box** for the side panel: **Result** (the net, the log's figures,
   the table, the figure), **How** (what the box reported: notes, intermediate
-  values, the derivation), **Code** (its source, with *Open in your editor*)
+  values, the derivation), **Code** (the box's few lines and, under them, the
+  actual algorithm it calls: the α-algorithm's eight steps, the Inductive
+  Miner's cuts, with the work each follows and *Whole file* for the module)
   and **Settings** (a control per setting; *Sweep* a number over a range).
   **⤢** opens the tab in a window of its own.
 - **Only what changed runs again.** Every box shows a status dot: waiting,
