@@ -686,11 +686,23 @@ class SettingsWidget(QWidget):
         control.setMinimumContentsLength(12)
         control.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         control.lineEdit().setPlaceholderText("Choose… or type a name in the workflow's folder")
-        for name in self._files():
-            control.addItem(name)
+        control.setMaxVisibleItems(14)
+        # The list shows file names (with the subfolder only when two names
+        # clash); the entry's data is the path relative to the folder, which
+        # is what the field holds once one is picked.
+        files = self._files()
+        names = [Path(f).name for f in files]
+        for relative, name in zip(files, names):
+            shown = f"{name}  ({Path(relative).parent})" if names.count(name) > 1 and "/" in relative else name
+            control.addItem(shown, relative)
+            control.setItemData(control.count() - 1, relative, Qt.ToolTipRole)
         control.setCurrentText("" if value in (None, "") else str(value))
 
         last = {"text": "" if value in (None, "") else str(value)}
+
+        def picked(index: int, c=control):
+            c.setCurrentText(c.itemData(index) or c.itemText(index))
+            typed()
 
         def typed(s=setting, c=control):
             # Only a real change is reported.  Opening the list takes the focus
@@ -705,7 +717,7 @@ class SettingsWidget(QWidget):
             last["text"] = text
             self.changed.emit(s.name, text)
         control.lineEdit().editingFinished.connect(typed)
-        control.activated.connect(lambda _i: typed())
+        control.activated.connect(picked)
         return control
 
     def _choose_file(self, setting: Setting, control: QComboBox) -> None:

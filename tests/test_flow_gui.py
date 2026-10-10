@@ -595,7 +595,8 @@ def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
     page.select(node.id, 3)
     _pump(app, 0.1)
     field = next(c for c in page.panel_host.findChildren(QComboBox) if c.isEditable())
-    assert [field.itemText(i) for i in range(field.count())] == ["logs/orders.log.txt"]
+    assert [field.itemText(i) for i in range(field.count())] == ["orders.log.txt"]   # short names
+    assert field.itemData(0) == "logs/orders.log.txt"                               # the path behind
     runs_before = page.run
     field.lineEdit().setFocus()
     field.showPopup()                                        # the focus leaves the field
@@ -610,5 +611,6 @@ def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
     _wait_run(app, page)
     assert page.run.result(node).status == "done", page.run.result(node).error
     assert page.scene.boxes[node.id].subtitle == "6 cases · 23 events"
+    assert page.workflow.nodes[node.id].settings["file"] == Path("logs/orders.log.txt")
     page.document.dirty = False
     page.close()
