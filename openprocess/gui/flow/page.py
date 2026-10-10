@@ -452,12 +452,14 @@ class WorkflowPage(QWidget):
         for node_id, values in pending.items():
             if node_id not in self.workflow.nodes:
                 continue
+            before = dict(self.workflow.nodes[node_id].settings)
             try:
                 self.workflow.set(node_id, **values)
             except (ValueError, TypeError) as error:
                 self.status.emit(str(error))
                 continue
-            changed.append(node_id)
+            if self.workflow.nodes[node_id].settings != before:    # the same value again: nothing to run
+                changed.append(node_id)
         if changed:
             self._mark_edited()
             self.run_from(changed)

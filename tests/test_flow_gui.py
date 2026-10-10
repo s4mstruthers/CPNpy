@@ -568,3 +568,47 @@ def test_choose_picks_the_file_in_a_dialog(app, tmp_path, monkeypatch):
     assert field.currentText() == str(inside)
     page.document.dirty = False
     page.close()
+
+
+def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
+    """Opening the file field's list must not rebuild the panel under it
+    (focus leaving the field is not a change), and picking an entry runs
+    the box with that file."""
+    from PySide6.QtWidgets import QComboBox
+
+    from openprocess.flow.library import library_for
+    from openprocess.flow.workflow import Workflow
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.studio.documents import WorkflowDocument
+
+    week = tmp_path / "Week 2"
+    (week / "logs").mkdir(parents=True)
+    (week / "logs" / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    library = library_for(week)
+    wf = Workflow("Pick from the list", library)
+    node = wf.add(next(s for s in library.specs.values() if s.id.endswith("open_log")))
+    page = WorkflowPage(WorkflowDocument(wf), library, week)
+    page.resize(1300, 760)
+    page.show()
+    page.run_from(None)
+    _wait_run(app, page)
+    page.select(node.id, 3)
+    _pump(app, 0.1)
+    field = next(c for c in page.panel_host.findChildren(QComboBox) if c.isEditable())
+    assert [field.itemText(i) for i in range(field.count())] == ["logs/orders.log.txt"]
+    runs_before = page.run
+    field.lineEdit().setFocus()
+    field.showPopup()                                        # the focus leaves the field
+    field.lineEdit().editingFinished.emit()
+    _pump(app, 0.8)                                          # longer than the settings delay
+    assert page.run is runs_before                           # nothing ran: the value did not change
+    assert field.view().isVisible()                          # and the list is still open
+    field.hidePopup()
+    field.setCurrentIndex(0)
+    field.activated.emit(0)
+    _pump(app, 0.6)
+    _wait_run(app, page)
+    assert page.run.result(node).status == "done", page.run.result(node).error
+    assert page.scene.boxes[node.id].subtitle == "6 cases · 23 events"
+    page.document.dirty = False
+    page.close()

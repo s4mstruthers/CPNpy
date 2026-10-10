@@ -690,10 +690,19 @@ class SettingsWidget(QWidget):
             control.addItem(name)
         control.setCurrentText("" if value in (None, "") else str(value))
 
+        last = {"text": "" if value in (None, "") else str(value)}
+
         def typed(s=setting, c=control):
+            # Only a real change is reported.  Opening the list takes the focus
+            # from the field, which counts as "editing finished"; reporting the
+            # unchanged value would re-run the box and rebuild this panel under
+            # the open list.
             text = clean_path(c.currentText())
             if text != c.currentText():
                 c.setCurrentText(text)
+            if text == last["text"]:
+                return
+            last["text"] = text
             self.changed.emit(s.name, text)
         control.lineEdit().editingFinished.connect(typed)
         control.activated.connect(lambda _i: typed())
@@ -718,7 +727,7 @@ class SettingsWidget(QWidget):
         if not path:
             return
         control.setCurrentText(self.display_path(path))
-        self.changed.emit(setting.name, control.currentText())
+        control.lineEdit().editingFinished.emit()           # reported once, through typed()
 
     def display_path(self, path: str | Path) -> str:
         """``path`` relative to the workflow's folder when it is inside it, else as given."""
