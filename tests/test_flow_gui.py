@@ -29,6 +29,10 @@ def _pump(app, seconds: float) -> None:
     while time.time() < end:
         app.processEvents()
         time.sleep(0.01)
+    # Under load one processEvents can outlast the budget; drain what came due
+    # meanwhile (a page's deferred fit, say), so the test sees a settled window.
+    for _ in range(3):
+        app.processEvents()
 
 
 def _wait_run(app, page, seconds: float = 6.0) -> None:
@@ -318,7 +322,7 @@ def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
     page = window.current_page()
     _wait_run(app, page)
     header = [b.text() for b in page.header.findChildren(QPushButton) if b.isVisible()]
-    assert header == ["+ Add box", "Run ▶", "⋯"]
+    assert header == ["Canvas", "Summary", "+ Add box", "Run ▶", "⋯"]
     assert [a.text() for a in page.more_menu.actions() if a.text()] == ["Re-run", "Record…", "Export experiment…", "Save"]
     assert not page.panel.isVisible() and not hasattr(page, "box_tree")
     log, miner = page.workflow.order()[:2]
@@ -854,3 +858,34 @@ def _wait_for_documents(app, window, condition, seconds: float = 8.0) -> bool:
             return True
         time.sleep(0.02)
     return condition(window.documents)
+
+
+def test_the_summary_writes_itself(app):
+    """Canvas | Summary: a tile per result in run order, the first log's process
+    map with a detail slider, and a tile click opens the box on the canvas."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    page.summary_switch.set_index(1)
+    _pump(app, 0.3)
+    assert page.body.currentIndex() == 1
+    titles = [page.workflow.title(t.node_id) for t in page.summary.tiles]
+    assert titles == [page.workflow.title(n.id) for n in page.workflow.order()]   # one per box, in run order
+    assert len(titles) == 3
+    assert page.summary.map_card.isVisibleTo(page) and page.summary.map_view.graph.nodes
+    full = len(page.summary.map_view.graph.nodes)
+    page.summary.detail.setValue(10)
+    assert len(page.summary.map_view.graph.nodes) < full
+    last = page.summary.tiles[-1]
+    last.clicked.emit(last.node_id)
+    _pump(app, 0.1)
+    assert page.body.currentIndex() == 0 and page.summary_switch.index() == 0
+    assert page.selected == last.node_id and page.tab == 0
+    page.document.dirty = False
+    window.close()

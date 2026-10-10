@@ -6,6 +6,32 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.3
+
+The patterns worth borrowing from the process-mining tools, without their
+chrome.
+
+- **Summary: the dashboard that writes itself.** An analysis has *Canvas |
+  Summary* in its header. The Summary is a tile per result, named after
+  the box, in the order the boxes run: a score's first metric, a table's
+  size, a log's cases, a net's places and transitions. Nothing is
+  configured, so it can never drift from the workflow; a box author gets a
+  tile by returning a Scores. A tile opens the box on the canvas.
+- **The process map in the Summary** draws the first log in the analysis
+  with a *Detail* slider that drops the rarer activities and paths, and a
+  legend: darker = more events, thicker = more often, grey = rare.
+- **The Model palette.** In Model, a net page's Select, Place, Transition
+  and Arc sit in the sidebar under the models, like a modeller's shape
+  palette. The page's own buttons come back when the sidebar is hidden.
+- **Connections.** At the bottom of the sidebar (and View ▸ Connections):
+  the hub picture. What flows in (event logs, PNML, CPN Tools files,
+  transition systems, typed logs, datasets, simulations), OpenProcess in the
+  middle with its boxes and the folder's own, what flows out (PNML, XES,
+  CSV, figures, the experiment zip, Python), and the tools that plug in
+  (pandas, numpy, scipy, matplotlib, …), each saying whether it is
+  installed, how to install it, and which boxes it brings. All read from
+  the box library; nothing to declare.
+
 ## 0.9.2
 
 The handoffs between Mine and Model: four, each one button, each moving the

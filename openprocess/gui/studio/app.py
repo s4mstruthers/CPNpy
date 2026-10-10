@@ -62,6 +62,7 @@ from PySide6.QtGui import (
     QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut,
 )
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
     QSizePolicy, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
@@ -76,6 +77,7 @@ from .. import theme
 from . import style
 from ..canvas import NetScene, NetView
 from .compare_page import ComparePage
+from .connections import ConnectionsPage
 from .cpn_page import CpnPage
 from .petri_page import PetriNetPage
 from ..flow.page import WorkflowPage
@@ -113,6 +115,11 @@ AUTOSAVE_DELAY = 1000
 
 #: Name of the Bin on this system (macOS says Bin in British English, as here).
 BIN = "Recycle Bin" if sys.platform == "win32" else "Bin"
+#: The Model palette's tools, in the net page's order (see CpnPage.TOOLS).
+PALETTE = [("Select", "⬚", "Select and move things; double-click a place or transition to rename it"),
+           ("Place", "○", "Click on the canvas to add a place"),
+           ("Transition", "▭", "Click on the canvas to add a transition"),
+           ("Arc", "→", "Drag from a place to a transition (or the other way) to connect them")]
 
 
 def _empty_on_disk(folder: Path) -> bool:
@@ -535,6 +542,9 @@ class StudioWindow(QMainWindow):
         root.setCollapsible(0, False)
         self.content = QStackedWidget()
         self.content.addWidget(scroll(self._build_welcome(), horizontal=True))
+        #: The hub picture: what flows in and out, and the tools that plug in (index 1).
+        self.connections_page = ConnectionsPage()
+        self.content.addWidget(self.connections_page)
         # Above the pages: "a new version is out" (see check_automatically).
         from .updates import UpdateBar
         self.update_bar = UpdateBar()
@@ -726,6 +736,31 @@ class StudioWindow(QMainWindow):
         self.tree.itemCollapsed.connect(lambda item: self._folder_toggled(item, False))
         layout.addWidget(self.tree, 1)
 
+        # Model: the drawing palette, for the net page that is open (it replaces
+        # the page's own tool buttons while the sidebar shows).
+        self.palette = QWidget()
+        self.palette.setObjectName("palette")
+        grid = QGridLayout(self.palette)
+        grid.setContentsMargins(6, 4, 6, 8)
+        grid.setSpacing(4)
+        grid.addWidget(label("PALETTE", "sectionLabel"), 0, 0, 1, 2)
+        self.palette_group = QButtonGroup(self.palette)
+        self.palette_group.setExclusive(True)
+        for index, (text, symbol, tip) in enumerate(PALETTE):
+            tool = button(f"{symbol}  {text}", kind="paletteTool", tooltip=tip)
+            tool.setCheckable(True)
+            self.palette_group.addButton(tool, index)
+            grid.addWidget(tool, 1 + index // 2, index % 2)
+        self.palette_group.idClicked.connect(self._palette_tool)
+        self.palette.setHidden(True)
+        layout.addWidget(self.palette)
+        # Both spaces: the hub picture.
+        connections = QWidget()
+        connections.setObjectName("sidebarFooter")
+        connections.setLayout(vbox(button("⚲  Connections", self.show_connections,
+                                          tooltip="What flows in, what flows out, and the tools that plug in"),
+                                   spacing=0))
+        layout.addWidget(connections)
         # A footer per space: what you start in it.
         self.footers = {}
         self.footers[MINE] = QWidget()
@@ -812,6 +847,37 @@ class StudioWindow(QMainWindow):
         for key, footer in self.footers.items():
             footer.setVisible(key == space)
         self._sync_space_switch()
+        self._update_palette()
+
+    # -- the Model palette and the Connections view ----------------------------------------
+    def _palette_tool(self, index: int) -> None:
+        page = self.current_page()
+        if isinstance(page, CpnPage):
+            page.tool_switch.set_index(index)
+
+    def _update_palette(self) -> None:
+        """The palette shows for a net page in Model, ticked at the page's tool."""
+        if not hasattr(self, "palette"):
+            return
+        page = self.current_page()
+        show = self.space == MODEL and isinstance(page, CpnPage) and not self.in_learn
+        self.palette.setVisible(show)
+        if show:
+            index = page.tool_switch.index()
+            tool = self.palette_group.button(index)
+            if tool is not None and not tool.isChecked():
+                tool.setChecked(True)
+
+    def show_connections(self) -> None:
+        """The Connections view: what flows in and out, and the tools that plug in."""
+        if self.in_learn:
+            self.leave_learn()
+        self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
+        self.tree.clearSelection()
+        self.tree.setCurrentItem(None)
+        self.content.setCurrentWidget(self.connections_page)
+        self._set_title(None)
+        self._update_palette()
 
     def _sync_space_switch(self) -> None:
         shown = LEARN if self.in_learn else self.space
@@ -876,6 +942,10 @@ class StudioWindow(QMainWindow):
         if show is None:
             show = self.sidebar.isHidden()
         self.sidebar.setHidden(not show)
+        for page in self.pages.values():                 # no sidebar, no palette: the page's own tools
+            if isinstance(page, CpnPage):
+                page.tool_switch.setVisible(not show)
+        self._update_palette()
         action = getattr(self, "sidebar_action", None)
         if action is not None and action.isChecked() != show:
             action.blockSignals(True)
@@ -1165,6 +1235,7 @@ class StudioWindow(QMainWindow):
         for index, space in enumerate(SPACES):
             self._action(view_menu, LABELS[space], f"Ctrl+Alt+{index + 1}",
                          lambda _on=False, sp=space: self.set_space(sp))
+        self._action(view_menu, "Connections", None, self.show_connections)
         view_menu.addSeparator()
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
                      lambda: (self.in_learn and self.leave_learn(),
@@ -1333,6 +1404,9 @@ class StudioWindow(QMainWindow):
             plain = getattr(document.net, "plain", False)
             page = PetriNetPage(document) if plain else CpnPage(document)
             page.log_generated.connect(lambda log, source=document: self.mine_log(log, source))
+            # The sidebar's palette stands in for the page's tool buttons while it shows.
+            page.tool_switch.changed.connect(lambda _i: self._update_palette())
+            page.tool_switch.setVisible(self.sidebar.isHidden())
             if plain:
                 page.check_requested.connect(lambda doc=document: self.check_against_log(doc))
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
@@ -1468,6 +1542,7 @@ class StudioWindow(QMainWindow):
             self.content.setCurrentWidget(holder)
             self._schedule_fit()
             self._set_title(self._document(current.data(0, Qt.UserRole)))
+        self._update_palette()
 
     def _restore_tab(self, page: QWidget) -> None:
         """Show the same tab on the newly selected page as on the last one."""
@@ -1622,6 +1697,7 @@ class StudioWindow(QMainWindow):
             self.tree.setCurrentItem(None)
             self.content.setCurrentIndex(0)
             self._set_title(None)
+        self._update_palette()
         noun = "item" if len(documents) == 1 else "items"
         self.statusBar().showMessage(f"Closed {len(documents)} {noun}", 5000)
         return True

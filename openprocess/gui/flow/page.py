@@ -29,6 +29,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QStackedWidget,
     QDialog, QFileDialog, QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -43,6 +44,7 @@ from ..studio.widgets import Card, NoticeBar, PageHeader, SegmentedControl, butt
 from ..studio.workers import run_in_background
 from .canvas import WorkflowScene, WorkflowView
 from .picker import BoxPicker, input_box_for
+from .summary import SummaryWidget
 from .viewers import SettingsWidget, code_widget, how_widget, pop_out, result_widget, status_text
 
 TABS = ["Result", "How", "Code", "Settings"]
@@ -139,6 +141,12 @@ class WorkflowPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.header = PageHeader(self.workflow.name, self._subtitle())
+        # Canvas: the boxes and wires.  Summary: every result's figure, and the process map.
+        self.summary_switch = SegmentedControl(["Canvas", "Summary"], compact=True)
+        self.summary_switch.setToolTip("Canvas: the boxes and wires.\nSummary: every result's key "
+                                       "figure, and the process map of the first log.")
+        self.summary_switch.changed.connect(self.show_view)
+        self.header.actions.addWidget(self.summary_switch)
         self.keep_button = button("Keep", self.keep_requested.emit, kind="primary",
                                   tooltip="Save this workflow into the folder")
         self.keep_button.setVisible(False)
@@ -208,7 +216,14 @@ class WorkflowPage(QWidget):
         splitter.reset_requested.connect(self.reset_layout)
         wrapper = QWidget()
         wrapper.setLayout(vbox(splitter, margins=(20, 0, 20, 16)))
-        root.addWidget(wrapper, 1)
+        self.summary = SummaryWidget(self)
+        self.summary.tile_clicked.connect(self._tile_clicked)
+        summary_wrapper = QWidget()
+        summary_wrapper.setLayout(vbox(scroll(self.summary), margins=(20, 0, 20, 16)))
+        self.body = QStackedWidget()
+        self.body.addWidget(wrapper)
+        self.body.addWidget(summary_wrapper)
+        root.addWidget(self.body, 1)
         self._picker: BoxPicker | None = None
 
         QShortcut(QKeySequence(Qt.Key_Delete), self.view, self.scene.remove_selected)
@@ -236,6 +251,21 @@ class WorkflowPage(QWidget):
     def close_panel(self) -> None:
         """The panel's ✕: nothing selected, the canvas alone."""
         self.select(None)
+
+    def show_view(self, index: int) -> None:
+        """Canvas (0) or Summary (1); the Summary is rebuilt from the run when shown."""
+        self.body.setCurrentIndex(index)
+        if self.summary_switch.index() != index:
+            self.summary_switch.blockSignals(True)
+            self.summary_switch.buttons[index].setChecked(True)
+            self.summary_switch.blockSignals(False)
+        if index == 1:
+            self.summary.refresh()
+
+    def _tile_clicked(self, node_id: str) -> None:
+        """A Summary tile: that box's Result, on the canvas."""
+        self.show_view(0)
+        self.select(node_id, 0)
 
     def reset_layout(self) -> None:
         """The side panel at its default width."""
@@ -463,6 +493,8 @@ class WorkflowPage(QWidget):
             self.status.emit(f"The run stopped: {outcome}")
         self.refresh_title()
         self._render_panel()
+        if self.body.currentIndex() == 1:
+            self.summary.refresh()
         if self._has_queue or (isinstance(outcome, Run) and outcome.stopped):
             queued, self._queued, self._has_queue = self._queued, None, False
             if queued is not None and isinstance(outcome, Run) and outcome.stopped:

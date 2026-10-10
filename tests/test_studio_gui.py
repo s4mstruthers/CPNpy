@@ -50,6 +50,10 @@ def _pump(app, seconds: float) -> None:
     while time.time() < end:
         app.processEvents()
         time.sleep(0.01)
+    # Under load one processEvents can outlast the budget; drain what came due
+    # meanwhile (a page's deferred fit, say), so the test sees a settled window.
+    for _ in range(3):
+        app.processEvents()
 
 
 def test_studio_end_to_end(app):
@@ -2321,5 +2325,41 @@ def test_the_name_box_follows_the_node(app):
     _pump(app, 0.05)
     assert view.name_editor is None
     assert [t.name for t in page.net.all_transitions()] == ["pay"]
+    page.document.dirty = False
+    window.close()
+
+
+def test_connections_view_and_the_model_palette(app, tmp_path):
+    """Connections draws what flows in and out and the tools that plug in, from
+    the library; in Model, a net page's tools are a palette in the sidebar."""
+    from openprocess.gui.studio import connections
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.show()
+    window.show_connections()
+    assert window.content.currentWidget() is window.connections_page
+    cards = window.connections_page.cards
+    assert {"Event logs", "Petri nets", "PNML", "OpenProcess", "Your own boxes"} <= set(cards)
+    tools = {t["name"]: t for t in connections.tools(window.library())}
+    assert "pandas" in tools and "Describe log" in tools["pandas"]["boxes"]
+    assert tools["pandas"]["name"] in cards
+
+    window.action_new_petri()
+    page = window.current_page()
+    assert window.space == "model" and not window.palette.isHidden()
+    assert page.tool_switch.isHidden()                       # the palette stands in for it
+    window.palette_group.button(1).click()
+    assert page.tool_switch.index() == 1 and page.scene.tool == "place"
+    page.tool_switch.set_index(3)
+    assert window.palette_group.checkedId() == 3
+    window.toggle_sidebar(False, remember=False)
+    assert not page.tool_switch.isHidden()                   # no sidebar: the page's own tools
+    window.toggle_sidebar(True, remember=False)
+    assert page.tool_switch.isHidden()
+    window.set_space("mine")
+    assert window.palette.isHidden()
+    window.set_space("model")
+    assert not window.palette.isHidden() and window.current_page() is page
     page.document.dirty = False
     window.close()
