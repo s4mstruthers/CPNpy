@@ -6,6 +6,29 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.7.1
+
+- **Fixed: *New workflow* did nothing in the downloaded app.** The app was
+  built without the standard boxes (the library imports them by name, which
+  the bundler could not see), so a new workflow failed before it opened.
+  The app's build test now builds and runs a workflow before an app is
+  published.
+- **The Code tab works in the downloaded app.** The app now carries the
+  source of every box and algorithm, so *Code* shows the code it runs, as
+  it does from a checkout.
+- **Fixed:** the Code tab's file paths were wrong when the repository's folder
+  is itself called `openprocess` (as a clone now is).
+- **An error you were never shown** (one the app did not expect) now opens
+  a dialog with the details to report, instead of disappearing.
+- **Updating from pip or from a checkout.** *Help ▸ Check for Updates…*
+  now knows how OpenProcess was installed. A `pip install openprocess[app]`
+  updates itself with pip and restarts; a git checkout pulls, reinstalls
+  and restarts (it refuses while there are uncommitted changes); a
+  downloaded app installs the download as before.
+- **Clearer when it cannot update.** A release without a download for your
+  system, or a copy of the source that is not a git checkout, now says so
+  instead of the old "you are running from source" text.
+
 ## 0.7.0
 
 - **CPNpy is now OpenProcess.** The name said "coloured Petri nets"; the app
@@ -20,8 +43,11 @@ notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
   exercise packs written for CPNpy run unchanged. A folder's hidden state
   and notes, your settings and the datasets cache are carried over the
   first time you open them. Workflow files keep the `.cpnflow` extension.
-- **Updates** come from the renamed repository; CPNpy 0.6 finds 0.7.0
-  through GitHub's redirect and installs it like any other update.
+- **Updating from CPNpy is by hand, once.** A CPNpy app looks for files
+  named `CPNpy-…` and will not find this release's `OpenProcess-…` files,
+  so its update dialog can only open the release page: download
+  OpenProcess from there and drag it over. From 0.7.0 on, OpenProcess
+  installs updates itself again.
 
 ## 0.6.0
 

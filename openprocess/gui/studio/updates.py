@@ -9,12 +9,20 @@ the download for this system is chosen by the names the build gives them
     OpenProcess-<version>-Windows-<arch>.zip
     OpenProcess-<version>-Linux-<arch>.tar.gz
 
-Installing replaces the app the user is running.  The app cannot overwrite
-itself while it runs, so it downloads and unpacks the new version, writes a
-small script that waits for the app to quit, swaps the old app for the new
-one (keeping the old one until the new one is in place) and starts it, and
-then quits.  OpenProcess run from source (``git clone`` + ``pip install -e``) is
-never touched: it only gets told what to run.
+Installing depends on how this copy was installed (:func:`how_installed`):
+
+* **a downloaded app** cannot overwrite itself while it runs, so it
+  downloads and unpacks the new version, writes a small script that waits
+  for the app to quit, swaps the old app for the new one (keeping the old
+  one until the new one is in place) and starts it, and then quits;
+* **a pip install** runs ``pip install --upgrade "openprocess[app]"`` in
+  the same Python and restarts;
+* **a checkout** (``git clone`` + ``pip install -e``) runs ``git pull`` and
+  the editable install again and restarts, but only when the checkout has
+  no uncommitted changes; a copy without ``.git`` is only told what to run.
+
+A release without a download for this system (as 0.7.0 was for CPNpy, whose
+files have another name) can only be opened on the release page.
 
 Everything but :class:`UpdateDialog` (at the end) works without a window.
 """
@@ -94,6 +102,83 @@ def installed_app() -> Path | None:
         bundle = executable.parents[2]          # OpenProcess.app/Contents/MacOS/OpenProcess
         return bundle if bundle.suffix == ".app" else None
     return executable.parent                    # OpenProcess/OpenProcess(.exe)
+
+
+@dataclass(frozen=True)
+class Install:
+    """How this copy of OpenProcess was installed, which decides how it updates."""
+
+    #: ``"app"``: a downloaded bundle; ``"source"``: a checkout; ``"pip"``: a package.
+    kind: str
+    #: The bundle, the checkout's folder, or the package's folder.
+    path: Path
+    #: A checkout with a ``.git`` folder, so ``git pull`` works.
+    git: bool = False
+
+
+def _package_dir() -> Path:
+    from ... import __file__ as package_init
+    return Path(package_init).resolve().parent
+
+
+def how_installed() -> Install:
+    app = installed_app()
+    if app is not None:
+        return Install("app", app)
+    package = _package_dir()
+    root = package.parent
+    if (root / "pyproject.toml").is_file():
+        return Install("source", root, git=(root / ".git").exists())
+    return Install("pip", package)
+
+
+def update_way(install: Install, release: "Release") -> str | None:
+    """How ``release`` can be installed over ``install``: ``"app"`` (download and
+    swap), ``"pip"`` (pip in the same environment), ``"source"`` (``git pull``
+    and the editable install again), or None (only the release page helps)."""
+    if install.kind == "app":
+        return "app" if release.download_for() is not None else None
+    if install.kind == "pip":
+        return "pip"
+    if install.kind == "source" and install.git:
+        return "source"
+    return None
+
+
+def update_commands(install: Install, release: "Release", way: str) -> list[list[str]]:
+    """The commands that update a pip install or a checkout, in order."""
+    python = sys.executable
+    if way == "pip":
+        return [[python, "-m", "pip", "install", "--upgrade", f"openprocess[app]=={release.version}"]]
+    if way == "source":
+        return [["git", "-C", str(install.path), "pull", "--ff-only"],
+                [python, "-m", "pip", "install", "-e", f"{install.path}[app]"]]
+    raise ValueError(f"no commands for {way!r}")
+
+
+def run_update(install: Install, release: "Release", way: str, run=subprocess.run) -> str:
+    """Run the update commands; their output, or :class:`RuntimeError` with it."""
+    if way == "source":
+        status = run(["git", "-C", str(install.path), "status", "--porcelain"],
+                     capture_output=True, text=True)
+        if status.returncode == 0 and status.stdout.strip():
+            raise RuntimeError("The checkout has uncommitted changes, which git pull would have "
+                               "to merge. Commit or stash them, then update again.")
+    output: list[str] = []
+    for command in update_commands(install, release, way):
+        output.append("$ " + " ".join(command))
+        result = run(command, capture_output=True, text=True)
+        output.append(((result.stdout or "") + (result.stderr or "")).strip())
+        if result.returncode != 0:
+            raise RuntimeError("\n".join(output).strip())
+    return "\n".join(output).strip()
+
+
+def restart_command() -> list[str]:
+    """The command that starts this OpenProcess again (after a pip or source update)."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable] + sys.argv[1:]
+    return [sys.executable] + sys.argv
 
 
 # ---------------------------------------------------------------------------
@@ -349,11 +434,18 @@ class UpdateDialog(QDialog):
 
     INSTALL, LATER, SKIP, PAGE = range(4)
 
-    def __init__(self, release: Release, can_install: bool, parent=None) -> None:
+    def __init__(self, release: Release, can_install: bool, parent=None,
+                 install: Install | None = None, way: str | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Software Update")
         self.setMinimumSize(520, 420)
         self.outcome = self.LATER
+        install = install or how_installed()
+        if way is None and can_install:
+            way = update_way(install, release) or "app"
+        if not can_install:
+            way = None
+        self.way = way
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         heading = QLabel(f"<b>OpenProcess {release.version} is available</b> — you have "
@@ -364,18 +456,21 @@ class UpdateDialog(QDialog):
         notes.setOpenExternalLinks(True)
         notes.setMarkdown(release.notes or "_No release notes._")
         layout.addWidget(notes, 1)
-        if not can_install:
-            hint = QLabel("You are running OpenProcess from its source code, which it does not "
-                          "change by itself. To update, run <code>git pull</code> in your "
-                          "OpenProcess folder, then <code>conda env update -f environment.yml "
-                          "--prune</code> (or <code>pip install -e \".[app]\"</code>).")
+        text = update_hint(install, release, way)
+        if text:
+            hint = QLabel(text)
             hint.setWordWrap(True)
+            hint.setOpenExternalLinks(True)
             layout.addWidget(hint)
         buttons = QDialogButtonBox()
-        if can_install:
-            install = buttons.addButton("Download && Install", QDialogButtonBox.AcceptRole)
-            install.clicked.connect(lambda: self._finish(self.INSTALL))
-            install.setDefault(True)
+        if way == "app":
+            action = buttons.addButton("Download && Install", QDialogButtonBox.AcceptRole)
+            action.clicked.connect(lambda: self._finish(self.INSTALL))
+            action.setDefault(True)
+        elif way in ("pip", "source"):
+            action = buttons.addButton("Update && Restart", QDialogButtonBox.AcceptRole)
+            action.clicked.connect(lambda: self._finish(self.INSTALL))
+            action.setDefault(True)
         else:
             page = buttons.addButton("Open Release Page", QDialogButtonBox.AcceptRole)
             page.clicked.connect(lambda: self._finish(self.PAGE))
@@ -391,6 +486,30 @@ class UpdateDialog(QDialog):
             self.accept()
         else:
             self.reject()
+
+
+def update_hint(install: Install, release: Release, way: str | None) -> str:
+    """What the dialog says under the notes: how this copy updates, or why it cannot."""
+    if way == "app":
+        return ""
+    if way == "pip":
+        return ("You installed OpenProcess with pip. <i>Update &amp; Restart</i> runs "
+                "<code>pip install --upgrade \"openprocess[app]\"</code> in this same Python, then "
+                "starts OpenProcess again.")
+    if way == "source":
+        return (f"You are running OpenProcess from a checkout ({install.path}). <i>Update &amp; "
+                "Restart</i> runs <code>git pull</code> there and <code>pip install -e "
+                "\".[app]\"</code> in this Python (a conda environment keeps working), then starts "
+                "OpenProcess again. It refuses while the checkout has uncommitted changes.")
+    if install.kind == "app":
+        return (f"This release has no download for {system_name()} ({architecture()}), so it "
+                "cannot be installed from here. The release page shows what it has.")
+    if install.kind == "source":
+        return (f"You are running OpenProcess from a copy of its source ({install.path}) that is "
+                "not a git checkout, so it cannot update itself. Get the new version from the "
+                "release page, or clone the repository and run <code>pip install -e "
+                "\".[app]\"</code>.")
+    return ""
 
 
 class UpdateBar(QFrame):
@@ -431,9 +550,15 @@ class UpdateBar(QFrame):
         self.release: Release | None = None
         self.setVisible(False)
 
-    def offer(self, release: Release, can_install: bool) -> None:
+    def offer(self, release: Release, can_install: bool, way: str | None = None) -> None:
         self.release = release
         self.text.setText(f"<b>OpenProcess {release.version} is available</b> — you have "
                           f"{__version__}.")
-        self.install_button.setText("Install Now" if can_install else "How to Update")
+        if not can_install:
+            label = "How to Update"
+        elif way in ("pip", "source"):
+            label = "Update Now"
+        else:
+            label = "Install Now"
+        self.install_button.setText(label)
         self.setVisible(True)

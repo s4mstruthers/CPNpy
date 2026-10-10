@@ -288,6 +288,8 @@ def test_a_new_version_at_launch_is_a_bar_not_a_dialog(monkeypatch):
     window.show()
     monkeypatch.setattr(window, "_install_update", installs.append)
     monkeypatch.setattr(window, "_can_install", lambda release: True)
+    monkeypatch.setattr(window, "_update_way", lambda release: (
+        updates.Install("app", Path("/Applications/OpenProcess.app")), "app"))
     bar = window.update_bar
 
     def check():
@@ -326,6 +328,8 @@ def test_running_from_source_only_says_how_to_update(monkeypatch):
 
     application = QApplication.instance() or QApplication([])
     monkeypatch.delattr(sys, "frozen", raising=False)
+    # A copy of the source without .git: nothing the app can run for you.
+    monkeypatch.setattr(updates, "how_installed", lambda: updates.Install("source", ROOT, git=False))
     shown, installs = [], []
 
     def fake_exec(dialog):
@@ -348,8 +352,105 @@ def test_running_from_source_only_says_how_to_update(monkeypatch):
     bar.install_button.click()
     _pump(application, 0.1)
     assert installs == [] and len(shown) == 1
-    assert "git pull" in " ".join(label.text() for label in shown[0].findChildren(
+    assert "not a git checkout" in " ".join(label.text() for label in shown[0].findChildren(
         updates.QLabel))
+    window.close()
+
+
+def test_how_this_copy_was_installed_decides_how_it_updates(monkeypatch, tmp_path):
+    release = Release.from_github(dict(GITHUB_ANSWER, tag_name="v99.0.0"))
+    # A downloaded app: the download, when the release has one for this system.
+    monkeypatch.setattr(updates, "installed_app", lambda: tmp_path / "OpenProcess.app")
+    app = updates.how_installed()
+    assert app.kind == "app" and updates.update_way(app, release) == "app"
+    none = Release.from_github(dict(GITHUB_ANSWER, tag_name="v99.0.0", assets=[]))
+    assert updates.update_way(app, none) is None
+    assert "no download for" in updates.update_hint(app, none, None)
+    # A checkout: git pull and the editable install; without .git, only advice.
+    monkeypatch.setattr(updates, "installed_app", lambda: None)
+    checkout = tmp_path / "src"
+    (checkout / "openprocess").mkdir(parents=True)
+    (checkout / "pyproject.toml").write_text("[project]\nname = 'openprocess'\n")
+    monkeypatch.setattr(updates, "_package_dir", lambda: checkout / "openprocess")
+    copy = updates.how_installed()
+    assert copy.kind == "source" and not copy.git and updates.update_way(copy, release) is None
+    (checkout / ".git").mkdir()
+    source = updates.how_installed()
+    assert source.git and updates.update_way(source, release) == "source"
+    commands = updates.update_commands(source, release, "source")
+    assert commands[0][:4] == ["git", "-C", str(checkout), "pull"]
+    assert commands[1][-2:] == ["-e", f"{checkout}[app]"]
+    # A pip install: pip, pinned to the release.
+    site = tmp_path / "site-packages" / "openprocess"
+    site.mkdir(parents=True)
+    monkeypatch.setattr(updates, "_package_dir", lambda: site)
+    pip = updates.how_installed()
+    assert pip.kind == "pip" and updates.update_way(pip, release) == "pip"
+    assert updates.update_commands(pip, release, "pip")[0][-1] == "openprocess[app]==99.0.0"
+    assert "pip install --upgrade" in updates.update_hint(pip, release, "pip")
+    assert updates.restart_command()[0] == sys.executable
+
+
+def test_run_update_runs_the_commands_and_refuses_a_dirty_checkout(tmp_path):
+    release = Release.from_github(dict(GITHUB_ANSWER, tag_name="v99.0.0"))
+    source = updates.Install("source", tmp_path, git=True)
+    calls = []
+
+    class Done:
+        def __init__(self, code=0, out="ok"):
+            self.returncode, self.stdout, self.stderr = code, out, ""
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command[3:] == ["status", "--porcelain"]:
+            return Done(out=" M changed.py\n" if fake_run.dirty else "")
+        return Done(code=1, out="boom") if fake_run.fail else Done()
+    fake_run.dirty, fake_run.fail = True, False
+    with pytest.raises(RuntimeError, match="uncommitted changes"):
+        updates.run_update(source, release, "source", run=fake_run)
+    assert len(calls) == 1                                   # nothing was pulled
+    fake_run.dirty = False
+    output = updates.run_update(source, release, "source", run=fake_run)
+    assert calls[2][3] == "pull" and "pip" in calls[3][2]
+    assert output.startswith("$ git -C") and "ok" in output
+    fake_run.fail = True
+    with pytest.raises(RuntimeError, match="boom"):
+        updates.run_update(updates.Install("pip", tmp_path), release, "pip", run=fake_run)
+
+
+def test_a_pip_install_updates_with_pip_and_offers_a_restart(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    from openprocess.gui.studio.app import StudioWindow
+
+    application = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(updates, "how_installed", lambda: updates.Install("pip", ROOT))
+    monkeypatch.setattr(updates, "fetch_latest", lambda: Release.from_github(
+        dict(GITHUB_ANSWER, tag_name="v99.0.0")))
+    ran, after = [], []
+    monkeypatch.setattr(updates, "run_update", lambda install, release, way: (
+        ran.append((install.kind, way)) or "$ pip install …\nSuccessfully installed"))
+    window = StudioWindow()
+    window.show()
+    monkeypatch.setattr(window, "_after_update", lambda release, output: after.append(output))
+    window.check_for_updates(manual=False)
+    for _ in range(300):
+        if window.update_bar.isVisible():
+            break
+        _pump(application, 0.01)
+    bar = window.update_bar
+    assert bar.isVisible() and bar.install_button.text() == "Update Now"
+    bar.install_button.click()
+    for _ in range(300):
+        if after:
+            break
+        _pump(application, 0.01)
+    assert ran == [("pip", "pip")] and "Successfully installed" in after[0]
+    dialog = updates.UpdateDialog(Release.from_github(dict(GITHUB_ANSWER, tag_name="v99.0.0")),
+                                  True, None, updates.Install("pip", ROOT), "pip")
+    texts = [b.text() for b in dialog.findChildren(updates.QPushButton)]
+    assert "Update && Restart" in texts
+    assert "pip install --upgrade" in " ".join(l.text() for l in dialog.findChildren(updates.QLabel))
     window.close()
 
 
