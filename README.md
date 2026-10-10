@@ -228,15 +228,22 @@ round.
 
 ![The folder Week 2 in the sidebar, with its subfolders, one net open and the others listed](docs/screenshots/workspace.png)
 
+**Three spaces, one folder.** The switcher at the top of the window picks
+**Mine** (event logs and analyses), **Model** (Petri nets and coloured nets)
+or **Learn** (exercises). Each has its own sidebar, so mining and modelling
+never share a list; a document opens in its space, and the folder remembers
+which space you were in.
+
 **In the sidebar**
 
-- **Every event log and net in the folder** is listed, open or not. Files
-  that are not open yet are lighter: **click one to open it**. Closing a file
-  (✕ or ⌘W) puts it back in that state; it stays in the folder.
-- **Folders** shows the folder as it is on disk, with collapsible subfolders
-  (folders first, then files, by name). **By kind** groups the files into
-  event logs, Petri nets and coloured nets instead. The choice, and which
-  subfolders are open, is remembered for each folder.
+- **Mine lists the folder's analyses**, and its logs folded under them.
+  **Model lists its models.** Files that are not open yet are lighter:
+  **click one to open it**. Closing a file (✕ or ⌘W) puts it back in that
+  state; it stays in the folder.
+- **Subfolders stay.** Inside each list, files sit under their subfolder as
+  on disk (folders first, then files, by name); which subfolders are open is
+  remembered for each folder. An empty folder shows in both spaces until it
+  has files.
 - **Organise from the app**: right-click for **New Folder…**, **Rename…**,
   **Show in Finder** and **Move to Bin** (recoverable from the Bin; never a
   hard delete). **Drag files onto a subfolder** to move them on disk. An open

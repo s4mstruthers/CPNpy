@@ -108,7 +108,7 @@ def test_studio_end_to_end(app):
 
     # dotted chart: zoom, back, reconfigure
     log_page = window.pages[log.id]
-    window.tree.setCurrentItem(window.items[log.id])
+    window._select_document(log)                        # back to Mine
     log_page.tabs.set_index(3)
     _pump(app, 0.3)
     from openprocess.gui.studio.dotted_chart import DottedChartPanel
@@ -250,7 +250,7 @@ def test_cpn_page_edit_simulate_analyse(app, tmp_path):
     assert isinstance(window.documents[-1], LogDocument)
 
     # Editing a guard recompiles, marks the model dirty and resets the simulation.
-    window.tree.setCurrentItem(window.items[page.document.id])
+    window._select_document(page.document)              # the log opened in Mine; back to Model
     page.mode_switch.set_index(0)
     move_up = next(t for t in page.net.all_transitions() if t.name == "Move up")
     page.reveal_element(move_up.id)
@@ -1265,39 +1265,45 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     window.open_path(str(root / "examples" / "petri" / "order_handling_unsound.pnml"))
     assert window.open_workspace(str(week))
 
-    # The outside file was closed; the folder's files are listed (here grouped by kind).
-    window.set_view_mode("kind")
+    # The outside file was closed.  Mine lists the folder's logs (folded under
+    # their subfolder); Model lists its nets.
     assert [d.name for d in window.documents] == []
     assert window.sidebar_title.text() == "Week 2"
     assert not window.workspace_caption.isHidden()
     assert window.windowTitle() == f"Week 2 — {APPLICATION_NAME}"
-    assert rows(window.petri_section) == ["order"]
-    assert rows(window.cpn_section) == ["transfer"]
-    assert rows(window.logs_section) == ["boarding"]             # the subfolder is in the tooltip
-    assert window.logs_section.child(0).toolTip(0).startswith("logs/boarding.xes")
+    assert window.space == "mine" and window.analyses_section.isHidden()
+    assert window.material_section.text(0) == "LOGS  ·  1"
+    assert rows(window.material_section) == ["logs"]
+    assert rows(window.folder_items["logs"]) == ["boarding"]
+    assert window.folder_items["logs"].child(0).toolTip(0).startswith("logs/boarding.xes")
+    assert window.set_space("model") and window.space_switch.index() == 1
+    assert rows(window.models_section) == ["order", "transfer"]
 
     # One click opens a file; its row becomes the open document.
-    window._open_placeholder(window.petri_section.child(0))
+    window._open_placeholder(window.models_section.child(0))
     net = window.documents[-1]
-    assert net.name == "order" and window.petri_section.childCount() == 1
-    assert window.petri_section.child(0).data(0, FILE_ROLE) is None
+    assert net.name == "order" and window.models_section.childCount() == 2
+    assert window.models_section.child(0).data(0, FILE_ROLE) is None
     assert window.windowTitle() == "order — Week 2"
     # A double-click right after that click does not ask to rename it.
     window._on_double_click(window.items[net.id], 0)
 
-    # A log opens in the background.
-    window._open_placeholder(window.logs_section.child(0))
+    # A log opens in the background, in Mine.
+    window.set_space("mine")
+    window._open_placeholder(window.folder_items["logs"].child(0))
     assert wait_for(lambda: any(isinstance(d, LogDocument) for d in window.documents))
-    assert rows(window.logs_section) == ["Boarding"]
+    assert window.space == "mine" and rows(window.folder_items["logs"]) == ["Boarding"]
 
     # Closing a file lists it again, ready to reopen.
+    window.set_space("model")
+    assert window.windowTitle() == "order — Week 2"          # Model remembers its document
     window.remove_documents([net.id])
-    assert rows(window.petri_section) == ["order"]
-    assert window.petri_section.child(0).data(0, FILE_ROLE)
+    assert rows(window.models_section) == ["order", "transfer"]
+    assert window.models_section.child(0).data(0, FILE_ROLE)
 
     # Files added in Finder appear by themselves (the folder is watched).
     shutil.copy(week / "order.pnml", week / "another net.pnml")
-    assert wait_for(lambda: rows(window.petri_section) == ["another net", "order"])
+    assert wait_for(lambda: rows(window.models_section) == ["another net", "order", "transfer"])
 
     # A new net's Save dialog starts in the workspace folder.
     window.action_new_petri()
@@ -1310,10 +1316,10 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     assert window.current_page().export()
     assert Path(offered["path"]).parent == week
     window._rescan_workspace()
-    assert rows(window.petri_section) == ["another net", "my model", "order"]
-    assert sum(1 for i in range(3) if window.petri_section.child(i).data(0, FILE_ROLE)) == 2
+    assert rows(window.models_section) == ["another net", "my model", "order", "transfer"]
+    assert sum(1 for i in range(4) if window.models_section.child(i).data(0, FILE_ROLE)) == 3
 
-    # What was open is remembered in the folder and comes back next time.
+    # What was open, and which space, is remembered in the folder and comes back next time.
     assert (week / ".openprocess").exists()
     window.close()
     again = StudioWindow()
@@ -1321,12 +1327,16 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     assert again.open_workspace(str(week))
     assert wait_for(lambda: len(again.documents) == 2)
     assert sorted(d.name for d in again.documents) == ["Boarding", "my model"]
+    assert again.space == "model"
     assert again.windowTitle() == "my model — Week 2"          # it was selected
+    again.set_space("mine")
+    assert again.windowTitle() == f"Week 2 — {APPLICATION_NAME}"  # nothing was current in Mine
 
     # Closing the workspace closes everything and goes back to "OpenProcess Studio".
     assert again.close_workspace()
     assert again.documents == [] and again.sidebar_title.text() == APPLICATION_NAME
-    assert all(s.isHidden() for s in (again.logs_section, again.petri_section, again.cpn_section))
+    assert all(s.isHidden() for s in (again.analyses_section, again.models_section,
+                                      again.material_section))
     again.close()
 
 
@@ -1557,7 +1567,10 @@ def _layout(window) -> list[str]:
     return lines
 
 
-def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
+def test_each_space_lists_its_own_files_and_remembers_them(app, tmp_path):
+    """Mine lists logs under LOGS IN THIS FOLDER (folded), Model lists the nets;
+    both keep the folder's subfolders.  The space, the unfolded section and
+    the expanded subfolders are remembered in the folder."""
     from openprocess.gui.studio.app import FOLDER_ROLE, StudioWindow
     from openprocess.gui.studio.workspace import Workspace
 
@@ -1565,35 +1578,43 @@ def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
     window = StudioWindow()
     window.show()
     window.open_workspace(str(week))
-    assert window.view_mode == "folder" and not window.view_row.isHidden()
-    # Folders first, then files, as in Finder; subfolders start collapsed.
-    assert _layout(window) == ["empty", "logs", "models", "transfer"]
+    assert window.space == "mine" and window.space_switch.index() == 0
+    assert not window.footers["mine"].isHidden() and window.footers["model"].isHidden()
+    # No analyses yet, so ANALYSES holds only the empty subfolder (a folder with
+    # no files shows in both spaces, waiting for some); the logs are folded away.
+    assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1"]
+    window.material_section.setExpanded(True)
+    assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1", "  logs"]
+    window.folder_items["logs"].setExpanded(True)
+    assert _layout(window)[-3:] == ["LOGS  ·  1", "  logs", "    boarding"]
+
+    # Model: the nets, folders first, as in Finder; subfolders start collapsed.
+    window.set_space("model")
+    assert not window.footers["model"].isHidden() and window.footers["mine"].isHidden()
+    assert _layout(window) == ["MODELS", "  empty", "  models", "  transfer"]
     window.folder_items["models"].setExpanded(True)
-    assert _layout(window) == ["empty", "logs", "models", "  order", "transfer"]
+    assert _layout(window) == ["MODELS", "  empty", "  models", "    order", "  transfer"]
     assert window.folder_items["models"].data(0, FOLDER_ROLE) == str(week.resolve() / "models")
 
-    # Opening a file keeps it in its subfolder; a new net goes into the folder.
+    # Opening a file keeps it in its subfolder.
     window._open_placeholder(window.placeholders[window._key(week / "models" / "order.pnml")])
     assert window.documents[-1].name == "order"
-    assert _layout(window) == ["empty", "logs", "models", "  order", "transfer"]
+    assert _layout(window) == ["MODELS", "  empty", "  models", "    order", "  transfer"]
     assert window.tree.currentItem() is window.items[window.documents[-1].id]
+    for i in range(window.models_section.childCount()):          # the rows are laid out
+        assert window.tree.visualItemRect(window.models_section.child(i)).height() > 0
 
-    # The view and the expanded subfolders are remembered in the folder.
-    window.set_view_mode("kind")
-    assert "PETRI NETS" in _layout(window) and "models" not in _layout(window)
-    # Regression: the headings' rows were in the tree but not laid out (an
-    # empty By kind view), so check what the view actually shows.
-    for section in (window.logs_section, window.petri_section, window.cpn_section):
-        for i in range(section.childCount()):
-            assert window.tree.visualItemRect(section.child(i)).height() > 0
-    assert Workspace(week).settings() == {"view": "kind", "expanded": ["models"]}
+    # The space, the section and the expanded subfolders are remembered in the folder.
+    assert Workspace(week).settings() == {"expanded": ["logs", "models"],
+                                          "material_expanded": True, "space": "model"}
     window.close()
     again = StudioWindow()
     again.show()
     again.open_workspace(str(week))
-    assert again.view_mode == "kind" and again.view_switch.index() == 1
-    again.set_view_mode("folder")
+    assert again.space == "model" and again.space_switch.index() == 1
     assert again.folder_items["models"].isExpanded()
+    again.set_space("mine")
+    assert again.material_section.isExpanded() and again.folder_items["logs"].isExpanded()
     again.close()
 
 
@@ -1617,6 +1638,7 @@ def test_organising_files_from_the_sidebar(app, tmp_path, monkeypatch, fake_bin)
     window = StudioWindow()
     window.show()
     window.open_workspace(str(week))
+    window.set_space("model")                      # the nets' space
 
     # New Folder, inside "models".
     answers.append("assignment 1")
@@ -1726,7 +1748,8 @@ def test_changes_on_disk_reach_the_app(app, tmp_path):
     _pump(app, 1.5)
     assert not path.exists()                   # autosave does not bring it back
 
-    # A new subfolder made in Finder, with a log copied straight into it.
+    # A new subfolder made in Finder, with a log copied straight into it (listed in Mine).
+    window.set_space("mine")
     (week / "week 3").mkdir()
     write_xes(EventLog.from_simple_log(parse_simple_log("[<x,y>]"), "New"),
               week / "week 3" / "fresh.xes")

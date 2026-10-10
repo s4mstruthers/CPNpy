@@ -1,33 +1,34 @@
-"""OpenProcess Studio: the main window of the process-mining workspace.
+"""OpenProcess Studio: the main window, with its three spaces.
 
 Layout
 ------
 ::
 
+    [ Mine | Model | Learn ]                           ← the switcher
     +------------+-------------------------------------------------+
-    | OpenProcess      |  Page header (title, subtitle, actions)          |
-    |            |  [Overview | Variants | Cases | ...]             |
-    | EVENT LOGS |                                                  |
-    |  ▤ log A   |                page content                      |
-    | MODELS     |                                                  |
-    |  ◇ α(L)    |                                                  |
-    | COLOURED   |                                                  |
-    |  NETS      |                                                  |
-    |  ◈ plane   |                                                  |
-    | Open…      |                                                  |
+    | FOLDER     |  Page header (title, subtitle, actions)          |
+    | Week 2     |  [Result | How | Code | Settings]                |
+    | ANALYSES   |                                                  |
+    |  ⧉ Discover|                page content                      |
+    | LOGS · 3  ▸|                                                  |
+    |            |                                                  |
+    | + New…     |                                                  |
     +------------+-------------------------------------------------+
 
-The sidebar lists every open *document*: an event log, a Petri net, or a
-coloured Petri net (CPN Tools model).  Selecting one shows its page.
-Discovering a model from a log adds the model to the sidebar, and exporting
-a CPN simulation adds its event log, so a whole analysis lives side by side
-in one window.
+One window, one folder, three spaces (:mod:`.spaces`).  **Mine** lists the
+folder's analyses (workflows) with its event logs folded under them;
+**Model** lists its Petri nets and coloured nets; **Learn** is the exercise
+view, which takes the whole window.  Selecting a document shows its page;
+opening one switches to its space.  Discovering a model from a log and
+editing a copy of it moves the window to Model, and exporting a CPN
+simulation as a log moves it to Mine, so a whole analysis lives in one
+window without the two kinds of work sharing a list.
 
 With a folder open (File ▸ Open Folder…, e.g. "Week 2"; internally a
 :class:`.workspace.Workspace`), the folder and the sidebar always match:
 
-* the sidebar lists every log and net in the folder, open or not (lighter),
-  with its subfolders (the Folder view) or grouped by kind;
+* each space's sidebar lists its kinds of file in the folder, open or not
+  (lighter), under their subfolders;
 * folder → app: files added, renamed or deleted in Finder show up by
   themselves, an open file changed on disk is reloaded, and one deleted on
   disk is marked as missing;
@@ -63,7 +64,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
     QSizePolicy, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
-    QToolButton, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget,
+    QToolBar, QToolButton, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget,
 )
 
 from ...mining.csv_import import ColumnMapping, guess_mapping, read_csv, sniff
@@ -87,6 +88,7 @@ from .log_editor import EXAMPLES, NotationDialog  # noqa: F401 - NotationDialog:
 from .log_page import LogPage
 from .model_page import ModelPage
 from .sidebar import FILE_ROLE, FOLDER_ROLE, SidebarTree
+from .spaces import FILE_KINDS, LABELS, LEARN, MAIN_KINDS, MINE, MODEL, SPACES, is_main, space_of
 from .widgets import (
     Card, ElidedLabel, NoticeBar, SegmentedControl, button, dialog_folder, hbox, label,
     round_menus, scroll, set_dialog_folder, shortcut_text, vbox,
@@ -429,13 +431,20 @@ class StudioWindow(QMainWindow):
         #: Its subfolders and files, as last listed (see _rescan_workspace).
         self._tree: WorkspaceFolder | None = None
         self._tree_signature: tuple = ()
-        #: In a folder: the sidebar shows its subfolders ("folder") or groups by kind ("kind").
-        self.view_mode = "folder"
+        #: The space shown, Mine or Model (Learn takes the whole window: see in_learn).
+        self.space = MINE
+        #: Each space's current document (its id), so switching back finds it again.
+        self._space_current: dict[str, int | None] = {MINE: None, MODEL: None}
+        #: Mine's LOGS section (the folder's logs) is unfolded; remembered per folder.
+        self._material_expanded = False
+        #: The space that was shown before Learn took the window.
+        self._space_before_learn = MINE
         #: Expanded subfolders (relative paths), remembered in the folder's .openprocess.
         self._expanded: set[str] = set()
         #: Sidebar rows by what they stand for (rebuilt by _rebuild_sidebar).
         self.placeholders: dict[str, QTreeWidgetItem] = {}       # files not open, by path key
         self.folder_items: dict[str, QTreeWidgetItem] = {}       # subfolders, by relative path
+        self._folder_rows: list[tuple[str, QTreeWidgetItem]] = []   # every subfolder row (a path may have two)
         #: Reopening a folder: files still loading, and the one that was selected.
         self._restore_paths: dict[str, dict] = {}
         self._restore_selected: str | None = None
@@ -559,6 +568,7 @@ class StudioWindow(QMainWindow):
         self.modes.addWidget(root)
         self.modes.addWidget(self.learn_mode)
         self.setCentralWidget(self.modes)
+        self._build_space_bar()
         self.statusBar().showMessage("Ready")
         # ✎ Notes in the status bar: it never covers the page (see toggle_notes).
         self.notes_button = QToolButton()
@@ -653,16 +663,6 @@ class StudioWindow(QMainWindow):
         layout.setSpacing(8)
         layout.addWidget(self._build_sidebar_header())
 
-        # In a folder: its subfolders, or grouped by kind as without one.
-        self.view_switch = SegmentedControl(["Folders", "By kind"], compact=True)
-        self.view_switch.setToolTip("Show the folder's subfolders, or group the files by kind")
-        self.view_switch.changed.connect(
-            lambda index: self.set_view_mode(("folder", "kind")[index]))
-        self.view_row = QWidget()
-        self.view_row.setLayout(hbox(self.view_switch, None, margins=(10, 0, 0, 2)))
-        self.view_row.setHidden(True)
-        layout.addWidget(self.view_row)
-
         self.tree = SidebarTree()
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(14)
@@ -684,22 +684,22 @@ class StudioWindow(QMainWindow):
             shortcut = QShortcut(key, self.tree)
             shortcut.setContext(Qt.WidgetShortcut)
             shortcut.activated.connect(self.remove_selected)
-        # The Folder view: documents with no file (a model just discovered)
-        # on top, then the folder's subfolders and files, then open files
-        # from elsewhere and comparisons.
+        # One space at a time (see _fill_space_view).  Mine: documents with no
+        # file on top, the analyses, then the logs folded away under them.
+        # Model: the models.  Both: exercises, open files from elsewhere,
+        # comparisons.
         self.unsaved_section = self._section("UNSAVED")
-        self.logs_section = self._section("EVENT LOGS")
-        self.petri_section = self._section("PETRI NETS")
+        self.analyses_section = self._section("ANALYSES")
         self.models_section = self._section("MODELS")
-        self.cpn_section = self._section("COLOURED NETS")
-        self.ts_section = self._section("TRANSITION SYSTEMS")
-        self.workflows_section = self._section("WORKFLOWS")
+        self.material_section = self._section("LOGS")
+        self.material_section.setToolTip(0, "The folder's event logs and transition systems: "
+                                            "what analyses start from. Click to fold or unfold.")
         self.exercises_section = self._section("EXERCISES")
         self.elsewhere_section = self._section("OTHER FILES")
         self.elsewhere_section.setToolTip(0, "Open files that are not in the folder")
         self.compare_section = self._section("COMPARISONS")
         # Shown in an empty folder, so an empty sidebar is not a mystery.
-        self.empty_hint = QTreeWidgetItem(self.tree, ["No logs or nets yet"])
+        self.empty_hint = QTreeWidgetItem(self.tree, ["No analyses or logs yet"])
         self.empty_hint.setFlags(Qt.NoItemFlags)
         self.empty_hint.setToolTip(0, "Save a net or export a log into the folder, or add "
                                       "files to it in Finder: they appear here.")
@@ -719,15 +719,107 @@ class StudioWindow(QMainWindow):
         self.tree.itemCollapsed.connect(lambda item: self._folder_toggled(item, False))
         layout.addWidget(self.tree, 1)
 
-        footer = QWidget()
-        footer.setObjectName("sidebarFooter")
-        footer.setLayout(vbox(button("＋  Open file…", self.action_open),
-                              button("✎  Log from notation…", self.action_notation),
-                              button("⇄  Compare logs…", lambda: self.action_compare()),
-                              button("⇄  Compare nets…", self.action_compare_nets),
-                              spacing=0))
-        layout.addWidget(footer)
+        # A footer per space: what you start in it.
+        self.footers = {}
+        self.footers[MINE] = QWidget()
+        self.footers[MINE].setObjectName("sidebarFooter")
+        self.footers[MINE].setLayout(vbox(
+            button("＋  New analysis", lambda: self.action_new_workflow(None)),
+            button("＋  Open log…", self.action_open),
+            button("✎  Log from notation…", self.action_notation),
+            button("⇄  Compare logs…", lambda: self.action_compare()),
+            spacing=0))
+        self.footers[MODEL] = QWidget()
+        self.footers[MODEL].setObjectName("sidebarFooter")
+        self.footers[MODEL].setLayout(vbox(
+            button("＋  New Petri net", self.action_new_petri),
+            button("＋  New coloured net", self.action_new_cpn),
+            button("＋  Open net…", self.action_open),
+            button("⇄  Compare nets…", self.action_compare_nets),
+            spacing=0))
+        self.footers[MODEL].setHidden(True)
+        layout.addWidget(self.footers[MINE])
+        layout.addWidget(self.footers[MODEL])
         return sidebar
+
+    # -- the spaces: Mine, Model, Learn ------------------------------------------------
+    def _build_space_bar(self) -> None:
+        """The switcher at the top of the window: Mine, Model, Learn.  On macOS it
+        sits in the title bar; elsewhere in a slim bar under the menu."""
+        bar = QToolBar("Spaces")
+        bar.setObjectName("spaceBar")
+        bar.setMovable(False)
+        bar.setFloatable(False)
+        bar.setContextMenuPolicy(Qt.PreventContextMenu)
+        self.space_switch = SegmentedControl([LABELS[space] for space in SPACES])
+        tips = {MINE: "Event logs and analyses: discover, check, compare",
+                MODEL: "Petri nets and coloured nets: draw, play, simulate, analyse",
+                LEARN: "Exercises: a worksheet beside its materials"}
+        for space, control in zip(SPACES, self.space_switch.buttons):
+            control.setToolTip(tips[space])
+        self.space_switch.changed.connect(lambda index: self.set_space(SPACES[index]))
+        bar.addWidget(self.space_switch)
+        self.addToolBar(Qt.TopToolBarArea, bar)
+        self.space_bar = bar
+        self.setUnifiedTitleAndToolBarOnMac(True)
+
+    def set_space(self, space: str, remember: bool = True) -> bool:
+        """Show ``space``.  Mine and Model swap the sidebar and the page; Learn
+        opens the folder's exercises (or the demo ones) over the whole window.
+        Returns False when nothing changed (Learn had nothing to open)."""
+        if space == LEARN:
+            if self.in_learn:
+                return True
+            opened = self._open_learn()
+            if not opened:
+                self._sync_space_switch()
+            return opened
+        was_learn = self.in_learn
+        if was_learn:
+            self.leave_learn(to=space)
+        if space == self.space and not was_learn:
+            self._sync_space_switch()
+            return False
+        current = self._current_document()
+        if current is not None and space_of(current) == self.space:
+            self._space_current[self.space] = current.id
+        self._set_space_quietly(space)
+        self._rebuild_sidebar()
+        if remember and self.workspace is not None:
+            self.workspace.update_settings(space=space)
+        wanted = self._space_current.get(space)
+        document = self._document(wanted) if wanted is not None else None
+        if document is not None and document in self.documents:
+            self._select_document(document)
+        else:
+            self.tree.clearSelection()
+            self.tree.setCurrentItem(None)
+            self.content.setCurrentIndex(0)
+            self._set_title(None)
+        return True
+
+    def _set_space_quietly(self, space: str) -> None:
+        """Make ``space`` current without rebuilding or selecting anything."""
+        self.space = space
+        for key, footer in self.footers.items():
+            footer.setVisible(key == space)
+        self._sync_space_switch()
+
+    def _sync_space_switch(self) -> None:
+        shown = LEARN if self.in_learn else self.space
+        index = SPACES.index(shown)
+        if self.space_switch.index() != index:
+            self.space_switch.blockSignals(True)
+            self.space_switch.buttons[index].setChecked(True)
+            self.space_switch.blockSignals(False)
+
+    def _open_learn(self) -> bool:
+        """Learn from the switcher: the folder's exercises, else the demo ones."""
+        from ...learn.pack import find_exercises
+        if self.workspace is not None and find_exercises(self.workspace.folder):
+            return self.open_exercise(self.workspace.folder)
+        self.open_demo_exercises()
+        return self.in_learn
 
     def _build_sidebar_header(self) -> QWidget:
         """"OpenProcess Studio", or the workspace's name with a ⋯ menu."""
@@ -934,7 +1026,7 @@ class StudioWindow(QMainWindow):
         workspace_card.add(hbox(button("Open folder…", self.action_open_workspace,
                                        kind="primary"), self.welcome_recent, None))
         self.welcome_folder_card = workspace_card
-        grid.addWidget(workspace_card, 0, 0, 1, 2)
+        grid.addWidget(workspace_card, 0, 0, 1, 3)
         # Inside a workspace the top card is about that folder instead.
         inside = Card("Folder")
         self.welcome_inside_title = inside.title_label
@@ -942,37 +1034,43 @@ class StudioWindow(QMainWindow):
         inside.add(self.welcome_inside_text)
         reveal = {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(
             sys.platform, "Open Folder")
-        inside.add(hbox(button("New Petri net", self.action_new_petri, kind="primary"),
-                        button("New coloured net", self.action_new_cpn),
+        inside.add(hbox(button("New analysis", lambda: self.action_new_workflow(None), kind="primary"),
+                        button("New Petri net", self.action_new_petri),
                         button(reveal, lambda: self.workspace and
                                self.reveal(str(self.workspace.folder))),
                         None,
                         button("Close folder", self.close_workspace)))
         inside.setHidden(True)
         self.welcome_inside_card = inside
-        grid.addWidget(inside, 0, 0, 1, 2)
+        grid.addWidget(inside, 0, 0, 1, 3)
         cards = [
-            ("Open an event log", "XES, XES.GZ or CSV. Explore variants, the dotted chart "
-             "and the process map, then discover a model.", "Open event log…", self.action_open),
-            ("Type a textbook log", "Write L = [<a,b,c>^3, <a,c>^2] exactly as in the course "
-             "and mine it immediately.", "Log from notation…", self.action_notation),
-            ("Draw a Petri net", "Places, transitions and arcs as in the lectures, or open a "
-             "PNML file. Soundness with counterexamples, footprint, reachability graph, "
-             "token game.", "New Petri net", self.action_new_petri),
-            ("Coloured Petri nets", "CPN Tools models (.cpn): edit, simulate step by step or "
-             "automatically, analyse the state space, and mine the simulated behaviour.",
-             "Open CPN model…", self.action_open_cpn),
-            ("Build a workflow", "Boxes on a canvas: a log, a miner, a check, a comparison. Click a "
-             "box to see its result and how it got there; change a setting and only what follows "
-             "runs again. Saved with everything needed to get the same numbers back.",
-             "New workflow", lambda: self.action_new_workflow(TEMPLATES[0][1])),
+            ("Mine", "Process mining. Open an event log and build an analysis from boxes: a "
+             "log, a miner, a check, a comparison. Every result shows how it got there, with "
+             "the code and the paper behind it.",
+             [("New analysis", lambda: self.action_new_workflow(TEMPLATES[0][1])),
+              ("Open event log…", self.action_open),
+              ("Log from notation…", self.action_notation)]),
+            ("Model", "Petri nets and coloured nets. Draw places, transitions and arcs, play "
+             "the token game, simulate, analyse the state space, and mine the simulated "
+             "behaviour.",
+             [("New Petri net", self.action_new_petri),
+              ("New coloured net", self.action_new_cpn),
+              ("Open CPN model…", self.action_open_cpn)]),
+            ("Learn", "Exercise packs. A worksheet beside its materials, answers checked as "
+             "you go, results hidden until you have worked them out.",
+             [("Demo exercises", self.open_demo_exercises),
+              ("Open exercise pack…", self.action_open_exercise)]),
         ]
-        for index, (heading, text, action, slot) in enumerate(cards):
+        for index, (heading, text, actions) in enumerate(cards):
             card = Card(heading)
-            card.setMinimumWidth(240)
+            card.setMinimumWidth(220)
             card.add(label(text, "muted", wrap=True))
-            card.add(hbox(button(action, slot), None))
-            grid.addWidget(card, 1 + index // 2, index % 2)
+            buttons = QVBoxLayout()
+            buttons.setSpacing(6)
+            for action, slot in actions:
+                buttons.addLayout(hbox(button(action, slot), None))
+            card.add(buttons)
+            grid.addWidget(card, 1, index)
         holder = QWidget()
         holder.setLayout(grid)
         holder.setMaximumWidth(760)
@@ -1056,6 +1154,10 @@ class StudioWindow(QMainWindow):
 
         view_menu = self.menuBar().addMenu("&View")
         view_menu.aboutToShow.connect(self._sync_notes_action)
+        for index, space in enumerate(SPACES):
+            self._action(view_menu, LABELS[space], f"Ctrl+Alt+{index + 1}",
+                         lambda _on=False, sp=space: self.set_space(sp))
+        view_menu.addSeparator()
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
                      lambda: (self.in_learn and self.leave_learn(),
                               self.content.setCurrentIndex(0)))
@@ -1179,6 +1281,8 @@ class StudioWindow(QMainWindow):
         key = self._key(document.path) if document.path else None
         restored = key is not None and key in self._restore_paths
         self._restore_paths.pop(key, None)
+        if not restored and space_of(document) != self.space:
+            self.set_space(space_of(document))          # a document opens in its own space
         self._rebuild_sidebar()
         if not restored or self._restore_selected in (None, key):
             self._select_document(document)
@@ -1275,6 +1379,15 @@ class StudioWindow(QMainWindow):
                 box.blockSignals(False)
 
     def _select_document(self, document) -> None:
+        """Make ``document`` the current one, switching to its space if need be.
+        While a folder is being reopened, a document of the other space is
+        only remembered as that space's current one."""
+        space = space_of(document)
+        if space != self.space:
+            if self._restoring:
+                self._space_current[space] = document.id
+                return
+            self.set_space(space)
         item = self.items.get(document.id)
         if item is None:
             return
@@ -1454,13 +1567,20 @@ class StudioWindow(QMainWindow):
             if box.clickedButton() is not remove:
                 return False
 
-        # Choose what to select afterwards: the row below the last removed one.
+        # Choose what to select afterwards: the row below the last removed one,
+        # in this space (the other space keeps its own current document).
         order = [item.data(0, Qt.UserRole) for item in self._document_items()]
+        order += [d.id for d in self.documents if d.id not in order]
         removed = {d.id for d in documents}
-        after = [i for i in order[order.index(max(removed, key=order.index)) + 1:]
-                 if i not in removed] if order else []
-        before = [i for i in order if i not in removed]
+        shown = [i for i in order if space_of(self._document(i)) == self.space]
+        last = max((i for i in removed if i in shown), key=order.index, default=None)
+        after = [i for i in shown[shown.index(last) + 1:] if i not in removed] \
+            if last is not None else []
+        before = [i for i in shown if i not in removed]
         target = after[0] if after else (before[-1] if before else None)
+        for space, current in list(self._space_current.items()):
+            if current in removed:
+                self._space_current[space] = None
 
         for document in documents:
             self._drop_page(document)
@@ -1737,11 +1857,10 @@ class StudioWindow(QMainWindow):
             # A section header: offer to clear that section.
             section = item
             ids = [section.child(i).data(0, Qt.UserRole) for i in range(section.childCount())]
-            kind = {id(self.logs_section): "Logs", id(self.petri_section): "Petri Nets",
-                    id(self.models_section): "Models", id(self.unsaved_section): "Unsaved",
+            kind = {id(self.analyses_section): "Analyses", id(self.models_section): "Models",
+                    id(self.material_section): "Logs", id(self.unsaved_section): "Unsaved",
                     id(self.elsewhere_section): "Other Files",
-                    id(self.compare_section): "Comparisons",
-                    id(self.ts_section): "Transition Systems"}.get(id(section), "Coloured Nets")
+                    id(self.compare_section): "Comparisons"}.get(id(section), "Items")
             ids = [i for i in ids if i is not None]          # not the "not open" rows
             if ids:
                 menu.addAction(f"Close All {kind}", lambda: self.remove_documents(ids))
@@ -1754,8 +1873,13 @@ class StudioWindow(QMainWindow):
                 if in_folder:
                     menu.addAction("New Folder…", lambda: self.new_folder())
                     menu.addSeparator()
-                menu.addAction("Open File…", self.action_open)
-                menu.addAction("New Log from Notation…", self.action_notation)
+                if self.space == MODEL:
+                    menu.addAction("New Petri Net", self.action_new_petri)
+                    menu.addAction("Open Net…", self.action_open)
+                else:
+                    menu.addAction("New Analysis", lambda: self.action_new_workflow(None))
+                    menu.addAction("Open Log…", self.action_open)
+                    menu.addAction("New Log from Notation…", self.action_notation)
             elif len(ids) == 1 and isinstance(self._document(ids[0]), ComparisonDocument):
                 menu.addAction("Export Figures as CSV…", self.export_selected)
                 menu.addSeparator()
@@ -2503,11 +2627,11 @@ class StudioWindow(QMainWindow):
         self.workspace = workspace
         self._show_notes_of_folder()
         settings = workspace.settings()
-        self.view_mode = "kind" if settings.get("view") == "kind" else "folder"
         self._expanded = {e for e in settings.get("expanded", []) if isinstance(e, str)}
-        self.view_switch.blockSignals(True)
-        self.view_switch.set_index(0 if self.view_mode == "folder" else 1)
-        self.view_switch.blockSignals(False)
+        self._material_expanded = bool(settings.get("material_expanded", False))
+        self._space_current = {MINE: None, MODEL: None}
+        saved = settings.get("space")
+        self._set_space_quietly(saved if saved in (MINE, MODEL) else MINE)
         set_dialog_folder(str(workspace.folder))
         self._remember_workspace(str(workspace.folder))
         self._show_workspace_header()
@@ -2565,18 +2689,6 @@ class StudioWindow(QMainWindow):
         self._save_session()
         return True
 
-    def set_view_mode(self, mode: str) -> None:
-        """In a folder: show its subfolders ("folder") or group files by kind ("kind")."""
-        if mode == self.view_mode:
-            return
-        self.view_mode = mode
-        self.view_switch.blockSignals(True)
-        self.view_switch.set_index(0 if mode == "folder" else 1)
-        self.view_switch.blockSignals(False)
-        if self.workspace is not None:
-            self.workspace.update_settings(view=mode)
-        self._rebuild_sidebar()
-
     def _rescan_workspace(self, force: bool = False) -> None:
         """Bring the sidebar in line with the folder's files (and watch its subfolders)."""
         if self.workspace is None:
@@ -2613,9 +2725,9 @@ class StudioWindow(QMainWindow):
 
     # -- the sidebar's rows ---------------------------------------------------------
     def _sections(self) -> list[QTreeWidgetItem]:
-        return [self.unsaved_section, self.exercises_section, self.logs_section,
-                self.petri_section, self.models_section, self.cpn_section, self.ts_section,
-                self.workflows_section, self.elsewhere_section, self.compare_section]
+        return [self.unsaved_section, self.analyses_section, self.models_section,
+                self.material_section, self.exercises_section, self.elsewhere_section,
+                self.compare_section]
 
     def _row_id(self, item: QTreeWidgetItem | None):
         """What a row stands for, so the same row can be found after a rebuild."""
@@ -2649,7 +2761,8 @@ class StudioWindow(QMainWindow):
                 if self._key(f.path) not in open_paths]
 
     def _rebuild_sidebar(self) -> None:
-        """Lay out the sidebar from the open documents and the folder's files.
+        """Lay out the sidebar for the current space from the open documents
+        and the folder's files.
 
         Called after anything that changes them.  The current row, the
         selection, the expanded subfolders and the scroll position stay as
@@ -2666,21 +2779,19 @@ class StudioWindow(QMainWindow):
                 tree.takeTopLevelItem(0)
             for section in self._sections():
                 section.takeChildren()
-            self.items, self.placeholders, self.folder_items = {}, {}, {}
-            folder_view = self.workspace is not None and self.view_mode == "folder"
-            tree.setRootIsDecorated(folder_view)
-            if folder_view:
-                self._fill_folder_view()
-            else:
-                self._fill_kind_view()
+            self.items, self.placeholders, self.folder_items, self._folder_rows = {}, {}, {}, []
+            tree.setRootIsDecorated(True)
+            self._fill_space_view()
             for section in self._sections():
-                section.setExpanded(True)
+                section.setExpanded(section is not self.material_section or self._material_expanded
+                                    or self.workspace is None)
                 section.setHidden(section.childCount() == 0)
             self.more_row.setHidden(not (self._tree is not None and self._tree.truncated))
             empty = self.workspace is not None and not self.items and not self.placeholders \
                 and not self.folder_items
+            self.empty_hint.setText(0, "No analyses or logs yet" if self.space == MINE else "No models yet")
             self.empty_hint.setHidden(not empty)
-            for relative, item in self.folder_items.items():
+            for relative, item in self._folder_rows:
                 item.setExpanded(relative in self._expanded)
             # Put back the current row and the selection.
             rows = {self._row_id(item): item for item in self._all_rows()}
@@ -2742,91 +2853,107 @@ class StudioWindow(QMainWindow):
         self.placeholders[key] = item
         return item
 
-    def _fill_kind_view(self) -> None:
-        """Rows grouped by kind: logs, Petri nets, models, coloured nets, comparisons."""
-        tree = self.tree
-        for section in (self.exercises_section, self.logs_section, self.petri_section,
-                        self.models_section, self.cpn_section, self.ts_section,
-                        self.workflows_section, self.compare_section):
-            tree.addTopLevelItem(section)
-        if self._tree is not None:
-            for folder in self._tree.walk():
-                if folder.exercise:
-                    self.exercises_section.addChild(self._folder_row(folder))
-        for document in self.documents:
-            if isinstance(document, LogDocument):
-                section = self.logs_section
-            elif isinstance(document, TransitionSystemDocument):
-                section = self.ts_section
-            elif isinstance(document, WorkflowDocument):
-                section = self.workflows_section
-            elif isinstance(document, ComparisonDocument):
-                section = self.compare_section
-            elif isinstance(document, CpnDocument):
-                section = self.petri_section if getattr(document.net, "plain", False) \
-                    else self.cpn_section
-            else:
-                section = self.models_section
-            section.addChild(self._document_row(document))
-        files = self._listed_files()
-        # Rows show the file's name; the subfolder ("logs/…") only when two
-        # files would otherwise look the same.  The tooltip has the full path.
-        short = [display_name(f.path.name) for f in files]
-        clashes = {name for name in short if short.count(name) > 1}
-        sections = {"log": self.logs_section, "petri": self.petri_section,
-                    "cpn": self.cpn_section, "ts": self.ts_section, "workflow": self.workflows_section}
-        for file, name in zip(files, short):
-            sections[file.kind].addChild(self._file_row(file, file.name if name in clashes
-                                                        else name))
-        if self.workspace is not None:              # rows in a folder are alphabetical
-            for section in self._sections():
-                self._sort_rows(section)
-        tree.addTopLevelItem(self.more_row)
-        tree.addTopLevelItem(self.empty_hint)
+    def _fill_space_view(self) -> None:
+        """The rows of the current space.
 
-    def _fill_folder_view(self) -> None:
-        """Rows as in the folder: subfolders (expandable) and files, as in Finder."""
+        Mine: UNSAVED, ANALYSES (the workflows), LOGS (the folder's event
+        logs and transition systems, folded away by default).  Model: UNSAVED,
+        MODELS (Petri nets and coloured nets).  Both end with EXERCISES, OTHER
+        FILES (open files from outside the folder) and COMPARISONS.  Inside a
+        section, files sit under their subfolder as in Finder.
+        """
         tree = self.tree
-        root = tree.invisibleRootItem()
+        space = self.space
+        in_folder = self.workspace is not None
+        main_section = self.analyses_section if space == MINE else self.models_section
         tree.addTopLevelItem(self.unsaved_section)
-        tops: list[QTreeWidgetItem] = []
-        if self._tree is not None:
-            for folder in list(self._tree.walk())[1:]:
-                item = self._folder_row(folder)
-                parent = self.folder_items.get(folder.relative.rpartition("/")[0])
-                (parent.addChild(item) if parent is not None else tops.append(item))
-                self.folder_items[folder.relative] = item
-
-        def parent_row(relative: str):
-            folder = relative.rpartition("/")[0]
-            while folder and folder not in self.folder_items:
-                folder = folder.rpartition("/")[0]
-            return self.folder_items.get(folder)
-
-        for file in self._listed_files():
-            item = self._file_row(file, display_name(file.path.name))
-            parent = parent_row(file.relative)
-            (parent.addChild(item) if parent is not None else tops.append(item))
+        # Every section goes in the tree (an empty one is hidden), so a section
+        # the space does not use is hidden rather than merely absent.
+        for section in (self.analyses_section, self.models_section, self.material_section):
+            tree.addTopLevelItem(section)
+        main_kinds = MAIN_KINDS[space]
+        self._fill_tree_section(main_section, main_kinds,
+                                [d for d in self.documents if is_main(d, space)], empty_folders=True)
+        if space == MINE:
+            material_kinds = tuple(k for k in FILE_KINDS[space] if k not in main_kinds)
+            material = [d for d in self.documents
+                        if isinstance(d, (LogDocument, TransitionSystemDocument))]
+            count = self._fill_tree_section(self.material_section, material_kinds, material)
+            self.material_section.setText(0, f"LOGS  ·  {count}" if in_folder else "LOGS")
+            if self._tree is not None:
+                for folder in self._tree.walk():
+                    if folder.exercise:
+                        self.exercises_section.addChild(self._folder_row(folder))
+        tree.addTopLevelItem(self.exercises_section)
         for document in self.documents:
-            item = self._document_row(document)
             if isinstance(document, ComparisonDocument):
-                self.compare_section.addChild(item)
-            elif not document.path:
-                self.unsaved_section.addChild(item)
-            elif not self.workspace.contains(document.path):
-                self.elsewhere_section.addChild(item)
-            else:
-                parent = parent_row(self.workspace.relative(document.path))
-                (parent.addChild(item) if parent is not None else tops.append(item))
-        for item in sorted(tops, key=self._sort_key):
-            root.addChild(item)
-        for item in self.folder_items.values():
-            self._sort_rows(item)
+                self.compare_section.addChild(self._document_row(document))
         tree.addTopLevelItem(self.more_row)
         for section in (self.elsewhere_section, self.compare_section):
             self._sort_rows(section)
             tree.addTopLevelItem(section)
+        self._sort_rows(self.unsaved_section)
         tree.addTopLevelItem(self.empty_hint)
+
+    def _fill_tree_section(self, section: QTreeWidgetItem, kinds: tuple, documents: list,
+                           empty_folders: bool = False) -> int:
+        """Fill ``section`` with the folder's files of ``kinds`` that are not
+        open (lighter rows) and with the open ``documents``, laid out as in the
+        folder: a subfolder that holds any of them is a row that folds open,
+        files sit under theirs.  A document with no file goes to UNSAVED, one
+        from outside the folder to OTHER FILES.  With ``empty_folders``, a
+        subfolder with no files at all is listed too (a folder just made,
+        waiting for files; it shows in both spaces until it has some).
+        Returns how many files and documents the section holds."""
+        count = 0
+        folders: dict[str, QTreeWidgetItem] = {}
+        by_relative = {f.relative: f for f in (self._tree.walk() if self._tree else [])}
+        # An exercise's materials belong to Learn: they are not listed here.
+        exercises = tuple(rel + "/" for rel, folder in by_relative.items() if folder.exercise and rel)
+
+        def folder_row(relative: str) -> QTreeWidgetItem:
+            if relative in folders:
+                return folders[relative]
+            above = relative.rpartition("/")[0]
+            parent = folder_row(above) if above else section
+            folder = by_relative.get(relative)
+            item = self._folder_row(folder) if folder is not None \
+                else QTreeWidgetItem([relative.rpartition("/")[2]])
+            parent.addChild(item)
+            folders[relative] = item
+            self._folder_rows.append((relative, item))
+            self.folder_items.setdefault(relative, item)
+            return item
+
+        for file in self._listed_files():
+            if file.kind not in kinds or file.relative.startswith(exercises):
+                continue
+            item = self._file_row(file, display_name(file.path.name))
+            above = file.relative.rpartition("/")[0]
+            (folder_row(above) if above else section).addChild(item)
+            count += 1
+        for document in documents:
+            item = self._document_row(document)
+            if not document.path:
+                self.unsaved_section.addChild(item)
+            elif self.workspace is None:
+                section.addChild(item)
+                count += 1
+            elif not self.workspace.contains(document.path):
+                self.elsewhere_section.addChild(item)
+            else:
+                above = self.workspace.relative(document.path).rpartition("/")[0]
+                (folder_row(above) if above else section).addChild(item)
+                count += 1
+        if empty_folders:
+            for relative, folder in by_relative.items():
+                if relative and not folder.exercise and relative not in folders \
+                        and not relative.startswith(exercises) \
+                        and not any(f.files for f in folder.walk()):
+                    folder_row(relative)
+        for item in (section, *folders.values()):
+            self._sort_rows(item)
+        return count
 
     def _folder_row(self, folder) -> QTreeWidgetItem:
         """A subfolder's row; an exercise gets its own icon and opens with a click."""
@@ -2851,7 +2978,12 @@ class StudioWindow(QMainWindow):
         parent.addChildren(sorted(children, key=self._sort_key))
 
     def _folder_toggled(self, item: QTreeWidgetItem, expanded: bool) -> None:
-        """A subfolder was expanded or collapsed: remember it in the folder."""
+        """A subfolder (or the LOGS section) was expanded or collapsed: remember it in the folder."""
+        if item is self.material_section:
+            self._material_expanded = expanded
+            if self.workspace is not None:
+                self.workspace.update_settings(material_expanded=expanded)
+            return
         path = item.data(0, FOLDER_ROLE)
         if not path or self.workspace is None:
             return
@@ -2936,7 +3068,6 @@ class StudioWindow(QMainWindow):
         active = self.workspace is not None
         self.workspace_caption.setHidden(not active)
         self.workspace_button.setHidden(not active)
-        self.view_row.setHidden(not active)
         self.sidebar_title.setText(self.workspace.name if active else APPLICATION_NAME)
         self.sidebar_title.setToolTip(str(self.workspace.folder) if active else "")
         self.close_workspace_action.setEnabled(active)
@@ -3585,8 +3716,6 @@ class StudioWindow(QMainWindow):
         if parent.resolve() != self.workspace.folder:
             self._expanded.add(self.workspace.relative(parent))
             self.workspace.update_settings(expanded=sorted(self._expanded))
-        if self.view_mode != "folder":
-            self.set_view_mode("folder")
         self._rescan_workspace()
         item = self.folder_items.get(self.workspace.relative(target))
         if item is not None:
@@ -3640,8 +3769,8 @@ class StudioWindow(QMainWindow):
             move_to_trash(path)
 
     def _drop_folder(self, item) -> str | None:
-        """Where a drop on this sidebar row goes, in the Folder view."""
-        if self.workspace is None or self.view_mode != "folder":
+        """Where a drop on this sidebar row goes (None: no folder is open)."""
+        if self.workspace is None:
             return None
         root = str(self.workspace.folder)
         if item is None:
@@ -3655,7 +3784,7 @@ class StudioWindow(QMainWindow):
 
     def _sidebar_drop(self, paths: list[str], folder: str | None, internal: bool) -> None:
         """Files dropped on the sidebar: moved within the folder, or brought in."""
-        if folder is None:                          # not the Folder view
+        if folder is None:                          # no folder open
             if not internal:
                 self._open_dropped(paths)
             return
@@ -3785,7 +3914,9 @@ class StudioWindow(QMainWindow):
         self._flush_autosaves()
         if not self.learn_mode.open_pack(root, start):
             return False
+        self._space_before_learn = self.space
         self.modes.setCurrentWidget(self.learn_mode)
+        self._sync_space_switch()
         self.learn_mode._update_bar()               # the window's title names the exercise
         self.statusBar().showMessage("Answers are saved in each exercise's folder as you go",
                                      6000)
@@ -3795,10 +3926,14 @@ class StudioWindow(QMainWindow):
     def in_learn(self) -> bool:
         return self.modes.currentWidget() is self.learn_mode
 
-    def leave_learn(self) -> None:
-        """Exit: back to the folder, as it was (with your answers' files now in it)."""
+    def leave_learn(self, to: str | None = None) -> None:
+        """Exit: back to the space you came from (``to``: another), as it was,
+        with your answers' files now in the folder."""
         self.learn_mode.close_view()
         self.modes.setCurrentIndex(0)
+        if to is not None and to != self.space:
+            self._set_space_quietly(to)
+        self._sync_space_switch()
         if self.workspace is not None:
             self._rescan_workspace(force=True)
         self._set_title(self._current_document())    # back to the file you had open

@@ -92,7 +92,6 @@ def test_clicking_an_exercise_in_the_sidebar_opens_it(app, demo):
 
     window = _window()
     window.open_workspace(str(demo))
-    window.set_view_mode("folder")
     rows = [i for i in window._all_rows() if i.data(0, EXERCISE_ROLE)]
     assert len(rows) == 7
     window._open_placeholder(rows[2])

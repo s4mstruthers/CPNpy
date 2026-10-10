@@ -348,6 +348,11 @@ def stylesheet() -> str:
     #revealRow QLabel {{ background: transparent; }}
     #revealTitle {{ font-weight: 600; }}
 
+    /* ---- the space bar: Mine / Model / Learn at the top of the window ---- */
+    QToolBar#spaceBar {{ background: {t.sidebar}; border: none; border-bottom: 1px solid {t.border};
+        padding: 4px 10px; spacing: 8px; }}
+    QToolBar#spaceBar::separator {{ width: 0; }}
+
     /* ---- segmented control ---------------------------------------------- */
     #segmented {{ background: {qc(t.text, 0.07).name(QColor.HexArgb)}; border-radius: 8px; }}
     #segmented QPushButton {{ background: transparent; border: none; border-radius: 6px;

@@ -4,7 +4,7 @@ Rows carry what they stand for in their item data:
 
 * ``Qt.UserRole`` -- the id of an open document;
 * :data:`FILE_ROLE` -- the path of a file in the folder that is not open yet;
-* :data:`FOLDER_ROLE` -- the path of a subfolder (in the Folder view).
+* :data:`FOLDER_ROLE` -- the path of a subfolder.
 
 The tree also handles dragging: rows can be dragged onto a subfolder (to move
 the files on disk) or out of the window (to Finder, say), and files dragged

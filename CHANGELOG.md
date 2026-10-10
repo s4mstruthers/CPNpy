@@ -6,6 +6,37 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.0
+
+Three spaces: **Mine**, **Model** and **Learn**, switched at the top of the
+window. Process mining and net modelling no longer share a sidebar, so the
+window always says which job you are doing. One folder underneath; nothing
+moves on disk.
+
+- **Mine** is for event logs and analyses. Its sidebar lists the folder's
+  analyses (workflows) and, folded under them, its logs. Everything you open
+  or make here lands in this list: a log, a typed log, a comparison, a
+  transition system, an analysis.
+- **Model** is for Petri nets and coloured nets. Its sidebar lists the
+  folder's models. New Petri net, New coloured net and Compare nets… live in
+  its footer.
+- **Learn** is the exercise view, as before. From the switcher it opens the
+  folder's exercises, or the demo ones when the folder has none; Exit brings
+  you back to the space you left.
+- **A document opens in its own space.** Open a net from Mine and the window
+  moves to Model; "Edit a copy" of a discovered net does the same. Each space
+  remembers what you had selected, and the folder remembers which space you
+  were in.
+- **Subfolders stay.** Inside each list, files sit under their subfolder as in
+  Finder, and the folders you unfold are remembered. A folder with no files
+  yet shows in both spaces, so you can put things in it. An exercise's
+  materials belong to Learn and are not listed.
+- **Gone:** the Folders / By kind toggle, the UNSAVED, EVENT LOGS, PETRI NETS,
+  MODELS, COLOURED NETS, TRANSITION SYSTEMS and WORKFLOWS headings in one
+  list, and "Untitled" drafts of nets sitting among logs.
+- The welcome page has one card per space. View ▸ Mine, Model and Learn
+  (⌃⌥1, ⌃⌥2, ⌃⌥3) switch too.
+
 ## 0.8.1
 
 - **A file box has a *Choose…* button.** *Open log*, *Open net*, *Open
