@@ -240,10 +240,10 @@ which space you were in.
   **Model lists its models.** Files that are not open yet are lighter:
   **click one to open it**. Closing a file (✕ or ⌘W) puts it back in that
   state; it stays in the folder.
-- **Subfolders stay.** Inside each list, files sit under their subfolder as
-  on disk (folders first, then files, by name); which subfolders are open is
-  remembered for each folder. An empty folder shows in both spaces until it
-  has files.
+- **Flat lists, the same in both spaces.** The folder's own files first,
+  then each subfolder's under a caption naming it ("Week 5 / Part 1").
+  Nothing to unfold except LOGS. An empty folder shows in both spaces until
+  it has files.
 - **Organise from the app**: right-click for **New Folder…**, **Rename…**,
   **Show in Finder** and **Move to Bin** (recoverable from the Bin; never a
   hard delete). **Drag files onto a subfolder** to move them on disk. An open

@@ -1568,10 +1568,11 @@ def _layout(window) -> list[str]:
 
 
 def test_each_space_lists_its_own_files_and_remembers_them(app, tmp_path):
-    """Mine lists logs under LOGS IN THIS FOLDER (folded), Model lists the nets;
-    both keep the folder's subfolders.  The space, the unfolded section and
-    the expanded subfolders are remembered in the folder."""
-    from openprocess.gui.studio.app import FOLDER_ROLE, StudioWindow
+    """Mine lists logs under LOGS (folded), Model lists the nets; in both, the
+    list is flat, with each subfolder's files under a caption naming it, so
+    nothing is nested and nothing moves between the spaces.  The space and
+    the unfolded LOGS are remembered in the folder."""
+    from openprocess.gui.studio.app import FOLDER_ROLE, GROUP_ROLE, StudioWindow
     from openprocess.gui.studio.workspace import Workspace
 
     week = _week(tmp_path)
@@ -1580,41 +1581,40 @@ def test_each_space_lists_its_own_files_and_remembers_them(app, tmp_path):
     window.open_workspace(str(week))
     assert window.space == "mine" and window.space_switch.index() == 0
     assert not window.footers["mine"].isHidden() and window.footers["model"].isHidden()
-    # No analyses yet, so ANALYSES holds only the empty subfolder (a folder with
-    # no files shows in both spaces, waiting for some); the logs are folded away.
+    # No analyses yet, so ANALYSES holds only the empty subfolder's caption (a
+    # folder with nothing in it shows in both spaces, waiting); LOGS is folded.
     assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1"]
     window.material_section.setExpanded(True)
-    assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1", "  logs"]
-    window.folder_items["logs"].setExpanded(True)
-    assert _layout(window)[-3:] == ["LOGS  ·  1", "  logs", "    boarding"]
+    assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1", "  logs", "    boarding"]
+    caption = window.folder_items["logs"]
+    assert caption.data(0, GROUP_ROLE) and caption.data(0, FOLDER_ROLE) == str(week.resolve() / "logs")
+    caption.setExpanded(False)                                   # a caption never folds
+    assert caption.isExpanded()
 
-    # Model: the nets, folders first, as in Finder; subfolders start collapsed.
+    # Model: the folder's own files first, then each subfolder's under its caption.
     window.set_space("model")
     assert not window.footers["model"].isHidden() and window.footers["mine"].isHidden()
-    assert _layout(window) == ["MODELS", "  empty", "  models", "  transfer"]
-    window.folder_items["models"].setExpanded(True)
-    assert _layout(window) == ["MODELS", "  empty", "  models", "    order", "  transfer"]
+    assert _layout(window) == ["MODELS", "  transfer", "  empty", "  models", "    order"]
     assert window.folder_items["models"].data(0, FOLDER_ROLE) == str(week.resolve() / "models")
 
-    # Opening a file keeps it in its subfolder.
+    # Opening a file keeps it under its caption.
     window._open_placeholder(window.placeholders[window._key(week / "models" / "order.pnml")])
     assert window.documents[-1].name == "order"
-    assert _layout(window) == ["MODELS", "  empty", "  models", "    order", "  transfer"]
+    assert _layout(window) == ["MODELS", "  transfer", "  empty", "  models", "    order"]
     assert window.tree.currentItem() is window.items[window.documents[-1].id]
     for i in range(window.models_section.childCount()):          # the rows are laid out
         assert window.tree.visualItemRect(window.models_section.child(i)).height() > 0
 
-    # The space, the section and the expanded subfolders are remembered in the folder.
-    assert Workspace(week).settings() == {"expanded": ["logs", "models"],
-                                          "material_expanded": True, "space": "model"}
+    # The space and the unfolded LOGS are remembered in the folder.
+    assert Workspace(week).settings() == {"material_expanded": True, "space": "model"}
     window.close()
     again = StudioWindow()
     again.show()
     again.open_workspace(str(week))
     assert again.space == "model" and again.space_switch.index() == 1
-    assert again.folder_items["models"].isExpanded()
     again.set_space("mine")
-    assert again.material_section.isExpanded() and again.folder_items["logs"].isExpanded()
+    assert again.material_section.isExpanded()
+    assert _layout(again) == ["ANALYSES", "  empty", "LOGS  ·  1", "  logs", "    boarding"]
     again.close()
 
 

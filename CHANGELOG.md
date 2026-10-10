@@ -27,10 +27,12 @@ moves on disk.
   moves to Model; "Edit a copy" of a discovered net does the same. Each space
   remembers what you had selected, and the folder remembers which space you
   were in.
-- **Subfolders stay.** Inside each list, files sit under their subfolder as in
-  Finder, and the folders you unfold are remembered. A folder with no files
-  yet shows in both spaces, so you can put things in it. An exercise's
-  materials belong to Learn and are not listed.
+- **Flat lists, the same in both spaces.** The folder's own files come
+  first, then each subfolder's under a small caption naming it ("Week 5 /
+  Part 1"). Nothing is nested and nothing to unfold except LOGS, so the
+  sidebar reads the same way whichever space you are in. A folder with
+  nothing in it yet shows in both, so you can put things in it. Exercises
+  and their materials belong to Learn and are not listed in Mine or Model.
 - **Gone:** the Folders / By kind toggle, the UNSAVED, EVENT LOGS, PETRI NETS,
   MODELS, COLOURED NETS, TRANSITION SYSTEMS and WORKFLOWS headings in one
   list, and "Untitled" drafts of nets sitting among logs.
