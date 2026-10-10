@@ -37,7 +37,7 @@ from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
 from .. import theme
 from . import instances, style
-from .concealment import ConcealsResults
+from ..learn.concealment import ConcealsResults
 from .documents import ModelDocument
 from .graph_builders import petri_net_specs, state_graph_specs
 from .graph_view import GraphView

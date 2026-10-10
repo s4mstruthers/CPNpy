@@ -37,7 +37,7 @@ With a folder open (File ▸ Open Folder…, e.g. "Week 2"; internally a
 * files opened from elsewhere can be copied or moved into the folder.
 
 A subfolder with a ``question`` file is an *exercise*: clicking it swaps the
-window for exercise mode (see :mod:`.exercise_mode`), a worksheet with answer
+window for CPNpy Learn (see :mod:`cpnpy.gui.learn.mode`), a worksheet with answer
 boxes beside the net, log or transition system the exercise gives.  *Exit*
 comes back to the folder exactly as it was.
 """
@@ -510,7 +510,7 @@ class StudioWindow(QMainWindow):
         middle.addWidget(self.content, 1)
         right.setLayout(vbox(self.update_bar, middle, spacing=0))
         right.layout().setStretch(1, 1)
-        # Scratch notes floating over the pages (exercise mode has its own).
+        # Scratch notes floating over the pages (Learn has its own).
         from .notes_overlay import NotesOverlay
         self.notes = NotesOverlay(self.content)
         self.notes.edited.connect(self._save_notes)
@@ -521,17 +521,17 @@ class StudioWindow(QMainWindow):
         root.addWidget(right)
         root.setStretchFactor(1, 1)
         root.setSizes([220, 1260])
-        # Exercise mode takes the whole window (see open_exercise); the
+        # Learn takes the whole window (see open_exercise); the
         # folder's view waits underneath, as it was.
-        from .exercise_mode import ExerciseMode
-        self.exercise_mode = ExerciseMode()
-        self.exercise_mode.exit_requested.connect(self.leave_exercises)
-        self.exercise_mode.status.connect(lambda m: self.statusBar().showMessage(m, 8000))
-        self.exercise_mode.title_changed.connect(
-            lambda title: self.in_exercises and self.setWindowTitle(title))
+        from ..learn.mode import LearnMode
+        self.learn_mode = LearnMode()
+        self.learn_mode.exit_requested.connect(self.leave_learn)
+        self.learn_mode.status.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        self.learn_mode.title_changed.connect(
+            lambda title: self.in_learn and self.setWindowTitle(title))
         self.modes = QStackedWidget()
         self.modes.addWidget(root)
-        self.modes.addWidget(self.exercise_mode)
+        self.modes.addWidget(self.learn_mode)
         self.setCentralWidget(self.modes)
         self.statusBar().showMessage("Ready")
         # ✎ Notes in the status bar: it never covers the page (see toggle_notes).
@@ -762,22 +762,22 @@ class StudioWindow(QMainWindow):
 
     # -- notes: scratch paper over every page (see notes_overlay) --------------------------
     def toggle_notes(self, show: bool | None = None) -> None:
-        """Open or fold away the notes (in exercise mode: the exercise's own)."""
-        if self.in_exercises:
-            if self.exercise_mode.view is None:
+        """Open or fold away the notes (in Learn: the exercise's own)."""
+        if self.in_learn:
+            if self.learn_mode.view is None:
                 self.notes_action.setChecked(False)
                 return
             if show is None:
-                show = not self.exercise_mode.view.notes_visible
-            self.exercise_mode.set_notes(show)
+                show = not self.learn_mode.view.notes_visible
+            self.learn_mode.set_notes(show)
             return
         self.notes.set_open(not self.notes.is_open if show is None else show)
 
     def _sync_notes_action(self) -> None:
         """Tick Show Notes (and ✎ Notes) for the notes in view: the exercise's, or
         the window's."""
-        if self.in_exercises:
-            view = self.exercise_mode.view
+        if self.in_learn:
+            view = self.learn_mode.view
             self._notes_opened(view is not None and view.notes_visible, remember=False)
             self.notes_action.setEnabled(view is not None)
             self.notes_button.setEnabled(view is not None)
@@ -806,9 +806,9 @@ class StudioWindow(QMainWindow):
         self._set_setting("notes/button", show)
 
     def _update_notes_button(self) -> None:
-        """Exercise mode has a ✎ Notes of its own, in its top bar."""
+        """Learn has a ✎ Notes of its own, in its top bar."""
         self.notes_button.setVisible(getattr(self, "_notes_button_wanted", True)
-                                     and not self.in_exercises)
+                                     and not self.in_learn)
 
     def _save_notes(self, text: str) -> None:
         """Keep the notes: with the open folder, or in the app's settings."""
@@ -999,9 +999,6 @@ class StudioWindow(QMainWindow):
         self.recent_menu = file_menu.addMenu("Open Recent")
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         file_menu.addSeparator()
-        self._action(file_menu, "Open Exercise Pack…", None, self.action_open_exercise)
-        self._action(file_menu, "Open Demo Exercises", None, self.open_demo_exercises)
-        file_menu.addSeparator()
         self._action(file_menu, "Open Coloured Petri Net…", "Ctrl+Shift+O", self.action_open_cpn)
         self._action(file_menu, "Compare Logs…", "Ctrl+Shift+C", lambda: self.action_compare())
         self._action(file_menu, "Compare Nets…", None, self.action_compare_nets)
@@ -1034,7 +1031,7 @@ class StudioWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("&View")
         view_menu.aboutToShow.connect(self._sync_notes_action)
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
-                     lambda: (self.in_exercises and self.leave_exercises(),
+                     lambda: (self.in_learn and self.leave_learn(),
                               self.content.setCurrentIndex(0)))
         self.sidebar_action = self._action(view_menu, "Show Sidebar", "Ctrl+Alt+S",
                                            lambda on: self.toggle_sidebar(on))
@@ -1064,6 +1061,15 @@ class StudioWindow(QMainWindow):
         self._action(view_menu, "Zoom Out", QKeySequence.ZoomOut, lambda: self._zoom("zoom_out"))
         self._action(view_menu, "Zoom to Fit", "Ctrl+0", lambda: self._zoom("fit"))
         self._action(view_menu, "Actual Size", "Ctrl+Alt+0", lambda: self._zoom("actual_size"))
+
+        # Learn: exercise packs on top of the app (cpnpy.learn, cpnpy.gui.learn).
+        learn_menu = self.menuBar().addMenu("&Learn")
+        self._action(learn_menu, "Open Exercise Pack…", None, self.action_open_exercise)
+        self._action(learn_menu, "Open Demo Exercises", None, self.open_demo_exercises)
+        learn_menu.addSeparator()
+        self._action(learn_menu, "Make a Pack from an Exam…", None, self.action_import_exam)
+        self._action(learn_menu, "Writing Exercise Packs", None,
+                     lambda: self.show_guide("exercise-packs"))
 
         help_menu = self.menuBar().addMenu("&Help")
         self._action(help_menu, "Definitions", None, self._definitions)
@@ -1134,8 +1140,8 @@ class StudioWindow(QMainWindow):
         (one with no file yet) is saved into the folder straight away, next
         to ``near`` (the file it was made from) when that is in the folder.
         """
-        if self.in_exercises:              # File ▸ New… or Open… from exercise mode
-            self.leave_exercises()
+        if self.in_learn:              # File ▸ New… or Open… from Learn
+            self.leave_learn()
         if document.path:
             for existing in self.documents:
                 if existing.path and self._key(existing.path) == self._key(document.path) \
@@ -2327,8 +2333,8 @@ class StudioWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # noqa: N802
         self._flush_autosaves()
         self.notes.flush()
-        if self.exercise_mode.view is not None:
-            self.exercise_mode.view.flush()
+        if self.learn_mode.view is not None:
+            self.learn_mode.view.flush()
         dirty = [d for d in self.documents if isinstance(d, (CpnDocument, WorkflowDocument)) and d.dirty]
         if dirty:
             box = QMessageBox(self)
@@ -3737,6 +3743,36 @@ class StudioWindow(QMainWindow):
         if folder:
             self.open_exercise(folder)
 
+    def action_import_exam(self) -> None:
+        """Learn ▸ Make a Pack from an Exam…: the exam's text (numbered questions
+        with lettered parts) becomes a skeleton pack for the author to finish."""
+        from ...learn.importer import todo_list, write_pack
+        start = str(self.workspace.folder) if self.workspace else dialog_folder()
+        source, _ = QFileDialog.getOpenFileName(self, "The exam's text", start or str(Path.home()),
+                                                "Text or Markdown (*.txt *.md);;All files (*)")
+        if not source:
+            return
+        parent = QFileDialog.getExistingDirectory(self, "Where should the pack go?",
+                                                  str(Path(source).parent))
+        if not parent:
+            return
+        title = Path(source).stem
+        target = unique_path(parent, title)
+        try:
+            text = Path(source).read_text(encoding="utf-8", errors="replace")
+            write_pack(text, target, title)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Make a pack", f"Could not make a pack from "
+                                f"{Path(source).name}:\n\n{error}")
+            return
+        todos = todo_list(target)
+        QMessageBox.information(
+            self, "Make a pack", f"Made “{target.name}” with one exercise per question.\n\n"
+            f"{len(todos)} TODO{'s' * (len(todos) != 1)} left for you: the nets and logs the exam "
+            "showed as pictures, the computes to pick, the model answers. Open the question.md "
+            "files, then run cpnpy exercises check on the folder.")
+        self.open_exercise(target)
+
     @staticmethod
     def demo_exercises_source() -> Path:
         """The demo exercises that ship with CPNpy (read-only in an installed app)."""
@@ -3779,9 +3815,9 @@ class StudioWindow(QMainWindow):
 
     def open_exercise(self, folder: str | Path) -> bool:
         """Do the exercises in ``folder`` (a pack, or one exercise of one) in
-        exercise mode.  An exercise belongs to the nearest folder above it with
+        Learn.  An exercise belongs to the nearest folder above it with
         a ``pack.md``, else to the folder open in the sidebar."""
-        from ...teaching.pack import find_exercises, pack_root
+        from ...learn.pack import find_exercises, pack_root
         folder = Path(folder).resolve()
         if exercise_files(folder) is not None:
             boundary = self.workspace.folder if self.workspace is not None and \
@@ -3795,21 +3831,21 @@ class StudioWindow(QMainWindow):
                                     "question.md (or question.pdf or question.png).")
             return False
         self._flush_autosaves()
-        if not self.exercise_mode.open_pack(root, start):
+        if not self.learn_mode.open_pack(root, start):
             return False
-        self.modes.setCurrentWidget(self.exercise_mode)
-        self.exercise_mode._update_bar()               # the window's title names the exercise
+        self.modes.setCurrentWidget(self.learn_mode)
+        self.learn_mode._update_bar()               # the window's title names the exercise
         self.statusBar().showMessage("Answers are saved in each exercise's folder as you go",
                                      6000)
         return True
 
     @property
-    def in_exercises(self) -> bool:
-        return self.modes.currentWidget() is self.exercise_mode
+    def in_learn(self) -> bool:
+        return self.modes.currentWidget() is self.learn_mode
 
-    def leave_exercises(self) -> None:
+    def leave_learn(self) -> None:
         """Exit: back to the folder, as it was (with your answers' files now in it)."""
-        self.exercise_mode.close_view()
+        self.learn_mode.close_view()
         self.modes.setCurrentIndex(0)
         if self.workspace is not None:
             self._rescan_workspace(force=True)

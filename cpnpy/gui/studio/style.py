@@ -311,6 +311,26 @@ def stylesheet() -> str:
     QToolButton#footprintCell[wrong="true"] {{ border: 2px solid {STATUS["critical"]};
         background: {qc(STATUS["critical"], 0.08).name(QColor.HexArgb)}; }}
     #footprintHeading {{ color: {t.text_secondary}; font-weight: 600; padding: 0 4px; }}
+    QLineEdit#gridCell {{ background: {t.surface_alt}; border: 1px solid {t.border};
+        border-radius: 6px; font-size: 14px; padding: 2px 4px; }}
+    QLineEdit#gridCell:focus {{ border: 1.5px solid {t.accent}; }}
+    QLineEdit#gridCell[wrong="true"] {{ border: 2px solid {STATUS["critical"]};
+        background: {qc(STATUS["critical"], 0.08).name(QColor.HexArgb)}; }}
+    #tupleName {{ color: {t.text_secondary}; font-weight: 600; font-size: 14px; min-width: 34px; }}
+    #tupleMark {{ font-weight: 700; font-size: 14px; }}
+    #tupleMark[state="good"] {{ color: {STATUS["good"]}; }}
+    #tupleMark[state="warning"] {{ color: {STATUS["warning"]}; }}
+    #tupleMark[state="critical"] {{ color: {STATUS["critical"]}; }}
+    QListWidget#rankingList {{ background: {t.surface_alt}; border: 1px solid {t.border};
+        border-radius: 8px; font-size: 14px; padding: 4px; }}
+    QListWidget#rankingList::item {{ padding: 5px 8px; border-radius: 6px; }}
+    QListWidget#rankingList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
+    #examClock {{ color: {t.text_secondary}; font-weight: 600; font-variant-numeric: tabular-nums;
+        padding: 2px 10px; border-radius: 9px; background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
+    #examClock[state="soon"] {{ color: {t.text};
+        background: {qc(STATUS["warning"], 0.3).name(QColor.HexArgb)}; }}
+    #examClock[state="over"] {{ color: {STATUS["critical"]};
+        background: {qc(STATUS["critical"], 0.12).name(QColor.HexArgb)}; }}
     #exerciseRow {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 10px; }}
     #exerciseRow:hover {{ border-color: {t.accent}; }}
     #exerciseRow QLabel {{ background: transparent; }}

@@ -17,7 +17,7 @@ Commands
 ``mine``        process mining from the command line:
                 ``stats``, ``filter``, ``discover``, ``conform``,
                 ``soundness``, ``invariants``
-``exercises``   ``check``: check an exercise pack before sharing it
+``exercises``   ``check``, ``marks``, ``import``, ``computes``: exercise packs (CPNpy Learn)
 ``run``         run a ``.cpnflow`` workflow headless; ``--check`` re-runs and
                 compares with the record, ``--sweep`` varies a setting,
                 ``--lock`` writes the requirements the record names
@@ -367,6 +367,72 @@ def command_exercises_check(arguments: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def command_exercises_marks(arguments: argparse.Namespace) -> int:
+    """The points a pack's answers earn, per exercise and per answer box."""
+    from .learn.exam import marks, marks_csv
+    from .learn.pack import load_pack
+    pack = load_pack(arguments.folder)
+    if not pack.exercises:
+        print(f"No exercises in {arguments.folder}.", file=sys.stderr)
+        return 1
+    if arguments.csv:
+        print(marks_csv(pack), end="")
+        return 0
+    student = pack.student()
+    print(f"{pack.title}" + (f" — {student}" if student else ""))
+    total = earned = 0.0
+    for row in marks(pack):
+        where = (row["chapter"] + " › " if row["chapter"] else "") + row["exercise"]
+        print(f"  {where:<56} {row['earned']:>6g} / {row['points']:<6g}  "
+              f"({row['answered']} of {row['of']} answered)")
+        if arguments.blocks:
+            for block_id, block in row["blocks"].items():
+                print(f"      {block_id:<10} {block['status'] or '—':<10} "
+                      f"{block['earned']:>6g} / {block['points']:g}")
+        total += row["points"]
+        earned += row["earned"]
+    print(f"  {'TOTAL':<56} {earned:>6g} / {total:<6g}")
+    return 0
+
+
+def command_exercises_import(arguments: argparse.Namespace) -> int:
+    """A past exam's text into a skeleton pack, one exercise per question."""
+    from .learn.importer import todo_list, write_pack
+    source = Path(arguments.exam)
+    try:
+        text = source.read_text(encoding="utf-8", errors="replace")
+        written = write_pack(text, arguments.target, arguments.title or source.stem)
+    except (OSError, ValueError) as error:
+        print(f"Could not make a pack from {source}: {error}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"  wrote {path}")
+    todos = todo_list(arguments.target)
+    print(f"\n{len(todos)} TODO(s) left for you to finish; then run: cpnpy exercises check "
+          f"\"{arguments.target}\"")
+    for todo in todos:
+        print("  " + todo)
+    return 0
+
+
+def command_exercises_computes(arguments: argparse.Namespace) -> int:
+    """Every ``compute:`` an answer block may use, with what it works out."""
+    from .learn.computed import describe_all
+    groups = {"log": "Of the log", "net": "Of the net (net.pnml, or of: file.pnml)",
+              "ts": "Of the transition system (ts.txt)", "box": "Of a box or a workflow",
+              "": "Other"}
+    rows = describe_all()
+    for key, heading in groups.items():
+        found = [(name, text) for name, of, text in rows if of == key]
+        if not found:
+            continue
+        print(heading)
+        for name, text in found:
+            print(f"  {name:<28} {text}")
+        print()
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Workflows
 # ---------------------------------------------------------------------------
@@ -554,6 +620,21 @@ def build_parser() -> argparse.ArgumentParser:
     exercise_check.add_argument("--answers", action="store_true",
                                 help="also print the right answers the app works out")
     exercise_check.set_defaults(handler=command_exercises_check)
+    exercise_marks = exercise_commands.add_parser(
+        "marks", help="the points a pack's answers earn, per exercise (and per box)")
+    exercise_marks.add_argument("folder", help="the pack folder")
+    exercise_marks.add_argument("--csv", action="store_true", help="as CSV, one row per answer box")
+    exercise_marks.add_argument("--blocks", action="store_true", help="also every answer box")
+    exercise_marks.set_defaults(handler=command_exercises_marks)
+    exercise_import = exercise_commands.add_parser(
+        "import", help="a past exam's text (numbered questions, lettered parts) into a skeleton pack")
+    exercise_import.add_argument("exam", help="the exam as a text or Markdown file")
+    exercise_import.add_argument("target", help="the pack folder to write")
+    exercise_import.add_argument("--title", default=None, help="the pack's title (default: the file's name)")
+    exercise_import.set_defaults(handler=command_exercises_import)
+    exercise_computes = exercise_commands.add_parser(
+        "computes", help="list every compute: an answer block may use")
+    exercise_computes.set_defaults(handler=command_exercises_computes)
 
     run = subparsers.add_parser("run", help="run a .cpnflow workflow without the app")
     run.add_argument("workflow", help="the .cpnflow file")

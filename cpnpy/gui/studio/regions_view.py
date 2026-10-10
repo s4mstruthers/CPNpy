@@ -41,7 +41,7 @@ from ...mining.transition_system import (
     TransitionSystem, parse_states, parse_transition_system,
 )
 from . import instances, style
-from .concealment import ConcealsResults
+from ..learn.concealment import ConcealsResults
 from .definition_view import attach_definition
 from .graph_view import EdgeSpec, GraphView, NodeSpec
 from .widgets import Card, PageHeader, Verdict, button, hbox, label, scroll, status_for, \

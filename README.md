@@ -22,7 +22,7 @@
 | **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner, state-based regions). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
 | **Workflows** | Boxes on a canvas: a log, a miner, a fitness check, a comparison, a sweep over a setting, a prediction pipeline. Click a box to see its result, *how* it got there (the α-algorithm's eight steps, the replay per variant), its code and its settings. Change a setting and only what follows runs again. Saved as a `.cpnflow` file with everything needed to get the same numbers back. Your own algorithm is one Python function in a `boxes/` folder. | RapidProM |
-| **Exercises** | A quiet mode of its own for worksheets: answer in boxes on the sheet (sets, footprint matrices, firing sequences, yes/no, choices, a net in the editor beside it) and press **Check**. Most answers are checked automatically, often against answers worked out from the given log or net. Professors write packs as plain Markdown. Demo exercises included. | Answer sheets, a notes app and guesswork |
+| **Learn** | A mode of its own for worksheets, built on the app: answer in boxes on the sheet (sets, markings, matrices, cuts and trees, alignments, a net in the editor or a workflow on the canvas beside it) and press **Check**. Most answers are checked automatically, often against answers worked out from the given log or net. Packs are plain Markdown, can be exams with a clock and points, and a past exam imports as a skeleton pack. Demo exercises included. | Answer sheets, a notes app and guesswork |
 | **Folders** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, with its subfolders. The folder and the app stay in step both ways: new nets and edits are saved into it as you go, and changes made in Finder show up by themselves. | Finder windows and *File ▸ Open* every time |
 
 ---
@@ -34,7 +34,7 @@
 - [Folders: one per week](#folders-one-per-week)
 - [Petri nets and WF-nets](#petri-nets-and-wf-nets)
 - [Process mining](#process-mining)
-- [Exercises](#exercises)
+- [Learn](#learn)
 - [Coloured Petri nets](#coloured-petri-nets)
 - [Working on the canvas](#working-on-the-canvas)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -466,35 +466,46 @@ The app follows the system's light or dark appearance:
 
 ---
 
-## Exercises
+## Learn
 
-Click an exercise folder in the sidebar, **File ▸ Open Exercise Pack…**, or
-**File ▸ Open Demo Exercises** (it asks where to put a copy, since your
-answers are saved next to the exercises): the window switches to **exercise
-mode**, a view made for working through a pack without distractions.
+CPNpy Learn is the teaching side of the app, built on top of it: exercise
+packs with answer boxes that the app checks. Click an exercise folder in the
+sidebar, **Learn ▸ Open Exercise Pack…**, or **Learn ▸ Open Demo Exercises**
+(it asks where to put a copy, since your answers are saved next to the
+exercises): the window switches to a view made for working through a pack
+without distractions, and *Exit* brings your folder back exactly as it was.
 
 - **The worksheet** on the left is the question top to bottom, with an
   answer box wherever one is needed: yes/no, multiple choice, a set
   (`{a, b}`, sets of sets, or pairs like `({a}, {b,d})`), a number, a short
-  text, a **footprint matrix** to fill in, a **firing sequence** (which you
-  can play in the net), free text, or a **net to draw** in the editor beside
-  it.
+  text, a **footprint matrix**, a **firing sequence** (which you can play in
+  the net), a **marking** or a set of markings, the net as **(P, T, F, m₀)**,
+  an **incidence matrix** or a **reachability graph**, the Inductive Miner's
+  **cuts, sublogs and process tree**, a **replay table** (p, c, m, r), an
+  **alignment**, a **ranking** of models, a **prediction** of what an
+  algorithm will give, free text, a **net to draw** in the editor beside it,
+  or a **workflow to build** on the canvas beside it.
 - **Check** says whether each answer is right — and when it is not, how far
   off it is (“2 of your items are right, 1 is missing”, the wrong cells of a
-  footprint, the shortest traces where your net differs, which you can
-  replay) without giving the answer away. *Hint* and *Show answer* are there
-  when you want them.
+  matrix, which part of the tuple is off, the shortest traces where your net
+  differs, which you can replay) without giving the answer away. Typed
+  notations show how they are read as you type. *Hint* and *Show answer* are
+  there when you want them.
 - **The materials** on the right are what the exercise gives: the log, the
-  transition system, the given net (to play, not change), and your own net.
-  Results that would give answers away — soundness, the footprint,
-  discovered models, regions… — stay hidden until you reveal them.
+  transition system, the given net (to play, not change), your own net, and
+  the Workflow tab. Results that would give answers away — soundness, the
+  footprint, discovered models, regions… — stay hidden until you reveal them.
 - **Notes** (✎ in the top bar) opens scratch paper under the worksheet for
-  working things out — markings, firing sequences, sets — kept with the
-  exercise.
+  working things out, kept with the exercise.
+- **Points and exams.** Every answer box is worth points (a partly right
+  answer earns a part), and the overview shows the score so far. A pack can
+  be an **exam**: a clock in the top bar, no hints or answers, nothing
+  revealed, and the answers locked when the time is up. *⋯ ▸ Export Marks…*
+  writes the marks as CSV. A pack can also give every student a **variant**
+  of its own (a log played out from a net with a seed made from their name).
 - **Your work is saved as you go**, in the exercise's folder:
-  `my answers.json`, `my answer.pnml` for a net, and `my notes.md`. The top bar shows your
-  progress through the pack and steps between exercises; *Exit* returns to
-  your folder exactly as it was.
+  `my answers.json`, `my answer.pnml` for a net, `my workflow.cpnflow` for a
+  workflow and `my notes.md`.
 
 **Writing a pack** (for a course or an exam) is plain Markdown: put an
 `answer` block wherever students should answer.
@@ -505,20 +516,28 @@ mode**, a view made for working through a pack without distractions.
 ```answer
 type: set
 compute: alpha.T_I
+points: 2
 hint: Which activities does a trace begin with?
 ```
 ````
 
 `compute:` works the right answer out from the exercise's own log, net or
-transition system (α-algorithm steps, soundness and its conditions, regions,
-fitness…), so most answers need not be written by hand. **Help ▸ Writing
-Exercise Packs** ([cpnpy/teaching/exercise-packs.md](cpnpy/teaching/exercise-packs.md))
-lists every box type and computed answer, and `cpnpy exercises check <pack>`
-reports mistakes in a pack before you share it. Exercises written for
-earlier versions still work: a sheet written in lettered parts (a., b., …)
+transition system (α-algorithm steps, the Inductive Miner's cuts, soundness
+and its conditions, markings and matrices, replay, regions, fitness… and any
+box of the workflow library: `box(alpha_miner).net.transitions`), so most
+answers need not be written by hand. **Learn ▸ Writing Exercise Packs**
+([cpnpy/learn/exercise-packs.md](cpnpy/learn/exercise-packs.md)) lists every
+box type and computed answer. From a terminal, `cpnpy exercises check <pack>`
+reports mistakes in a pack before you share it, `cpnpy exercises marks <pack>`
+prints the marks, `cpnpy exercises computes` lists every compute, and
+`cpnpy exercises import exam.txt <pack>` (or **Learn ▸ Make a Pack from an
+Exam…**) turns a past exam's text into a skeleton pack, one exercise per
+question with an answer block per part, for you to finish. Exercises written
+for earlier versions still work: a sheet written in lettered parts (a., b., …)
 gets a box under each part, with that part of `answer.md` as its model answer.
 
----
+The code is `cpnpy.learn` (no Qt: the worksheet format, the notations, the
+computed answers and the checks) and `cpnpy.gui.learn` (the window).
 
 ## Coloured Petri nets
 
@@ -636,8 +655,8 @@ cpnpy --help              # command line: check, simulate, state space, mining
 
 The same commands work on macOS, Windows and Linux. `cpnpy mine` covers the
 process mining side: `stats`, `filter`, `discover` (α, IM, IMf, heuristics),
-`conform`, `soundness` and `invariants`; `cpnpy exercises check` checks an
-exercise pack. `docs/definitions.md` is
+`conform`, `soundness` and `invariants`; `cpnpy exercises check`, `marks`,
+`import` and `computes` serve exercise packs. `docs/definitions.md` is
 generated from `cpnpy/mining/definitions.py`; after editing a definition, run
 `python -m cpnpy.mining.definitions > docs/definitions.md` (a test checks it).
 Likewise [`docs/references.md`](docs/references.md) — every source CPNpy's

@@ -58,23 +58,23 @@ def _window():
 
 
 def _cards(window):
-    return list(window.exercise_mode.view.cards.values())
+    return list(window.learn_mode.view.cards.values())
 
 
 def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
-    from cpnpy.gui.studio.exercise_mode import ExerciseRow
+    from cpnpy.gui.learn.mode import ExerciseRow
 
     window = _window()
     window.open_workspace(str(demo))
     assert window.open_exercise(demo)
-    mode = window.exercise_mode
-    assert window.in_exercises and mode.view is None
+    mode = window.learn_mode
+    assert window.in_learn and mode.view is None
     rows = mode.home.findChildren(ExerciseRow)
-    assert len(rows) == 4
+    assert len(rows) == 7
     rows[1].open_it()
     assert mode.index == 1 and "Spot the flaw" in mode.view.title.text()
     assert window.windowTitle() == "Exercise 2.1 — Spot the flaw — CPNpy demo exercises"
-    assert mode.position.text() == "2 / 4"
+    assert mode.position.text() == "2 / 7"
     mode.step(1)
     assert "α-algorithm" in mode.view.title.text()
     mode.show_home()
@@ -82,7 +82,7 @@ def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
 
     # Exit: back to the folder, which is as it was.
     mode.exit_button.click()
-    assert not window.in_exercises and window.workspace is not None
+    assert not window.in_learn and window.workspace is not None
     assert "Spot the flaw" not in window.windowTitle()
     window.close()
 
@@ -94,12 +94,12 @@ def test_clicking_an_exercise_in_the_sidebar_opens_it(app, demo):
     window.open_workspace(str(demo))
     window.set_view_mode("folder")
     rows = [i for i in window._all_rows() if i.data(0, EXERCISE_ROLE)]
-    assert len(rows) == 4
+    assert len(rows) == 7
     window._open_placeholder(rows[2])
-    assert window.in_exercises
-    assert window.exercise_mode.view.exercise.folder.name == "Exercise 3.1 The alpha-algorithm"
+    assert window.in_learn
+    assert window.learn_mode.view.exercise.folder.name == "Exercise 3.1 The alpha-algorithm"
     # The pack is the open folder: all four, with the overview one step away.
-    assert len(window.exercise_mode.pack.exercises) == 4
+    assert len(window.learn_mode.pack.exercises) == 7
     window.close()
 
 
@@ -134,14 +134,14 @@ def test_answers_are_checked_saved_and_restored(app, demo):
     sound.editor.buttons["no"].click()
     assert sound.status is None and sound.feedback.isHidden()
 
-    window.exercise_mode.close_view()
+    window.learn_mode.close_view()
     saved = json.loads((folder / "my answers.json").read_text())["tasks"]
     assert saved["q1"] == {"answer": "yes", "status": "correct"}
     assert saved["q2"]["answer"] == "no" and "status" not in saved["q2"]
     assert saved["q4"]["answer"] == "register, call customer"
 
     # Opening it again puts everything back.
-    window.exercise_mode.open_index(1)
+    window.learn_mode.open_index(1)
     wf, sound, conditions, deadlock, _ = _cards(window)
     assert wf.editor.value() == "yes" and wf.status == "correct"
     assert sound.editor.value() == "no" and conditions.editor.value() == [0]
@@ -156,7 +156,7 @@ def test_drawing_a_net_saves_my_answer_and_checks_it(app, demo):
     given = (folder / "net.pnml").read_bytes()
     window = _window()
     window.open_exercise(folder)
-    view = window.exercise_mode.view
+    view = window.learn_mode.view
     repair = _cards(window)[-1]
     page = view.net_pages[repair.task.id]
     assert [name for name, _ in view.materials] == ["Given net", "Your net"]
@@ -198,7 +198,7 @@ def test_a_wrong_net_shows_traces_to_replay(app, demo):
     write_pnml(xor, str(folder / "my answer.pnml"))
     window = _window()
     window.open_exercise(folder)
-    view = window.exercise_mode.view
+    view = window.learn_mode.view
     card = _cards(window)[1]
     page = view.net_pages[card.task.id]
     assert page.document.path == str(folder / "my answer.pnml")
@@ -218,7 +218,7 @@ def test_footprint_and_sets_on_a_log(app, demo):
     folder = demo / "3 Discovery" / "Exercise 3.1 The alpha-algorithm"
     window = _window()
     window.open_exercise(folder)
-    view = window.exercise_mode.view
+    view = window.learn_mode.view
     assert [name for name, _ in view.materials] == ["Log", "Your net"]
     footprint, t_l, t_i = _cards(window)[:3]
     truth = footprint_of_log(parse_simple_log((folder / "log.txt").read_text()))
@@ -263,7 +263,7 @@ def test_regions_exercise_and_transition_system_page(app, demo):
     given = (folder / "ts.txt").read_text()
     window = _window()
     window.open_exercise(folder)
-    view = window.exercise_mode.view
+    view = window.learn_mode.view
     (name, page), = view.materials
     assert isinstance(page, TransitionSystemPage)
     assert wait_for(app, lambda: page.panel is not None)
@@ -308,14 +308,14 @@ def test_starting_again_and_an_open_question(app, tmp_path):
     assert not card.assess_row.isHidden()
     card.assess(True)
     assert card.status == "done"
-    window.exercise_mode.view.flush()
+    window.learn_mode.view.flush()
     assert json.loads((folder / "my answers.json").read_text())["tasks"]["q1"]["status"] == \
         "done"
     from PySide6.QtWidgets import QMessageBox
     original = QMessageBox.question
     QMessageBox.question = lambda *a, **k: QMessageBox.Yes
     try:
-        window.exercise_mode.reset_exercise()
+        window.learn_mode.reset_exercise()
     finally:
         QMessageBox.question = original
     assert not (folder / "my answers.json").exists()
@@ -329,7 +329,7 @@ def test_a_mistake_in_a_sheet_is_shown_not_hidden(app, tmp_path):
     (folder / "question.md").write_text("# Broken\n\n```answer\ntype: essay\n```\n")
     window = _window()
     window.open_exercise(folder)
-    view = window.exercise_mode.view
+    view = window.learn_mode.view
     assert view.exercise.error and "needs a type" in view.exercise.error
     from PySide6.QtWidgets import QLabel
     assert any("mistake" in w.text() for w in view.findChildren(QLabel)
@@ -345,11 +345,11 @@ def test_open_demo_exercises_asks_where_and_updates_an_old_copy(app, tmp_path, m
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")
     window = _window()
     window.open_demo_exercises()
-    assert not window.in_exercises and not list(tmp_path.iterdir())
+    assert not window.in_learn and not list(tmp_path.iterdir())
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
     window.open_demo_exercises()
     target = tmp_path / "CPNpy Demo Exercises"
-    assert (target / "pack.md").exists() and window.in_exercises
+    assert (target / "pack.md").exists() and window.in_learn
     assert window.workspace is None                  # your folder is left as it was
     window.close()
 
@@ -364,7 +364,7 @@ def test_open_demo_exercises_asks_where_and_updates_an_old_copy(app, tmp_path, m
     window.open_demo_exercises()
     assert "```answer" in (old / "question.md").read_text()
     assert (old / "my answer.pnml").read_text() == "mine"
-    assert window.in_exercises and len(window.exercise_mode.pack.exercises) == 4
+    assert window.in_learn and len(window.learn_mode.pack.exercises) == 7
     window.close()
 
 
@@ -456,7 +456,7 @@ def test_old_style_parts_get_boxes_and_notes_are_kept(app, tmp_path):
     shutil.copy(DEMO / "2 Soundness" / "Exercise 2.1 Spot the flaw" / "net.pnml", folder)
     window = _window()
     window.open_exercise(folder)
-    mode = window.exercise_mode
+    mode = window.learn_mode
     first, second = _cards(window)
     assert (first.task.type, second.task.type) == ("open", "net")
     first.reveal_solution()

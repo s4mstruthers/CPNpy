@@ -27,7 +27,7 @@ from ...mining.xes import write_xes
 from .. import theme
 from . import style
 from .charts import ColumnChart
-from .concealment import ConcealsResults
+from ..learn.concealment import ConcealsResults
 from .documents import LogDocument, ModelDocument
 from .dotted_chart import DottedChartPanel
 from .graph_builders import dependency_specs, dfg_specs, petri_net_specs

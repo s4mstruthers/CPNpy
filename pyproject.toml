@@ -67,7 +67,7 @@ include = ["cpnpy*"]
 # The demo exercises (File ▸ Open Demo Exercises).
 "cpnpy" = ["exercises/*.md", "exercises/*/*/*"]
 # The guide shown by Help ▸ Writing Exercise Packs.
-"cpnpy.teaching" = ["*.md"]
+"cpnpy.learn" = ["*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

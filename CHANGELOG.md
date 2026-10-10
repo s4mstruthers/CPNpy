@@ -30,6 +30,28 @@ notice, not how it was done.
   a prediction pipeline, and pandas, NumPy, SciPy and matplotlib examples
   behind `pip install cpnpy[science]`), and your own box is one function in
   a `boxes/` folder. See `docs/workflows.md`.
+- **Learn.** Exercises are now *CPNpy Learn*, a mode of its own on top of
+  the app, under the new **Learn** menu. Twelve new kinds of answer box:
+  a marking, a set of markings, the net as (P, T, F, m₀), a transition
+  system, a matrix (incidence, M, M′), the Inductive Miner's cut, sublog and
+  process tree, a replay table (p, c, m, r), an alignment, a ranking of
+  models, a prediction of what a box will give, and a **workflow to build**
+  on a canvas beside the sheet. What you type is read back as you type it,
+  and Check says which cells, parts or items are off. Forty more computed
+  answers (`cpnpy exercises computes` lists them), so authors write fewer
+  answers by hand.
+- **Points, exams and variants.** Every answer box can be worth points, a
+  partly right answer earns a part, and the overview shows the score. A pack
+  with `exam: yes` has a clock, no hints or answers, nothing to reveal, and
+  locks the answers when the time is up; *⋯ ▸ Export Marks…* and
+  `cpnpy exercises marks` give the marks as CSV. A pack can give every
+  student their own variant of a log (`seed: student`).
+- **A past exam becomes a pack.** *Learn ▸ Make a Pack from an Exam…* (or
+  `cpnpy exercises import`) reads the exam's text and writes a skeleton pack,
+  one exercise per question with an answer block per part and the points
+  carried over, with a `TODO` wherever the author has to finish it.
+- **Three more demo exercises**: markings and matrices, the Inductive Miner's
+  cuts and trees, and replay, alignments and a workflow.
 - **Public datasets by name**: `cpnpy datasets` lists the BPI Challenge,
   Sepsis, Road Traffic Fine and Hospital Billing logs with their DOIs,
   fetches them into a shared cache and checks their fingerprints.

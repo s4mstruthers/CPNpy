@@ -24,16 +24,21 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QRadioButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
-from ...learn import answers
+from ...learn import answers, notation
 from ...learn.checks import CORRECT, INCORRECT, PARTIAL, UNKNOWN
-from .markdown_view import MarkdownLabel
-from .widgets import button, hbox, label
+from ..studio.markdown_view import MarkdownLabel
+from ..studio.widgets import button, hbox, label
 
 #: What the card's caption says above each kind of box.
 CAPTIONS = {
     "net": "Draw your net", "footprint": "Your footprint", "yesno": "Your answer",
     "choice": "Your answer", "set": "Your answer", "trace": "Your firing sequence",
     "number": "Your answer", "text": "Your answer", "open": "Your answer",
+    "marking": "Your marking", "markings": "Your markings", "tuple": "Your net as (P, T, F, m₀)",
+    "ts": "Your transition system", "matrix": "Your matrix", "cut": "Your cut",
+    "log": "Your log", "tree": "Your process tree", "replay": "Your replay",
+    "alignment": "Your alignment", "ranking": "Your ranking", "predict": "Your prediction",
+    "workflow": "Build your workflow",
 }
 
 #: Status of a task -> (chip text, status colour key).
@@ -374,6 +379,378 @@ class NetEditor(Editor):
         layout.addWidget(button(f"Show {tab_name}", self.go_to_net.emit))
 
 
+class WorkflowEditor(Editor):
+    """The workflow is built on the canvas beside the sheet; here a pointer to it."""
+
+    go_to_workflow = Signal()
+
+    def __init__(self, tab_name: str = "Workflow", parent=None) -> None:
+        super().__init__(parent)
+        layout = hbox(spacing=8)
+        self.setLayout(layout)
+        layout.addWidget(label(f"Build it in <b>{escape(tab_name)}</b>, on the right: drag boxes "
+                               "from the list and wire them. It is saved as you go.",
+                               "muted", wrap=True), 1)
+        layout.addWidget(button(f"Show {tab_name}", self.go_to_workflow.emit))
+
+
+# ---------------------------------------------------------------------------
+# Notations typed in a text box (markings, cuts, trees, logs, transition
+# systems, alignments): several lines, read back as you type
+# ---------------------------------------------------------------------------
+class NotationEditor(Editor):
+    """A few lines in one of the course's notations, with how it is read below."""
+
+    def __init__(self, placeholder: str, preview, lines: int = 3, parent=None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.edit = QPlainTextEdit()
+        self.edit.setObjectName("answerText")
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.setTabChangesFocus(True)
+        self.edit.setFixedHeight(26 + 20 * lines)
+        self.edit.textChanged.connect(self._edited)
+        layout.addWidget(self.edit)
+        self.preview = preview
+        self.reading = label("", "answerReading", wrap=True)
+        self.reading.setHidden(True)
+        layout.addWidget(self.reading)
+
+    def _edited(self) -> None:
+        self._show_reading()
+        self.changed.emit()
+
+    def _show_reading(self) -> None:
+        text = self.edit.toPlainText()
+        if not text.strip():
+            self.reading.setHidden(True)
+            return
+        shown, ok = self.preview(text)
+        self.reading.setText(shown)
+        self.reading.setProperty("ok", ok)
+        self.reading.style().unpolish(self.reading)
+        self.reading.style().polish(self.reading)
+        self.reading.setHidden(False)
+
+    def value(self):
+        return self.edit.toPlainText()
+
+    def set_value(self, value) -> None:
+        self.edit.blockSignals(True)
+        self.edit.setPlainText("" if value is None else str(value))
+        self.edit.blockSignals(False)
+        self._show_reading()
+
+
+def _reading(reader, show):
+    """A preview function from a notation reader and how to write it back."""
+    def preview(text: str) -> tuple[str, bool]:
+        try:
+            value = reader(text)
+        except answers.AnswerSyntaxError as error:
+            return f"Cannot read this yet: {error}.", False
+        except ValueError as error:
+            return f"Cannot read this yet: {error}.", False
+        return "Read as " + show(value), True
+    return preview
+
+
+def _ts_preview(text: str) -> tuple[str, bool]:
+    from ...mining.transition_system import parse_transition_system
+    try:
+        ts = parse_transition_system(text)
+    except ValueError as error:
+        return f"Cannot read this yet: {error}.", False
+    states, arcs = len(ts.reachable()), len(ts.transitions)
+    initial = ", ".join(ts.initial) if ts.initial else "none (write initial: s0)"
+    return (f"Read as {states} reachable state{'s' * (states != 1)}, {arcs} "
+            f"transition{'s' * (arcs != 1)}; initial: {initial}"), True
+
+
+def _alignment_preview(text: str) -> tuple[str, bool]:
+    try:
+        top, bottom = notation.alignment(text)
+    except answers.AnswerSyntaxError as error:
+        return f"Cannot read this yet: {error}.", False
+    kinds = {"sync": 0, "log": 0, "model": 0}
+    for a, b in zip(top, bottom):
+        kinds["log" if b == notation.SKIP else "model" if a == notation.SKIP else "sync"] += 1
+    return (f"Read as {len(top)} moves: {kinds['sync']} synchronous, {kinds['log']} log only "
+            f"(≫ below), {kinds['model']} model only (≫ above)"), True
+
+
+NOTATIONS = {
+    "marking": ("e.g. [p1, p4^2]  (p4 twice), or [] for the empty marking", 1,
+                _reading(notation.marking, notation.show_marking)),
+    "markings": ("one marking per item, e.g. [p1], [p2, p3], [p4]", 2,
+                 _reading(notation.markings, notation.show_markings)),
+    "cut": ("the operator, then the groups: → {a} {b, c, e} {d}", 1,
+            _reading(notation.cut, notation.show_cut)),
+    "tree": ("e.g. →(a, ×(∧(b, c), e), d)   (or seq, xor, and, loop)", 2,
+             _reading(notation.tree, str)),
+    "log": ("e.g. [<a, b, c>^2, <a, c>]", 2, _reading(notation.log, notation.show_log)),
+    "ts": ("one line per arc: s0 -a-> s1\n…\ninitial: s0", 5, _ts_preview),
+    "alignment": ("the log moves on the first line, the model moves on the second; "
+                  "≫ (or >>) where there is no move", 2, _alignment_preview),
+}
+
+
+# ---------------------------------------------------------------------------
+# (P, T, F, m0): four boxes
+# ---------------------------------------------------------------------------
+TUPLE_HINTS = {"P": "the places: {p1, p2, …}", "T": "the transitions: {a, b, …}",
+               "F": "the arcs as pairs: (p1, a), (a, p2), …", "m0": "the initial marking: [p1]"}
+
+
+class TupleEditor(Editor):
+    """``(P, T, F, m₀)``: one line each, checked part by part."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(5)
+        self.fields: dict[str, QLineEdit] = {}
+        self.marks: dict[str, QLabel] = {}
+        for row, key in enumerate(notation.TUPLE_FIELDS):
+            name = label({"m0": "m₀"}.get(key, key) + " =", "tupleName")
+            name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            edit = QLineEdit()
+            edit.setObjectName("answerLine")
+            edit.setPlaceholderText(TUPLE_HINTS[key])
+            edit.textEdited.connect(lambda _t: self._edited())
+            mark = label("", "tupleMark")
+            mark.setFixedWidth(18)
+            grid.addWidget(name, row, 0)
+            grid.addWidget(edit, row, 1)
+            grid.addWidget(mark, row, 2)
+            self.fields[key] = edit
+            self.marks[key] = mark
+
+    def _edited(self) -> None:
+        self.show_result(None)
+        self.changed.emit()
+
+    def value(self):
+        return {key: edit.text() for key, edit in self.fields.items()}
+
+    def set_value(self, value) -> None:
+        value = value if isinstance(value, dict) else {}
+        for key, edit in self.fields.items():
+            edit.setText(str(value.get(key, "") or ""))
+
+    def show_result(self, result) -> None:
+        parts = getattr(result, "parts", None) or {}
+        for key, mark in self.marks.items():
+            verdict = parts.get(key)
+            mark.setText({CORRECT: "✓", PARTIAL: "◐", INCORRECT: "✕"}.get(verdict, ""))
+            mark.setProperty("state", {CORRECT: "good", PARTIAL: "warning",
+                                       INCORRECT: "critical"}.get(verdict, ""))
+            mark.style().unpolish(mark)
+            mark.style().polish(mark)
+
+
+# ---------------------------------------------------------------------------
+# Grids of numbers: a matrix, a replay table
+# ---------------------------------------------------------------------------
+class GridCell(QLineEdit):
+    def __init__(self, editor, key) -> None:
+        super().__init__()
+        self.setObjectName("gridCell")
+        self.key = key
+        self.setFixedSize(54, 30)
+        self.setAlignment(Qt.AlignCenter)
+        self.textEdited.connect(lambda _t: editor._cell_edited(self))
+
+    def set_wrong(self, wrong: bool) -> None:
+        if self.property("wrong") != wrong:
+            self.setProperty("wrong", wrong)
+            self.style().unpolish(self)
+            self.style().polish(self)
+
+
+class MatrixEditor(Editor):
+    """A grid with the rows and columns given (an incidence matrix, M or M′)."""
+
+    def __init__(self, rows: list[str], columns: list[str], parent=None) -> None:
+        super().__init__(parent)
+        self.rows, self.columns = list(rows), list(columns)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(8)
+        host = QWidget()
+        host.setObjectName("footprintGrid")
+        grid = QGridLayout(host)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(3)
+        grid.setVerticalSpacing(3)
+        for index, column in enumerate(self.columns):
+            top = label(escape(column), "footprintHeading")
+            top.setAlignment(Qt.AlignCenter)
+            grid.addWidget(top, 0, index + 1)
+        self.cells: dict[tuple[str, str], GridCell] = {}
+        for r, row in enumerate(self.rows):
+            side = label(escape(row), "footprintHeading")
+            side.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            grid.addWidget(side, r + 1, 0)
+            for c, column in enumerate(self.columns):
+                cell = GridCell(self, (row, column))
+                grid.addWidget(cell, r + 1, c + 1)
+                self.cells[(row, column)] = cell
+        outer.addLayout(hbox(host, None))
+        outer.addWidget(label("A number in every cell (0 where nothing happens). Tab moves "
+                              "to the next cell.", "muted", wrap=True))
+
+    def _cell_edited(self, cell) -> None:
+        cell.set_wrong(False)
+        self.changed.emit()
+
+    def value(self):
+        return {"rows": self.rows, "columns": self.columns,
+                "cells": {f"{r}\t{c}": cell.text() for (r, c), cell in self.cells.items()
+                          if cell.text().strip()}}
+
+    def set_value(self, value) -> None:
+        cells = (value or {}).get("cells", {}) if isinstance(value, dict) else {}
+        for (r, c), cell in self.cells.items():
+            cell.setText(str(cells.get(f"{r}\t{c}", "")))
+
+    def show_result(self, result) -> None:
+        wrong = {(answers.name(r), answers.name(c))
+                 for r, c in (result.wrong_cells if result is not None else [])}
+        for (r, c), cell in self.cells.items():
+            cell.set_wrong((answers.name(r), answers.name(c)) in wrong)
+
+
+class ReplayEditor(Editor):
+    """Produced, consumed, missing and remaining tokens, one row per trace."""
+
+    def __init__(self, traces: list[tuple[str, ...]], parent=None) -> None:
+        super().__init__(parent)
+        self.traces = [tuple(t) for t in traces]
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(8)
+        host = QWidget()
+        host.setObjectName("footprintGrid")
+        grid = QGridLayout(host)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(3)
+        grid.setVerticalSpacing(3)
+        for index, column in enumerate(notation.REPLAY_COLUMNS):
+            top = label(column, "footprintHeading")
+            top.setToolTip({"p": "produced", "c": "consumed", "m": "missing",
+                            "r": "remaining"}[column])
+            top.setAlignment(Qt.AlignCenter)
+            grid.addWidget(top, 0, index + 1)
+        self.cells: dict[tuple[tuple[str, ...], str], GridCell] = {}
+        for r, trace in enumerate(self.traces):
+            side = label(escape("⟨" + ", ".join(trace) + "⟩"), "footprintHeading")
+            side.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            grid.addWidget(side, r + 1, 0)
+            for c, column in enumerate(notation.REPLAY_COLUMNS):
+                cell = GridCell(self, (trace, column))
+                grid.addWidget(cell, r + 1, c + 1)
+                self.cells[(trace, column)] = cell
+        outer.addLayout(hbox(host, None))
+        outer.addWidget(label("p produced, c consumed, m missing, r remaining; count the "
+                              "token in the source and the sink too.", "muted", wrap=True))
+
+    def _cell_edited(self, cell) -> None:
+        cell.set_wrong(False)
+        self.changed.emit()
+
+    @staticmethod
+    def _key(trace) -> str:
+        return "⟨" + ", ".join(trace) + "⟩"
+
+    def value(self):
+        rows: dict[str, dict] = {}
+        for (trace, column), cell in self.cells.items():
+            if cell.text().strip():
+                rows.setdefault(self._key(trace), {})[column] = cell.text()
+        return rows
+
+    def set_value(self, value) -> None:
+        value = value if isinstance(value, dict) else {}
+        for (trace, column), cell in self.cells.items():
+            row = value.get(self._key(trace)) or {}
+            cell.setText(str(row.get(column, "") if isinstance(row, dict) else ""))
+
+    def show_result(self, result) -> None:
+        wrong = set()
+        for shown, column in (result.wrong_cells if result is not None else []):
+            try:
+                wrong.add((tuple(answers.name(a) for a in answers.trace(shown)), column))
+            except answers.AnswerSyntaxError:
+                continue
+        for (trace, column), cell in self.cells.items():
+            cell.set_wrong((tuple(answers.name(a) for a in trace), column) in wrong)
+
+
+# ---------------------------------------------------------------------------
+# A ranking: the names in order, best first
+# ---------------------------------------------------------------------------
+class RankingEditor(Editor):
+    """The candidates as a list to reorder (▲ ▼, or drag), best first."""
+
+    def __init__(self, candidates: list[str], parent=None) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QAbstractItemView, QListWidget
+        self.candidates = list(candidates)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.list = QListWidget()
+        self.list.setObjectName("rankingList")
+        self.list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setFixedHeight(10 + 30 * max(1, len(self.candidates)))
+        for name in self.candidates:
+            self.list.addItem(name)
+        self.list.model().rowsMoved.connect(lambda *_: self._moved())
+        buttons = hbox(button("▲ Up", lambda: self.move(-1), kind="ghost"),
+                       button("▼ Down", lambda: self.move(1), kind="ghost"),
+                       label("Best first: 1 is the highest.", "muted"), None, spacing=6)
+        layout.addWidget(self.list)
+        layout.addLayout(buttons)
+        self._renumber()
+
+    def _renumber(self) -> None:
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            name = item.data(Qt.UserRole) or item.text().split(". ", 1)[-1]
+            item.setData(Qt.UserRole, name)
+            item.setText(f"{index + 1}. {name}")
+
+    def _moved(self) -> None:
+        self._renumber()
+        self.changed.emit()
+
+    def move(self, delta: int) -> None:
+        row = self.list.currentRow()
+        if row < 0 or not 0 <= row + delta < self.list.count():
+            return
+        item = self.list.takeItem(row)
+        self.list.insertItem(row + delta, item)
+        self.list.setCurrentRow(row + delta)
+        self._moved()
+
+    def value(self):
+        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
+
+    def set_value(self, value) -> None:
+        if not isinstance(value, list) or sorted(map(str, value)) != sorted(self.candidates):
+            return
+        self.list.clear()
+        for name in value:
+            self.list.addItem(str(name))
+        self._renumber()
+
+
 # ---------------------------------------------------------------------------
 # The card around an editor
 # ---------------------------------------------------------------------------
@@ -384,18 +761,26 @@ class TaskCard(QFrame):
     changed = Signal(object)                  # the task (save the answer)
     solution_requested = Signal(object)       # the task (the card asks for the text)
 
-    def __init__(self, task, editor: Editor, folder=None, parent=None) -> None:
+    def __init__(self, task, editor: Editor, folder=None, parent=None,
+                 exam: bool = False) -> None:
         super().__init__(parent)
         self.setObjectName("taskCard")
         self.task = task
         self.editor = editor
         self.folder = folder
         self.status: str | None = None
+        #: The share of the block's points the last check gave (for partial answers).
+        self.share: float = 0.0
+        #: In an exam there is no hint, no answer, and Check only says if it is right.
+        self.exam = exam
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 11, 14, 12)
         layout.setSpacing(9)
 
-        self.caption = label(CAPTIONS.get(task.type, "Your answer").upper(), "taskCaption")
+        caption = CAPTIONS.get(task.type, "Your answer")
+        if task.points != 1:
+            caption += f"  ·  {task.points:g} points"
+        self.caption = label(caption.upper(), "taskCaption")
         self.chip = label("", "statusChip")
         self.chip.setHidden(True)
         layout.addLayout(hbox(self.caption, None, self.chip))
@@ -405,11 +790,12 @@ class TaskCard(QFrame):
                                    kind="primary")
         self.check_button.setVisible(task.checkable)
         self.hint_button = button("Hint", self.toggle_hint, kind="ghost")
-        self.hint_button.setVisible(bool(task.hint))
+        self.hint_button.setVisible(bool(task.hint) and not exam)
         answer_text = "Show model answer" if task.type == "open" else "Show answer"
         self.answer_button = button(answer_text, self.reveal_solution, kind="ghost")
         # A drawn net or a free answer has a model answer only when the author wrote one.
-        self.answer_button.setVisible(task.type not in ("net", "open") or bool(task.solution))
+        self.answer_button.setVisible((task.type not in ("net", "open") or bool(task.solution))
+                                      and not exam)
         footer = hbox(self.check_button, self.hint_button, self.answer_button, None, spacing=6)
         layout.addLayout(footer)
 
@@ -480,10 +866,17 @@ class TaskCard(QFrame):
         self.feedback.setHidden(False)
         self.check_button.setEnabled(False)
 
+    def lock(self) -> None:
+        """The exam is over: the answer stays as it is and can still be read."""
+        self.editor.setEnabled(False)
+        self.check_button.setEnabled(False)
+        self.assess_row.setHidden(True)
+
     def show_result(self, result, detail: QWidget | None = None) -> None:
         self.check_button.setEnabled(True)
         self._clear_detail()
         status = result.status
+        self.share = float(getattr(result, "share", 0.0) or 0.0)
         icon = {CORRECT: "✓", PARTIAL: "◐", INCORRECT: "✕"}.get(status, "")
         self.feedback.setText(f"<b>{icon}</b>&nbsp; {escape(result.message)}" if icon
                               else escape(result.message))
@@ -530,8 +923,13 @@ class TaskCard(QFrame):
         self.changed.emit(self.task)
 
 
-def make_editor(task, activities=None, net_tab: str = "Your net") -> Editor:
-    kind = task.type
+def make_editor(task, activities=None, net_tab: str = "Your net", shape=None,
+                kind: str | None = None) -> Editor:
+    """The editor for ``task``.  ``activities`` are the footprint's; ``shape`` is
+    what a grid needs (a matrix's rows and columns, a replay's traces, a
+    ranking's candidates); ``kind`` overrides the task's type (a prediction
+    answered as a set, a number…)."""
+    kind = kind or task.type
     if kind == "set":
         return LineEditor("e.g. {a, b}", set_preview)
     if kind == "trace":
@@ -548,6 +946,27 @@ def make_editor(task, activities=None, net_tab: str = "Your net") -> Editor:
         return FootprintEditor(activities or [])
     if kind == "net":
         return NetEditor(net_tab)
+    if kind == "workflow":
+        return WorkflowEditor()
+    if kind in NOTATIONS:
+        placeholder, lines, preview = NOTATIONS[kind]
+        return NotationEditor(placeholder, preview, lines)
+    if kind == "tuple":
+        return TupleEditor()
+    if kind == "matrix":
+        if shape is None:
+            return NotationEditor("the column names on the first line, then one row per line:\n"
+                                  ".   a   b\np1  -1  1", _reading(notation.matrix,
+                                                                     notation.show_matrix), 4)
+        rows, columns = shape
+        return MatrixEditor(rows, columns)
+    if kind == "replay":
+        return ReplayEditor(shape or [])
+    if kind == "ranking":
+        return RankingEditor(shape or [])
+    if kind == "predict":
+        from ...learn.checks import _predict_kind
+        return make_editor(task, activities, net_tab, shape, _predict_kind(task))
     return TextEditor()
 
 

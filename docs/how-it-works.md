@@ -243,9 +243,13 @@ cpnpy/
                      boxes/ (the standard boxes, one module per group)
   sim/export.py      a simulation's firing history as an event log
   references.py      the sources of every notation and algorithm (docs/references.md)
-  teaching/          exercise packs, no Qt: sheet.py (question.md with answer
-                     blocks), pack.py (folders, progress), answers.py (reading typed
-                     sets, pairs, traces), checks.py (checking, computed answers)
+  learn/             CPNpy Learn, no Qt: sheet.py (question.md with answer blocks),
+                     pack.py (folders, progress, points), answers.py and notation.py
+                     (reading typed sets, markings, cuts, trees, matrices, alignments…),
+                     computed.py (the right answers worked out: @computed registry),
+                     checks.py (checking, partial credit), exam.py (clock, marks,
+                     variants), importer.py (a past exam into a pack);
+                     teaching/ is its old name, kept for imports
 examples/models.py   four complete models, also used as test fixtures
   mining/
     log.py           events, traces, logs, classifiers, textbook notation
@@ -273,6 +277,11 @@ examples/models.py   four complete models, also used as test fixtures
     viewers.py       a box's result, how it got there, its code, its settings; pop-out windows
     page.py          the Workflows page: box list, canvas, side panel, running in the background
     templates.py     the ready-made workflows (File ▸ New Workflow)
+  gui/learn/
+    mode.py          the Learn window: pack overview, worksheet beside the materials,
+                     the exam clock, the Workflow tab
+    answer_boxes.py  the answer boxes of a worksheet (one editor per type)
+    concealment.py   hiding analysis results until they are revealed
   gui/studio/
     app.py           window, sidebar rows, welcome page, file opening, keeping the
                      open folder and the app in step (watching, autosave, moving)
@@ -291,9 +300,6 @@ examples/models.py   four complete models, also used as test fixtures
     graph_builders.py  mining objects -> canvas descriptions
     filter_dialog.py the Filter… dialog of a log page
     log_editor.py    Edit… on a log page: its notation, or case by case
-    exercise_mode.py exercise mode: pack overview, worksheet beside the materials
-    answer_boxes.py  the answer boxes of a worksheet (one editor per type)
-    concealment.py   hiding analysis results until they are revealed
     markdown_view.py Markdown with maths; net_comparison.py: Compare nets' result
     dotted_chart.py, charts.py, widgets.py, style.py, workers.py, documents.py
 tests/               the test suite (tests/data holds a small course plane-boarding log)

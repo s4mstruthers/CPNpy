@@ -43,7 +43,7 @@ analysis = Analysis(
             "cpnpy/gui/resources"),
            (str(ROOT / "cpnpy" / "exercises"), "cpnpy/exercises"),
            # Help ▸ Writing Exercise Packs.
-           (str(ROOT / "cpnpy" / "teaching" / "exercise-packs.md"), "cpnpy/teaching")],
+           (str(ROOT / "cpnpy" / "learn" / "exercise-packs.md"), "cpnpy/learn")],
     # Imported inside functions; listed so they are never missed.  certifi
     # brings its certificate file (PyInstaller's hook), which the update check
     # needs to reach GitHub: the bundled Python cannot use the system's.

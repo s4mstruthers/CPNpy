@@ -87,6 +87,8 @@ def check(exercise: Exercise, task: Task, answer, context: Context | None = None
     checker = CHECKERS.get(task.type)
     if checker is None:
         return Result(UNKNOWN, "Compare your answer with the model answer.")
+    if task.type == "workflow":
+        return checker(context, task, answer or "")     # the answer is a file beside the sheet
     if answer in (None, "", [], {}) or (isinstance(answer, dict) and not any(
             str(v).strip() for v in answer.values() if not isinstance(v, dict))
             and not any(isinstance(v, dict) and any(str(x).strip() for x in v.values())
@@ -212,7 +214,7 @@ def _footprint_pairs(task: Task, footprint) -> list[tuple[str, str]]:
         if isinstance(item, tuple) and len(item) == 2 and all(x in known for x in item):
             pairs.append((known[item[0]], known[item[1]]))
         else:
-            raise TaskError(f"“pairs:” must list pairs of activities, like (a, b), (b, c)")
+            raise TaskError("“pairs:” must list pairs of activities, like (a, b), (b, c)")
     return pairs
 
 
@@ -448,7 +450,7 @@ def _check_markings(context, task, answer) -> Result:
 def _check_tuple(context, task, answer) -> Result:
     """(P, T, F, m0): each part against ``net.P``, ``net.T``, ``net.F``, ``net.m0``."""
     mine = notation.net_tuple(answer)
-    net = context.net(task.get("of") or task.get("net"))
+    context.net(task.get("of") or task.get("net"))          # a clear error when it is missing
     from .computed import COMPUTED as C
     right = {"P": answers.normalised(C["net.p"](context, "", task)),
              "T": answers.normalised(C["net.t"](context, "", task)),

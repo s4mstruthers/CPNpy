@@ -105,9 +105,9 @@ _CUES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bmarking\b.*\b(after|reached|firing)", re.I | re.S), "marking"),
     (re.compile(r"\(P\s*,\s*T\s*,\s*F|\bformalise\b|\bformalize\b|\bpreset\b|\bpostset\b", re.I), "tuple"),
     (re.compile(r"\bwhich of the following\b|\bchoose\b|\bselect\b|\bmultiple[- ]choice\b", re.I), "choice"),
+    (re.compile(r"\bhow many\b|\bcompute\b|\bcalculate\b|\bfitness\b|\bnumber of\b|\bprobability\b", re.I), "number"),
     (re.compile(r"\b(is|are|does|do|can|could|has|have|will)\b\s+(the|this|it|there|every|each|any)\b.*\?", re.I | re.S), "yesno"),
     (re.compile(r"\b(true or false|yes or no)\b", re.I), "yesno"),
-    (re.compile(r"\bhow many\b|\bcompute\b|\bcalculate\b|\bfitness\b|\bnumber of\b|\bprobability\b", re.I), "number"),
     (re.compile(r"\b(give|list|which|what are|determine)\b.*\b(set|activities|transitions|places|states|regions|pairs)\b", re.I | re.S), "set"),
     (re.compile(r"\b(explain|why|argue|motivate|describe|discuss)\b", re.I), "open"),
 ]
@@ -163,7 +163,12 @@ def question_markdown(question: Question) -> str:
     points = question.points if question.points is not None else \
         (sum(p.points for p in question.parts if p.points) or None)
     title = f"# {question.number} · {question.title}" + (f" ({points:g} points)" if points else "")
-    out = [title, ""]
+    out = []
+    # The question's points, when its parts do not add up to them (none given,
+    # or a different total): front matter keeps the exam's total right.
+    if points and sum(p.points or 0 for p in question.parts) != points:
+        out += ["---", f"points: {points:g}", "---"]
+    out += [title, ""]
     if question.intro:
         out += [question.intro, "", "> **TODO:** the exam showed a net or a log here: recreate it as "
                 "`net.pnml` / `log.txt` in this folder so the app can compute the answers.", ""]
