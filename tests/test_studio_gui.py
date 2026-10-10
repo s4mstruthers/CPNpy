@@ -2247,3 +2247,56 @@ def test_log_tabs_fit_the_window(app):
     bar = tree.zoom_controls
     assert bar.isVisible() and tree.viewport().geometry().contains(bar.geometry())
     window.close()
+
+
+def test_the_name_box_follows_the_node(app):
+    """The box that opens to name a new node stays over the node (#35).
+
+    The first node makes the inspector fill in, the canvas gets a little
+    shorter, and the view re-fits itself a moment later: the box used to stay
+    where the node *was*.  It must also follow panning, zooming and a redraw
+    of the net (a new item for the same node), and still rename the node."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    from cpnpy.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_petri()
+    page = window.current_page()
+    view = page.view
+    port = view.viewport()
+    _pump(app, 0.3)
+
+    def offset() -> int:
+        """How far the box's centre is from the node's name, in pixels."""
+        item = next(iter(page.scene.transition_items.values()))
+        anchor = view.mapFromScene(item.name_anchor()[0])
+        centre = view.name_editor.geometry().center()
+        return abs(centre.x() - anchor.x()) + abs(centre.y() - anchor.y())
+
+    page.tool_switch.set_index(2)                                     # Transition
+    QTest.mouseClick(port, Qt.LeftButton, Qt.NoModifier,
+                     QPoint(port.width() // 2 + 150, port.height() // 2 + 40))
+    _pump(app, 0.02)
+    assert view.name_editor is not None and offset() <= 2
+    _pump(app, 0.5)                               # the deferred re-fit, if any
+    assert view.name_editor is not None and offset() <= 2
+    view.zoom_to_fit()                            # the window was resized
+    assert offset() <= 2
+    view.pan_by(120, 80)
+    assert offset() <= 2
+    view.zoom_by(1.5, around_centre=True)
+    assert offset() <= 2 and view.name_editor.font().pointSize() > 12
+    page.scene.rebuild()                          # the node is drawn afresh
+    _pump(app, 0.05)
+    assert view.name_editor is not None and offset() <= 2
+
+    view.name_editor.setText("pay")
+    QTest.keyClick(view.name_editor, Qt.Key_Return)
+    _pump(app, 0.05)
+    assert view.name_editor is None
+    assert [t.name for t in page.net.all_transitions()] == ["pay"]
+    page.document.dirty = False
+    window.close()

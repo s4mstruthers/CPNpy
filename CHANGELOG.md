@@ -6,6 +6,13 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.5.5
+
+- **Fixed:** the box that opens to name a new place or transition could end
+  up below and beside the node instead of over it (the canvas re-fits itself
+  a moment after the first node is added). The box now stays over the node's
+  name, also while you pan or zoom.
+
 ## 0.5.4
 
 - **Discover and Process map fit the window.** The model, the process map and

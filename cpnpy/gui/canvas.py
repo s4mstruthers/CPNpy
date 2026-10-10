@@ -1200,34 +1200,44 @@ class NetView(CanvasPanning, QGraphicsView):
         self.zoom_controls = ZoomControls(self) if zoom_controls else None
         self._place_controls()
         self.viewport().setMouseTracking(True)      # the rubber-band arc follows the mouse
-        #: The inline name editor while one is open.
+        #: The inline name editor while one is open, and where it belongs:
+        #: a function giving the scene point it is centred on and its least
+        #: width, asked again whenever the view moves (see :meth:`edit_text`).
         self.name_editor = None
+        self._editor_anchor = None
+        self.zoom_changed.connect(lambda _zoom: self._place_editor())
         self.init_canvas()
 
     # -- editing a name in place ------------------------------------------------
-    def edit_text(self, centre: QPointF, text: str, done, min_width: float = 60.0) -> None:
-        """Open a small text field over the canvas at ``centre`` (scene
-        coordinates) with ``text`` selected: at least ``min_width`` scene
-        units wide (the node's width), growing with the text.  Return, a
-        click anywhere else, or moving the focus away calls
-        ``done(new_text)``; Esc closes it without a change."""
+    def edit_text(self, centre, text: str, done, min_width: float = 60.0) -> None:
+        """Open a small text field over the canvas with ``text`` selected.
+
+        ``centre`` is the scene point to centre it on, or a function that
+        returns ``(centre, min_width)`` -- or None once there is nothing to
+        name any more.  A function lets the box follow a node that is moved
+        or redrawn while it is open.  Either way the box also follows the
+        view: it stays over its spot when the canvas scrolls, zooms or is
+        resized (the view re-fits itself when the window changes, which used
+        to leave the box where the node *was*; issue #35).
+
+        The box is at least ``min_width`` scene units wide (the node's
+        width), growing with the text.  Return, a click anywhere else, or
+        moving the focus away calls ``done(new_text)``; Esc closes it
+        without a change.
+        """
         from PySide6.QtWidgets import QLineEdit
         self.close_editor()
+        if callable(centre):
+            anchor = centre
+        else:
+            point, width = QPointF(centre), float(min_width)
+            anchor = lambda: (point, width)
         editor = QLineEdit(text, self.viewport())
         editor.setObjectName("canvasNameEditor")
         editor.setAlignment(Qt.AlignCenter)
-        # The same size as the name on the canvas at the current zoom.
-        editor.setFont(theme.ui_font(max(9, min(28, round(12 * self._scale))),
-                                     theme.QFont.DemiBold))
         accent = theme.palette().accent.name()
         editor.setStyleSheet(f"QLineEdit#canvasNameEditor {{ padding: 1px 3px; border-radius: 4px;"
                              f" border: 1.5px solid {accent}; }}")
-        scale = self._scale
-        smallest = int(min_width * scale)
-        width = max(smallest, editor.fontMetrics().horizontalAdvance(text) + 18)
-        editor.resize(width, editor.sizeHint().height())
-        point = self.mapFromScene(centre)
-        editor.move(point.x() - width // 2, point.y() - editor.height() // 2)
         finished = {"done": False}
 
         def commit() -> None:
@@ -1242,15 +1252,10 @@ class NetView(CanvasPanning, QGraphicsView):
             finished["done"] = True
             self.close_editor()
 
-        def fit(text: str) -> None:
-            """Grow with the text, staying centred on the node."""
-            width = max(smallest, editor.fontMetrics().horizontalAdvance(text) + 18)
-            if width != editor.width():
-                centre_x = editor.x() + editor.width() // 2
-                editor.resize(width, editor.height())
-                editor.move(centre_x - width // 2, editor.y())
-
-        editor.textChanged.connect(fit)
+        self.name_editor = editor
+        self._editor_anchor = anchor
+        self._place_editor()
+        editor.textChanged.connect(lambda _text: self._place_editor())   # grow with the text
         editor.returnPressed.connect(commit)
         editor.editingFinished.connect(commit)
         from PySide6.QtGui import QShortcut, QKeySequence
@@ -1258,7 +1263,6 @@ class NetView(CanvasPanning, QGraphicsView):
         editor.show()
         editor.selectAll()
         editor.setFocus(Qt.MouseFocusReason)
-        self.name_editor = editor
         # Qt 6 reports editingFinished on focus loss only after a change, and
         # a click on the canvas or a toolbar button may not move the focus at
         # all -- so an untouched box (a new node's suggested name) stayed
@@ -1266,8 +1270,34 @@ class NetView(CanvasPanning, QGraphicsView):
         self._click_away = _ClickAway(editor, commit)
         QApplication.instance().installEventFilter(self._click_away)
 
+    def _place_editor(self) -> None:
+        """Put the name box over its spot at the current zoom and scroll
+        position: the same size as the name on the canvas, at least as wide
+        as the node, centred on the name.  Closes it if its node is gone."""
+        editor, anchor = self.name_editor, self._editor_anchor
+        if editor is None or anchor is None:
+            return
+        where = anchor()
+        if where is None:
+            self.close_editor()
+            return
+        centre, min_width = where
+        scale = self._scale
+        editor.setFont(theme.ui_font(max(9, min(28, round(12 * scale))), theme.QFont.DemiBold))
+        width = max(int(min_width * scale), editor.fontMetrics().horizontalAdvance(editor.text()) + 18)
+        height = editor.sizeHint().height()
+        if (width, height) != (editor.width(), editor.height()):
+            editor.resize(width, height)
+        point = self.mapFromScene(centre)
+        editor.move(point.x() - width // 2, point.y() - height // 2)
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802
+        super().scrollContentsBy(dx, dy)
+        self._place_editor()
+
     def close_editor(self) -> None:
         editor, self.name_editor = self.name_editor, None
+        self._editor_anchor = None
         watcher, self._click_away = getattr(self, "_click_away", None), None
         if watcher is not None:
             QApplication.instance().removeEventFilter(watcher)
@@ -1363,6 +1393,7 @@ class NetView(CanvasPanning, QGraphicsView):
         self._place_controls()
         if self.auto_fit:
             self.zoom_to_fit()
+        self._place_editor()
 
     def _place_controls(self) -> None:
         if self.zoom_controls is None:
