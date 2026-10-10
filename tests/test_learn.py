@@ -1,6 +1,6 @@
-"""CPNpy Learn without the GUI: notations, the new answer boxes, exams, marks,
+"""OpenProcess Learn without the GUI: notations, the new answer boxes, exams, marks,
 the exam importer and the command line (see also test_teaching.py, the older
-boxes through the cpnpy.teaching shims)."""
+boxes through the openprocess.teaching shims)."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ from pathlib import Path
 
 import pytest
 
-from cpnpy.learn import answers, notation
-from cpnpy.learn.checks import (
+from openprocess.learn import answers, notation
+from openprocess.learn.checks import (
     CORRECT, INCORRECT, PARTIAL, UNKNOWN, Context, TaskError, check, model_answer_text, validate,
 )
-from cpnpy.learn.computed import COMPUTED, describe_all, lookup
-from cpnpy.learn.exam import ExamState, marks, marks_csv, parse_generate
-from cpnpy.learn.importer import guess_type, split_questions, todo_list, write_pack
-from cpnpy.learn.pack import Exercise, load_pack
-from cpnpy.learn.sheet import Task, parse_sheet
+from openprocess.learn.computed import COMPUTED, describe_all, lookup
+from openprocess.learn.exam import ExamState, marks, marks_csv, parse_generate
+from openprocess.learn.importer import guess_type, split_questions, todo_list, write_pack
+from openprocess.learn.pack import Exercise, load_pack
+from openprocess.learn.sheet import Task, parse_sheet
 
-DEMO = Path(__file__).resolve().parents[1] / "cpnpy" / "exercises"
+DEMO = Path(__file__).resolve().parents[1] / "openprocess" / "exercises"
 MARKINGS = DEMO / "5 Markings" / "Exercise 5.1 Markings and matrices"
 CUTS = DEMO / "6 Inductive Miner" / "Exercise 6.1 Cuts and trees"
 CONFORMANCE = DEMO / "7 Conformance" / "Exercise 7.1 Replay, alignments and workflows"
@@ -206,7 +206,7 @@ def test_replay_alignments_rankings_and_workflows_are_checked(tmp_path):
 
     # The workflow: not built yet, then built with the boxes asked for.
     assert check(ex, workflow, "", context).status == UNKNOWN
-    from cpnpy.flow import Runner, Workflow, save
+    from openprocess.flow import Runner, Workflow, save
     wf = Workflow("my workflow", context.library)
     log = wf.add("typed_log", {"text": LOG, "name": "L"})
     miner = wf.add("inductive_miner", {})
@@ -358,7 +358,7 @@ def test_an_exam_becomes_a_skeleton_pack(tmp_path):
 
 # -- the command line -----------------------------------------------------------------------
 def test_the_command_line_marks_imports_and_lists_computes(tmp_path, capsys):
-    from cpnpy.cli import main
+    from openprocess.cli import main
     assert main(["exercises", "computes"]) == 0
     out = capsys.readouterr().out
     assert "Of the net" in out and "im.cut" in out and "reachability graph" in out

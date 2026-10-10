@@ -6,7 +6,7 @@ implementation.
 
 from models import dining_philosophers, simple_transfer
 
-from cpnpy.analysis.state_space import StateSpace
+from openprocess.analysis.state_space import StateSpace
 
 
 def test_simple_transfer_state_space_size():
@@ -68,7 +68,7 @@ def test_report_mentions_the_key_sections():
 def test_a_timed_state_waits_past_a_release_that_enables_nothing():
     # t0 puts a token in X at +1 and one in Y at +2; only Y enables t1.  The
     # state after t0 must advance time twice, not be reported as dead.
-    from cpnpy.model.net import Arc, CPNet, Place, Transition
+    from openprocess.model.net import Arc, CPNet, Place, Transition
     net = CPNet("Waiting")
     net.add_declaration("colset T = unit timed;")
     page = net.add_page("Top")
@@ -93,11 +93,11 @@ def test_worker_command_from_source_and_from_a_frozen_app(monkeypatch):
     """From source the worker is ``python -m …``; a frozen app relaunches itself."""
     import sys
 
-    from cpnpy.analysis.state_space_process import WORKER_FLAG, worker_command
+    from openprocess.analysis.state_space_process import WORKER_FLAG, worker_command
 
     monkeypatch.delattr(sys, "frozen", raising=False)
     assert worker_command("m.cpn", "10", "out") == [
-        sys.executable, "-m", "cpnpy.analysis.state_space_process", "m.cpn", "10", "out"]
+        sys.executable, "-m", "openprocess.analysis.state_space_process", "m.cpn", "10", "out"]
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert worker_command("m.cpn", "10", "out") == [sys.executable, WORKER_FLAG, "m.cpn", "10", "out"]

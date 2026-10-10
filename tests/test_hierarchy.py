@@ -9,12 +9,12 @@ below has three levels:
     Ship:    From --pack--> To                       (From, To: ports)
 """
 
-from cpnpy.analysis.state_space import StateSpace
-from cpnpy.io.cpn_reader import read_cpn
-from cpnpy.io.cpn_writer import write_cpn
-from cpnpy.ml.multiset import Multiset
-from cpnpy.model.net import Arc, CPNet, Place, Transition
-from cpnpy.sim.simulator import Simulator
+from openprocess.analysis.state_space import StateSpace
+from openprocess.io.cpn_reader import read_cpn
+from openprocess.io.cpn_writer import write_cpn
+from openprocess.ml.multiset import Multiset
+from openprocess.model.net import Arc, CPNet, Place, Transition
+from openprocess.sim.simulator import Simulator
 
 
 def hierarchical() -> CPNet:

@@ -1,10 +1,27 @@
-# What's new in CPNpy
+# What's new in OpenProcess
 
-Newest first. When a new version is out, CPNpy shows its section here (and
-those of any other versions you skipped) before offering to install it, and
-each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
-it as its description. Write for the people using the app: what they will
-notice, not how it was done.
+Newest first. When a new version is out, OpenProcess shows its section here
+(and those of any other versions you skipped) before offering to install it,
+and each [release on GitHub](https://github.com/s4mstruthers/openprocess/releases)
+uses it as its description. Write for the people using the app: what they will
+notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
+
+## 0.7.0
+
+- **CPNpy is now OpenProcess.** The name said "coloured Petri nets"; the app
+  is a workbench for process mining, Petri nets and workflows where every
+  algorithm is open to read, every result reproducible and every step
+  teachable. Same code, new name and logo: the app is **OpenProcess
+  Studio**, the teaching mode **OpenProcess Learn**, the package
+  `openprocess` (`pip install openprocess`, with `[app]` for the window),
+  the commands `openprocess`, `openprocess-studio` and `openprocess-cpn`.
+- **Nothing of yours breaks.** `import cpnpy` keeps working (it is
+  `openprocess` under its old name, with a one-line warning), so boxes and
+  exercise packs written for CPNpy run unchanged. A folder's hidden state
+  and notes, your settings and the datasets cache are carried over the
+  first time you open them. Workflow files keep the `.cpnflow` extension.
+- **Updates** come from the renamed repository; CPNpy 0.6 finds 0.7.0
+  through GitHub's redirect and installs it like any other update.
 
 ## 0.6.0
 

@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from cpnpy.gui.studio import instances
-from cpnpy.gui.studio.mathtext import name, render, render_text
-from cpnpy.mining.analysis import analyse, check_soundness
-from cpnpy.mining.definitions import BY_KEY, DEFINITIONS, FOR_TITLE, SECTIONS, markdown
-from cpnpy.mining.petrinet import Marking
-from cpnpy.model.examples import order_handling_sound, order_handling_unsound
+from openprocess.gui.studio import instances
+from openprocess.gui.studio.mathtext import name, render, render_text
+from openprocess.mining.analysis import analyse, check_soundness
+from openprocess.mining.definitions import BY_KEY, DEFINITIONS, FOR_TITLE, SECTIONS, markdown
+from openprocess.mining.petrinet import Marking
+from openprocess.model.examples import order_handling_sound, order_handling_unsound
 
 
 def test_every_definition_typesets():
@@ -26,7 +26,7 @@ def test_every_definition_typesets():
 
 
 def test_docs_page_is_up_to_date():
-    """docs/definitions.md is generated: python -m cpnpy.mining.definitions > docs/definitions.md"""
+    """docs/definitions.md is generated: python -m openprocess.mining.definitions > docs/definitions.md"""
     page = Path(__file__).resolve().parents[1] / "docs" / "definitions.md"
     assert page.read_text(encoding="utf-8") == markdown()
 

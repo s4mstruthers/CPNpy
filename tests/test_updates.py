@@ -15,36 +15,36 @@ import pytest
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from cpnpy.gui.studio import updates  # noqa: E402
-from cpnpy.gui.studio.updates import Release, is_newer, parse_version  # noqa: E402
+from openprocess.gui.studio import updates  # noqa: E402
+from openprocess.gui.studio.updates import Release, is_newer, parse_version  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
 GITHUB_ANSWER = {
     "tag_name": "v0.3.0",
-    "html_url": "https://github.com/s4mstruthers/CPNpy/releases/tag/v0.3.0",
+    "html_url": "https://github.com/s4mstruthers/openprocess/releases/tag/v0.3.0",
     "body": "## What's new\n- Folders stay in sync",
     "prerelease": False,
     "assets": [{"name": n, "browser_download_url": f"https://example.invalid/{n}",
                 "digest": "sha256:" + "AB" * 32} for n in (
-        "CPNpy-0.3.0-Linux-x64.tar.gz", "CPNpy-0.3.0-macOS-arm64.dmg",
-        "CPNpy-0.3.0-macOS-x64.dmg", "CPNpy-0.3.0-Windows-x64.zip")]
-    + [{"name": "CPNpy-0.2.0-old.zip", "browser_download_url": "https://example.invalid/old"}],
+        "OpenProcess-0.3.0-Linux-x64.tar.gz", "OpenProcess-0.3.0-macOS-arm64.dmg",
+        "OpenProcess-0.3.0-macOS-x64.dmg", "OpenProcess-0.3.0-Windows-x64.zip")]
+    + [{"name": "OpenProcess-0.2.0-old.zip", "browser_download_url": "https://example.invalid/old"}],
 }
 
 
 def test_one_version_number_everywhere():
-    import cpnpy
+    import openprocess
     text = (ROOT / "pyproject.toml").read_text()
-    assert 'dynamic = ["version"]' in text and 'attr = "cpnpy.__version__"' in text
+    assert 'dynamic = ["version"]' in text and 'attr = "openprocess.__version__"' in text
     assert not re.search(r'^version\s*=\s*"', text, re.M)        # no second copy
     sys.path.insert(0, str(ROOT / "packaging"))
     try:
         import build
-        assert build.version() == cpnpy.__version__
+        assert build.version() == openprocess.__version__
     finally:
         sys.path.remove(str(ROOT / "packaging"))
-    assert updates.__version__ == cpnpy.__version__
+    assert updates.__version__ == openprocess.__version__
 
 
 def test_versions_compare_as_numbers():
@@ -58,18 +58,18 @@ def test_versions_compare_as_numbers():
 def test_the_right_download_for_each_system():
     release = Release.from_github(GITHUB_ANSWER)
     assert (release.version, release.tag, release.prerelease) == ("0.3.0", "v0.3.0", False)
-    assert release.download_for("macOS", "arm64")[0] == "CPNpy-0.3.0-macOS-arm64.dmg"
-    assert release.download_for("macOS", "x64")[0] == "CPNpy-0.3.0-macOS-x64.dmg"
-    assert release.download_for("Windows", "x64")[0] == "CPNpy-0.3.0-Windows-x64.zip"
-    assert release.download_for("Linux", "x64")[0] == "CPNpy-0.3.0-Linux-x64.tar.gz"
+    assert release.download_for("macOS", "arm64")[0] == "OpenProcess-0.3.0-macOS-arm64.dmg"
+    assert release.download_for("macOS", "x64")[0] == "OpenProcess-0.3.0-macOS-x64.dmg"
+    assert release.download_for("Windows", "x64")[0] == "OpenProcess-0.3.0-Windows-x64.zip"
+    assert release.download_for("Linux", "x64")[0] == "OpenProcess-0.3.0-Linux-x64.tar.gz"
     assert release.download_for("Linux", "arm64") is None
     # GitHub's own SHA-256 of each upload (none for an old upload without one).
-    assert release.checksum_for("CPNpy-0.3.0-macOS-arm64.dmg") == "ab" * 32
-    assert release.checksum_for("CPNpy-0.2.0-old.zip") is None
+    assert release.checksum_for("OpenProcess-0.3.0-macOS-arm64.dmg") == "ab" * 32
+    assert release.checksum_for("OpenProcess-0.2.0-old.zip") is None
 
 
 def test_checksums(tmp_path):
-    archive = tmp_path / "CPNpy.zip"
+    archive = tmp_path / "OpenProcess.zip"
     archive.write_bytes(b"the app")
     digest = hashlib.sha256(b"the app").hexdigest()
     assert updates.verify(archive, digest) and updates.verify(archive, digest.upper())
@@ -88,13 +88,13 @@ def test_running_from_source_never_updates_itself(monkeypatch):
 def test_installer_swaps_the_app_once_it_has_quit(tmp_path):
     """The script waits for the app to quit, puts the new app in the old one's
     place (no leftovers) and starts it."""
-    old, work = tmp_path / "CPNpy", tmp_path / ".cpnpy-update-x"
-    new = work / "unpacked" / "CPNpy"
+    old, work = tmp_path / "OpenProcess", tmp_path / ".openprocess-update-x"
+    new = work / "unpacked" / "OpenProcess"
     marker = tmp_path / "started"
     for folder, text in ((old, "old"), (new, "new")):
         folder.mkdir(parents=True)
         (folder / "version.txt").write_text(text)
-        program = folder / "CPNpy"
+        program = folder / "OpenProcess"
         program.write_text(f"#!/bin/sh\necho {text} > '{marker}'\n")
         program.chmod(0o755)
     # A process standing in for the app.  Started by a shell that exits at
@@ -107,7 +107,7 @@ def test_installer_swaps_the_app_once_it_has_quit(tmp_path):
     subprocess.run(command, check=True, timeout=30)
     assert time.monotonic() - started >= 0.5            # it waited for the app to quit
     assert (old / "version.txt").read_text() == "new"
-    assert not (tmp_path / "CPNpy.previous").exists() and not work.exists()
+    assert not (tmp_path / "OpenProcess.previous").exists() and not work.exists()
     for _ in range(100):                                # the new app was started
         if marker.exists():
             break
@@ -118,16 +118,16 @@ def test_installer_swaps_the_app_once_it_has_quit(tmp_path):
 def test_installer_scripts_for_macos_and_windows(tmp_path):
     work = tmp_path / "work"
     work.mkdir()
-    script, command = updates.installer_script(tmp_path / "new" / "CPNpy.app",
-                                               tmp_path / "CPNpy.app", 42, work, system="macOS")
+    script, command = updates.installer_script(tmp_path / "new" / "OpenProcess.app",
+                                               tmp_path / "OpenProcess.app", 42, work, system="macOS")
     text = script.read_text()
     assert "kill -0 42" in text and "xattr -dr com.apple.quarantine" in text
-    assert f'open "{tmp_path / "CPNpy.app"}"' in text
-    script, command = updates.installer_script(tmp_path / "new", tmp_path / "CPNpy", 42, work,
+    assert f'open "{tmp_path / "OpenProcess.app"}"' in text
+    script, command = updates.installer_script(tmp_path / "new", tmp_path / "OpenProcess", 42, work,
                                                system="Windows")
     text = script.read_text()
     assert command[:2] == ["cmd", "/c"] and '"PID eq 42"' in text
-    assert "CPNpy.exe" in text and ".previous" in text
+    assert "OpenProcess.exe" in text and ".previous" in text
 
 
 def _pump(app, seconds: float) -> None:
@@ -140,8 +140,8 @@ def _pump(app, seconds: float) -> None:
 def test_check_for_updates_in_the_app(monkeypatch):
     from PySide6.QtWidgets import QApplication
 
-    from cpnpy.gui.studio import app as studio_app
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
 
     application = QApplication.instance() or QApplication([])
     told, opened, shown = [], [], []
@@ -256,13 +256,13 @@ def test_release_notes_come_from_the_changelog():
         import release_notes
     finally:
         sys.path.remove(str(ROOT / "packaging"))
-    import cpnpy
+    import openprocess
     text = "# What's new\n\n## 0.4.0\n\n- A\n- B\n\n## 0.3.2\n\n- C\n"
     assert release_notes.section("v0.4.0", text) == "- A\n- B\n"
     assert release_notes.section("0.3.2", text) == "- C\n"
     assert release_notes.section("0.3.9", text) is None
     # The version being released always says what is new.
-    assert release_notes.section(cpnpy.__version__) is not None or \
+    assert release_notes.section(openprocess.__version__) is not None or \
         release_notes.section("0.3.2") is not None
 
 
@@ -272,7 +272,7 @@ def test_a_new_version_at_launch_is_a_bar_not_a_dialog(monkeypatch):
     put it away."""
     from PySide6.QtWidgets import QApplication
 
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     application = QApplication.instance() or QApplication([])
     dialogs, installs = [], []
@@ -322,7 +322,7 @@ def test_running_from_source_only_says_how_to_update(monkeypatch):
     nothing is downloaded or replaced."""
     from PySide6.QtWidgets import QApplication
 
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     application = QApplication.instance() or QApplication([])
     monkeypatch.delattr(sys, "frozen", raising=False)
@@ -372,7 +372,7 @@ def test_install_progress_stays_up_after_the_download(monkeypatch):
 
     from PySide6.QtWidgets import QApplication
 
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     application = QApplication.instance() or QApplication([])
     unpacking = threading.Event()

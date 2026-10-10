@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cpnpy.gui.tidy import _clean_bends, snap_page
-from cpnpy.mining.pnml import read_pnml
-from cpnpy.model.plain import from_petri_net
+from openprocess.gui.tidy import _clean_bends, snap_page
+from openprocess.mining.pnml import read_pnml
+from openprocess.model.plain import from_petri_net
 
 ROOT = Path(__file__).resolve().parents[1]
 STEP = 28

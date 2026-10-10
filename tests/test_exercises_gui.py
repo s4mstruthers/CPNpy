@@ -1,7 +1,7 @@
-"""Exercise mode, transition systems and regions, and Compare nets… in CPNpy Studio.
+"""Exercise mode, transition systems and regions, and Compare nets… in OpenProcess Studio.
 
 Rendered offscreen, like the other GUI tests.  The demo exercises that ship
-with the app (``cpnpy/exercises``) are copied to a temporary folder first,
+with the app (``openprocess/exercises``) are copied to a temporary folder first,
 because an exercise saves your work into its folder.
 """
 
@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-DEMO = Path(__file__).resolve().parents[1] / "cpnpy" / "exercises"
+DEMO = Path(__file__).resolve().parents[1] / "openprocess" / "exercises"
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +50,7 @@ def demo(tmp_path):
 
 
 def _window():
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
     window = StudioWindow()
     window.resize(1500, 950)
     window.show()
@@ -62,7 +62,7 @@ def _cards(window):
 
 
 def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
-    from cpnpy.gui.learn.mode import ExerciseRow
+    from openprocess.gui.learn.mode import ExerciseRow
 
     window = _window()
     window.open_workspace(str(demo))
@@ -73,7 +73,7 @@ def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
     assert len(rows) == 7
     rows[1].open_it()
     assert mode.index == 1 and "Spot the flaw" in mode.view.title.text()
-    assert window.windowTitle() == "Exercise 2.1 — Spot the flaw — CPNpy demo exercises"
+    assert window.windowTitle() == "Exercise 2.1 — Spot the flaw — OpenProcess demo exercises"
     assert mode.position.text() == "2 / 7"
     mode.step(1)
     assert "α-algorithm" in mode.view.title.text()
@@ -88,7 +88,7 @@ def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
 
 
 def test_clicking_an_exercise_in_the_sidebar_opens_it(app, demo):
-    from cpnpy.gui.studio.app import EXERCISE_ROLE
+    from openprocess.gui.studio.app import EXERCISE_ROLE
 
     window = _window()
     window.open_workspace(str(demo))
@@ -150,7 +150,7 @@ def test_answers_are_checked_saved_and_restored(app, demo):
 
 
 def test_drawing_a_net_saves_my_answer_and_checks_it(app, demo):
-    from cpnpy.mining.pnml import read_pnml
+    from openprocess.mining.pnml import read_pnml
 
     folder = demo / "2 Soundness" / "Exercise 2.1 Spot the flaw"
     given = (folder / "net.pnml").read_bytes()
@@ -185,8 +185,8 @@ def test_drawing_a_net_saves_my_answer_and_checks_it(app, demo):
 def test_a_wrong_net_shows_traces_to_replay(app, demo):
     """Check finds an XOR where the answer has an AND, with traces that replay
     in your net's token game."""
-    from cpnpy.gui.studio.net_comparison import NetComparisonView
-    from cpnpy.mining.pnml import read_pnml, write_pnml
+    from openprocess.gui.studio.net_comparison import NetComparisonView
+    from openprocess.mining.pnml import read_pnml, write_pnml
 
     folder = demo / "1 Petri nets" / "Exercise 1.1 Order handling"
     answer = read_pnml(str(folder / "answer.pnml"))
@@ -213,7 +213,7 @@ def test_a_wrong_net_shows_traces_to_replay(app, demo):
 
 
 def test_footprint_and_sets_on_a_log(app, demo):
-    from cpnpy.mining import footprint_of_log, parse_simple_log
+    from openprocess.mining import footprint_of_log, parse_simple_log
 
     folder = demo / "3 Discovery" / "Exercise 3.1 The alpha-algorithm"
     window = _window()
@@ -257,7 +257,7 @@ def test_footprint_and_sets_on_a_log(app, demo):
 
 
 def test_regions_exercise_and_transition_system_page(app, demo):
-    from cpnpy.gui.studio.regions_view import TransitionSystemPage
+    from openprocess.gui.studio.regions_view import TransitionSystemPage
 
     folder = demo / "4 Regions" / "Exercise 4.1 Regions of a transition system"
     given = (folder / "ts.txt").read_text()
@@ -339,7 +339,7 @@ def test_a_mistake_in_a_sheet_is_shown_not_hidden(app, tmp_path):
 
 def test_open_demo_exercises_asks_where_and_updates_an_old_copy(app, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QFileDialog
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     # First time: you choose the folder; cancelling copies nothing.
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: "")
@@ -348,7 +348,7 @@ def test_open_demo_exercises_asks_where_and_updates_an_old_copy(app, tmp_path, m
     assert not window.in_learn and not list(tmp_path.iterdir())
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
     window.open_demo_exercises()
-    target = tmp_path / "CPNpy Demo Exercises"
+    target = tmp_path / "OpenProcess Demo Exercises"
     assert (target / "pack.md").exists() and window.in_learn
     assert window.workspace is None                  # your folder is left as it was
     window.close()
@@ -369,9 +369,9 @@ def test_open_demo_exercises_asks_where_and_updates_an_old_copy(app, tmp_path, m
 
 
 def test_discover_with_state_based_regions(app):
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.regions_view import RegionsPanel
-    from cpnpy.mining import EventLog, parse_simple_log
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.regions_view import RegionsPanel
+    from openprocess.mining import EventLog, parse_simple_log
 
     window = _window()
     log = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"),
@@ -395,8 +395,8 @@ def test_discover_with_state_based_regions(app):
 
 
 def test_compare_nets_outside_an_exercise(app):
-    from cpnpy.gui.studio.documents import ModelDocument
-    from cpnpy.model.examples import order_handling_sound, order_handling_unsound
+    from openprocess.gui.studio.documents import ModelDocument
+    from openprocess.model.examples import order_handling_sound, order_handling_unsound
 
     window = _window()
     window.add_document(ModelDocument(order_handling_sound(), origin="test"))
@@ -404,7 +404,7 @@ def test_compare_nets_outside_an_exercise(app):
     first, second = window.documents
     window.compare_nets(first, second)
     assert wait_for(app, lambda: getattr(window, "net_comparison_dialog", None) is not None)
-    from cpnpy.gui.studio.net_comparison import NetComparisonView
+    from openprocess.gui.studio.net_comparison import NetComparisonView
     view = window.net_comparison_dialog.findChildren(NetComparisonView)[0]
     assert isinstance(view.comparison.equivalent, bool)
     window.net_comparison_dialog.close()
@@ -414,7 +414,7 @@ def test_compare_nets_outside_an_exercise(app):
 def test_question_markdown_has_maths_and_tables():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
-    from cpnpy.gui.studio.markdown_view import markdown_html
+    from openprocess.gui.studio.markdown_view import markdown_html
     html = markdown_html("| a | b |\n|---|---|\n| 1 | 2 |\n\nInline $s_{in} \\in S$ and\n\n"
                          "$$\\bigcap_{R} R$$\n\nand $\\frobnicate$ stays as written.")
     assert "<table" in html and "<sub>" in html and "⋂" in html
@@ -422,8 +422,8 @@ def test_question_markdown_has_maths_and_tables():
 
 
 def test_help_shows_references_and_the_authoring_guide(app):
-    from cpnpy import references
-    from cpnpy.gui.studio.definition_view import show_guide
+    from openprocess import references
+    from openprocess.gui.studio.definition_view import show_guide
     dialog = show_guide("references")
     text = dialog.browser.toPlainText()
     assert "Works cited" in text and "Process Mining: Data Science in Action" in text
@@ -438,10 +438,10 @@ def test_help_shows_references_and_the_authoring_guide(app):
 
 
 def test_references_doc_is_up_to_date():
-    from cpnpy import references
+    from openprocess import references
     path = Path(__file__).resolve().parents[1] / "docs" / "references.md"
     assert path.read_text(encoding="utf-8") == references.markdown(), \
-        "regenerate with: python -m cpnpy.references > docs/references.md"
+        "regenerate with: python -m openprocess.references > docs/references.md"
 
 
 def test_old_style_parts_get_boxes_and_notes_are_kept(app, tmp_path):
@@ -477,7 +477,7 @@ def test_old_style_parts_get_boxes_and_notes_are_kept(app, tmp_path):
 
 def test_wide_pictures_are_scaled_to_the_worksheet(app, tmp_path):
     from PySide6.QtGui import QImage
-    from cpnpy.gui.studio.markdown_view import MarkdownLabel
+    from openprocess.gui.studio.markdown_view import MarkdownLabel
     picture = QImage(1600, 400, QImage.Format_RGB32)
     picture.fill(0)
     picture.save(str(tmp_path / "wide.png"))

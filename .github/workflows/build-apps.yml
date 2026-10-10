@@ -1,4 +1,4 @@
-# Test CPNpy, and build the standalone CPNpy Studio app for macOS, Windows and
+# Test OpenProcess, and build the standalone OpenProcess Studio app for macOS, Windows and
 # Linux.
 #
 # Nothing here can hang for long: the few Ubuntu packages Qt needs are kept
@@ -23,8 +23,8 @@
 # tag (git tag v0.3.0 && git push origin v0.3.0) also publishes a GitHub
 # Release with the downloads attached, described by the version's section
 # of CHANGELOG.md.  (GitHub shows each download's SHA-256, which the app's
-# updater, cpnpy/gui/studio/updates.py, checks.)  The tag must match
-# __version__ in cpnpy/__init__.py, and CHANGELOG.md needs a section for it.
+# updater, openprocess/gui/studio/updates.py, checks.)  The tag must match
+# __version__ in openprocess/__init__.py, and CHANGELOG.md needs a section for it.
 
 name: Build apps
 
@@ -70,10 +70,10 @@ jobs:
         timeout-minutes: 15       # from the cache it takes seconds
         run: packaging/ci/install-qt-libraries.sh
 
-      - name: Install CPNpy with the app and the test tools
+      - name: Install OpenProcess with the app and the test tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ".[gui,dev]"
+          python -m pip install ".[app,dev]"
 
       - name: Run the test suite (the windows are drawn offscreen)
         env:
@@ -128,17 +128,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' cpnpy/__init__.py)
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' openprocess/__init__.py)
           if [ "${{ github.ref_name }}" != "v$version" ]; then
-            echo "The tag ${{ github.ref_name }} does not match __version__ = $version in cpnpy/__init__.py"
+            echo "The tag ${{ github.ref_name }} does not match __version__ = $version in openprocess/__init__.py"
             exit 1
           fi
           python packaging/release_notes.py "$version" > /dev/null
 
-      - name: Install CPNpy and PyInstaller
+      - name: Install OpenProcess and PyInstaller
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ".[gui]" pyinstaller
+          python -m pip install ".[app]" pyinstaller
 
       - name: Build and smoke-test the app
         run: python packaging/build.py
@@ -146,7 +146,7 @@ jobs:
       - name: Keep the app as an artifact
         uses: actions/upload-artifact@v5
         with:
-          name: CPNpy-${{ runner.os }}-${{ runner.arch }}
+          name: OpenProcess-${{ runner.os }}-${{ runner.arch }}
           path: |
             dist/*.dmg
             dist/*.zip
@@ -167,7 +167,7 @@ jobs:
           merge-multiple: true
 
       # The release's text is the version's section of CHANGELOG.md, written
-      # for the people using the app: CPNpy shows it when offering the update.
+      # for the people using the app: OpenProcess shows it when offering the update.
       - name: Release notes from CHANGELOG.md
         run: python3 packaging/release_notes.py "${{ github.ref_name }}" > release-notes.md
 
@@ -175,3 +175,26 @@ jobs:
         with:
           files: apps/*
           body_path: release-notes.md
+
+  # The same tag publishes the package on PyPI (`pip install openprocess`),
+  # through PyPI's trusted publishing: no token is stored anywhere.  Set it up
+  # once on pypi.org (the project's Publishing page): this repository, this
+  # workflow file, environment "pypi".
+  pypi:
+    name: Publish to PyPI
+    needs: tests
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the source archive and the wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1

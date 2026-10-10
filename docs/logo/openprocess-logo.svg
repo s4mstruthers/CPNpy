@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="160" viewBox="0 0 760 160">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#0F2A6B"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#0F2A6B"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(8,8) scale(0.28125)">
+    <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#bg)"/>
+    <path d="M 356 176 V 158 Q 356 118 316 118 H 142 Q 102 118 102 158 V 354 Q 102 394 142 394 H 316 Q 356 394 356 354 V 336"
+          fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round"/>
+    <circle cx="178" cy="256" r="34" fill="none" stroke="#FFFFFF" stroke-width="18"/>
+    <circle cx="178" cy="256" r="11" fill="#7DD3FC"/>
+    <line x1="222" y1="256" x2="246" y2="256" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+    <rect x="256" y="206" width="30" height="100" rx="8" fill="#FFFFFF"/>
+    <line x1="296" y1="256" x2="402" y2="256" stroke="#7DD3FC" stroke-width="18" stroke-linecap="round"/>
+    <path d="M 392 220 L 444 256 L 392 292 Z" fill="#7DD3FC"/>
+  </g>
+  <text x="176" y="100" font-family="'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="80" font-weight="800" letter-spacing="-2.5" fill="#0F172A">Open<tspan fill="url(#word)">Process</tspan></text>
+  <text x="180" y="134" font-family="'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="19" font-weight="500" fill="#64748B">Process mining and Petri nets, open all the way down</text>
+</svg>

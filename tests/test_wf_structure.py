@@ -1,8 +1,8 @@
 """The WF-net checks of van der Aalst, *Workflow Verification*, on the paper's own figures."""
 
-from cpnpy.mining.analysis import check_short_circuited, check_soundness, check_workflow_net
-from cpnpy.mining.petrinet import PetriNet
-from cpnpy.mining.structure import check_structure, handles
+from openprocess.mining.analysis import check_short_circuited, check_soundness, check_workflow_net
+from openprocess.mining.petrinet import PetriNet
+from openprocess.mining.structure import check_structure, handles
 
 
 def _net(arcs, name="net"):

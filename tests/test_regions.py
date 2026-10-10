@@ -5,12 +5,12 @@ The two exam cases come from TU/e 2AMI10 (2022/23 Q1) and its grading scheme
 subset of states.
 """
 
-from cpnpy.mining.compare_nets import compare_nets, replayable_prefix
-from cpnpy.mining.discovery.state_regions import region_miner, region_result
-from cpnpy.mining.log import parse_simple_log
-from cpnpy.mining.petrinet import Marking, PetriNet
-from cpnpy.mining.regions import analyse_regions, check_region, synthesise
-from cpnpy.mining.transition_system import (
+from openprocess.mining.compare_nets import compare_nets, replayable_prefix
+from openprocess.mining.discovery.state_regions import region_miner, region_result
+from openprocess.mining.log import parse_simple_log
+from openprocess.mining.petrinet import Marking, PetriNet
+from openprocess.mining.regions import analyse_regions, check_region, synthesise
+from openprocess.mining.transition_system import (
     isomorphic, parse_states, parse_transition_system, transition_system_from_log,
 )
 

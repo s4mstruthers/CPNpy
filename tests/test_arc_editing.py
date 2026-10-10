@@ -1,6 +1,6 @@
-"""CPN IDE's arc-editing rules (cpnpy.gui.arc_editing), without a window."""
+"""CPN IDE's arc-editing rules (openprocess.gui.arc_editing), without a window."""
 
-from cpnpy.gui import arc_editing as edit
+from openprocess.gui import arc_editing as edit
 
 T_RECT = (-40.0, -20.0, 80.0, 40.0)          # a transition at (0, 0)
 P_RECT = (160.0, -20.0, 80.0, 40.0)          # a place at (200, 0)

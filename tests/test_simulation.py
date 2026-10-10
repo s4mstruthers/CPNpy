@@ -6,9 +6,9 @@ from models import (
     dining_philosophers, guarded_choice, simple_transfer, timed_conveyor,
 )
 
-from cpnpy.ml.multiset import Multiset
-from cpnpy.model.net import Arc, CPNet, Page, Place, Transition
-from cpnpy.sim.simulator import DeadMarkingError, Simulator
+from openprocess.ml.multiset import Multiset
+from openprocess.model.net import Arc, CPNet, Page, Place, Transition
+from openprocess.sim.simulator import DeadMarkingError, Simulator
 
 
 def marking_of(net, simulator, place_name):
@@ -42,7 +42,7 @@ def test_firing_moves_exactly_the_bound_token():
 
 
 def _green(net):
-    from cpnpy.ml.values import Constructor
+    from openprocess.ml.values import Constructor
     return Constructor("green")
 
 

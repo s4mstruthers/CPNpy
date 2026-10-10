@@ -2,13 +2,13 @@
 
 import pytest
 
-from cpnpy.ml.colorsets import (
+from openprocess.ml.colorsets import (
     BoolColourSet, EnumColourSet, IndexColourSet, InfiniteColourSetError,
     IntColourSet, ListColourSet, ProductColourSet, RecordColourSet,
     UnionColourSet, standard_colour_sets,
 )
-from cpnpy.ml.values import Constructor, MLList, Record
-from cpnpy.model.declarations import parse_colour_set_declaration
+from openprocess.ml.values import Constructor, MLList, Record
+from openprocess.model.declarations import parse_colour_set_declaration
 
 
 def test_bool_is_not_a_member_of_int():
@@ -77,7 +77,7 @@ def test_union_membership_checks_the_payload():
 
 # -- declarations that depend on values and functions -------------------------
 def _compiled(*declarations):
-    from cpnpy.model.net import CPNet
+    from openprocess.model.net import CPNet
     net = CPNet("Declarations")
     for declaration in declarations:
         net.add_declaration(declaration)
@@ -110,7 +110,7 @@ def test_subset_with_a_list_is_finite_even_over_int():
 
 
 def test_colour_set_functions():
-    from cpnpy.ml.parser import parse_expression
+    from openprocess.ml.parser import parse_expression
     net = _compiled("colset PH = index ph with 1..3;")
 
     def run(source):
@@ -125,7 +125,7 @@ def test_colour_set_functions():
 
 
 def test_an_unknown_bound_names_the_colour_set():
-    from cpnpy.model.net import CPNet
+    from openprocess.model.net import CPNet
     net = CPNet("Broken")
     net.add_declaration("colset N = int with 1..missing;")
     problems = net.compile()

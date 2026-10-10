@@ -1,12 +1,12 @@
-"""Render the app icons for the standalone builds from ``docs/logo/cpnpy-icon.svg``.
+"""Render the app icons for the standalone builds from ``docs/logo/openprocess-icon.svg``.
 
 Each system wants its own icon format:
 
-* **macOS** -- ``CPNpy.icns``.  Big Sur and later draw app icons on a 1024 px
+* **macOS** -- ``OpenProcess.icns``.  Big Sur and later draw app icons on a 1024 px
   grid with the artwork filling about 80 % of it, so the logo is shrunk onto
   that grid; otherwise it would look larger than every other icon in the Dock.
-* **Windows** -- ``CPNpy.ico``, holding every size from 16 to 256 px.
-* **Linux** -- ``CPNpy.png`` (512 px), referenced by the ``.desktop`` file.
+* **Windows** -- ``OpenProcess.ico``, holding every size from 16 to 256 px.
+* **Linux** -- ``OpenProcess.png`` (512 px), referenced by the ``.desktop`` file.
 
 The generated files are committed, so building the apps does not need this
 script.  Run it again only after changing the logo::
@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "docs" / "logo" / "cpnpy-icon.svg"
+SOURCE = ROOT / "docs" / "logo" / "openprocess-icon.svg"
 OUT = Path(__file__).resolve().parent / "icons"
 
 
@@ -59,14 +59,14 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
 
     # macOS: one 1024 px master on Apple's icon grid; Pillow writes every size.
-    render(1024, artwork_fraction=0.8).save(OUT / "CPNpy.icns")
+    render(1024, artwork_fraction=0.8).save(OUT / "OpenProcess.icns")
 
     # Windows: the usual sizes in one .ico.
     sizes = [16, 24, 32, 48, 64, 128, 256]
-    render(256).save(OUT / "CPNpy.ico", sizes=[(s, s) for s in sizes])
+    render(256).save(OUT / "OpenProcess.ico", sizes=[(s, s) for s in sizes])
 
     # Linux: a plain PNG for the .desktop entry.
-    render(512).save(OUT / "CPNpy.png")
+    render(512).save(OUT / "OpenProcess.png")
 
     for path in sorted(OUT.iterdir()):
         print(f"wrote {path.relative_to(ROOT)} ({path.stat().st_size // 1024} KB)")

@@ -2,9 +2,9 @@
 
 from models import dining_philosophers, guarded_choice, timed_conveyor
 
-from cpnpy.io.cpn_reader import parse_cpn
-from cpnpy.io.cpn_writer import to_xml_string
-from cpnpy.sim.simulator import Simulator
+from openprocess.io.cpn_reader import parse_cpn
+from openprocess.io.cpn_writer import to_xml_string
+from openprocess.sim.simulator import Simulator
 
 
 def round_trip(net):
@@ -67,9 +67,9 @@ def test_new_elements_never_reuse_an_id_from_an_opened_file(tmp_path):
     """Regression: the id counter starts at 1 in every session, so a place
     added after opening a file saved in an earlier session could get one of
     its transitions' ids -- and the file could then no longer be saved."""
-    from cpnpy.mining.petrinet import PetriNet
-    from cpnpy.model.net import Place, Transition, new_id
-    from cpnpy.model.plain import from_petri_net, to_petri_net
+    from openprocess.mining.petrinet import PetriNet
+    from openprocess.model.net import Place, Transition, new_id
+    from openprocess.model.plain import from_petri_net, to_petri_net
 
     # The file uses the very ids this session would hand out next.
     first = int(new_id()[2:]) + 1

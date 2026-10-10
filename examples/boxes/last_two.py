@@ -1,5 +1,5 @@
 """A worked example of a box of your own: copy this file into the ``boxes/``
-subfolder of the folder you have open in CPNpy, and *Last two* appears in
+subfolder of the folder you have open in OpenProcess, and *Last two* appears in
 the box list under Discover, marked *Yours*.
 
 A box is a function with type hints.  The parameter typed ``EventLog`` is
@@ -10,9 +10,9 @@ the How tab.
 
 from typing import Literal
 
-from cpnpy import flow
-from cpnpy.flow import EventLog, TransitionSystem, box
-from cpnpy.mining.transition_system import transition_system_from_log
+from openprocess import flow
+from openprocess.flow import EventLog, TransitionSystem, box
+from openprocess.mining.transition_system import transition_system_from_log
 
 
 @box(name="Last two", group="Discover")

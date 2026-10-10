@@ -1,4 +1,4 @@
-"""Tests for the workflow framework (``cpnpy.flow``): boxes from type hints,
+"""Tests for the workflow framework (``openprocess.flow``): boxes from type hints,
 workflows and their checks, the runner (caching, failures, sweeps), the
 record, the Python form, the loader, and the prediction pipeline.
 
@@ -16,18 +16,18 @@ from typing import Literal
 
 import pytest
 
-import cpnpy.flow as flow
-from cpnpy.flow import (Box, BoxError, Runner, Sweep, Workflow, WorkflowError, box, check, differences,
+import openprocess.flow as flow
+from openprocess.flow import (Box, BoxError, Runner, Sweep, Workflow, WorkflowError, box, check, differences,
                         load, save, to_python, workflow)
-from cpnpy.flow.boxes.check import check_fit, soundness, token_replay
-from cpnpy.flow.boxes.compare import compare
-from cpnpy.flow.boxes.discover import alpha_miner, classical_states, heuristics_miner, inductive_miner, regions_to_net
-from cpnpy.flow.boxes.input import open_log, simulate_log, typed_log
-from cpnpy.flow.boxes.predict import evaluate_predictions, frequency_model, predict, prefixes, split_by_time
-from cpnpy.flow.boxes.sweeps import sweep_table
-from cpnpy.flow.library import Library, standard_library
-from cpnpy.flow.record import fingerprint, make_record
-from cpnpy.flow.types import EventLog, PetriNet, Scores, Table, TransitionSystem
+from openprocess.flow.boxes.check import check_fit, soundness, token_replay
+from openprocess.flow.boxes.compare import compare
+from openprocess.flow.boxes.discover import alpha_miner, classical_states, heuristics_miner, inductive_miner, regions_to_net
+from openprocess.flow.boxes.input import open_log, simulate_log, typed_log
+from openprocess.flow.boxes.predict import evaluate_predictions, frequency_model, predict, prefixes, split_by_time
+from openprocess.flow.boxes.sweeps import sweep_table
+from openprocess.flow.library import Library, standard_library
+from openprocess.flow.record import fingerprint, make_record
+from openprocess.flow.types import EventLog, PetriNet, Scores, Table, TransitionSystem
 
 L1 = "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"
 
@@ -80,7 +80,7 @@ def test_box_mistakes_are_plain_errors():
     with pytest.raises(BoxError, match="needs a default"):
         @box
         def no_default(log: EventLog, k: int) -> PetriNet: ...
-    with pytest.raises(BoxError, match="neither a CPNpy type"):
+    with pytest.raises(BoxError, match="neither a OpenProcess type"):
         @box
         def odd_type(log: EventLog, k: dict = {}) -> PetriNet: ...
     with pytest.raises(BoxError, match="return type"):
@@ -96,7 +96,7 @@ def test_standard_library_loads_every_group():
     groups = library.by_group()
     assert {"Input", "Filter", "Discover", "Check", "Compare", "Output", "Science", "Predict"} <= set(groups)
     assert not library.broken
-    assert library.get("cpnpy.flow.boxes.discover.alpha_miner").name == "α-algorithm"
+    assert library.get("openprocess.flow.boxes.discover.alpha_miner").name == "α-algorithm"
     assert library.resolve("check_fit") is check_fit.spec
 
 
@@ -146,7 +146,7 @@ def test_single_input_is_refed_not_doubled():
 # Running
 # ---------------------------------------------------------------------------
 def test_run_gives_the_same_numbers_as_the_engine():
-    from cpnpy.mining import inductive_miner as engine_im, parse_simple_log, precision, token_replay as engine_replay
+    from openprocess.mining import inductive_miner as engine_im, parse_simple_log, precision, token_replay as engine_replay
     wf, nodes = discovery_workflow()
     run = Runner().run(wf)
     assert run.ok and run.summary().startswith("8 of 8 boxes done")
@@ -261,7 +261,7 @@ def test_save_load_and_check(tmp_path):
     wf, nodes = discovery_workflow()
     run = Runner().run(wf)
     record = save(wf, tmp_path / "compare.cpnflow", run)
-    assert record.versions["cpnpy"] and "packages" in record.environment
+    assert record.versions["openprocess"] and "packages" in record.environment
     assert len(record.results) == 8
     again, loaded = load(tmp_path / "compare.cpnflow")
     assert len(again.nodes) == 8 and len(again.edges) == 12
@@ -299,7 +299,7 @@ def _resolved(wf: Workflow, folder: Path) -> Workflow:
 
 
 def test_fingerprints_follow_content_not_identity():
-    from cpnpy.mining import parse_simple_log
+    from openprocess.mining import parse_simple_log
     a = EventLog.from_simple_log(parse_simple_log(L1))
     b = EventLog.from_simple_log(parse_simple_log(L1))
     c = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,d>]"))
@@ -308,7 +308,7 @@ def test_fingerprints_follow_content_not_identity():
 
 
 def test_simulate_log_is_repeatable_and_noise_is_recorded():
-    from cpnpy.model.examples import order_handling_sound
+    from openprocess.model.examples import order_handling_sound
     net = order_handling_sound()
     wf = Workflow("sim")
     sim = wf.add(simulate_log, {"cases": 50, "noise": 0.2, "seed": 3})
@@ -323,7 +323,7 @@ def test_simulate_log_is_repeatable_and_noise_is_recorded():
     wf.connect(source, sim)
     first, second = Runner().run(wf), Runner().run(wf)
     assert fingerprint(first.value(sim)) == fingerprint(second.value(sim))
-    assert sum(1 for t in first.value(sim) if t.attributes.get("cpnpy:noise")) > 0
+    assert sum(1 for t in first.value(sim) if t.attributes.get("openprocess:noise")) > 0
     record = make_record(wf, first)
     assert record.seeds[sim.id] == 3
 
@@ -358,15 +358,15 @@ def test_boxes_folder_loads_good_files_and_keeps_broken_ones(tmp_path):
     boxes = tmp_path / "boxes"
     boxes.mkdir()
     (boxes / "mine.py").write_text(textwrap.dedent('''
-        from cpnpy.flow import box, EventLog, TransitionSystem
-        from cpnpy.mining.transition_system import transition_system_from_log
+        from openprocess.flow import box, EventLog, TransitionSystem
+        from openprocess.mining.transition_system import transition_system_from_log
 
         @box(group="Discover")
         def last_two(log: EventLog, seed: int = 0) -> TransitionSystem:
             """The multiset of the last two activities as the state."""
             return transition_system_from_log(log.simple_log(), "prefix", "multiset", 2)
     '''), encoding="utf-8")
-    (boxes / "broken.py").write_text("from cpnpy.flow import box\n@box\ndef bad(x) -> int: ...\n", encoding="utf-8")
+    (boxes / "broken.py").write_text("from openprocess.flow import box\n@box\ndef bad(x) -> int: ...\n", encoding="utf-8")
     (boxes / "syntax.py").write_text("def (\n", encoding="utf-8")
     library = flow.library_for(tmp_path, packages=False)
     spec = library.resolve("last_two")
@@ -428,7 +428,7 @@ def test_prediction_pipeline_with_the_frequency_baseline():
 
 
 def test_remaining_time_labels_need_timestamps():
-    from cpnpy.mining import read_xes
+    from openprocess.mining import read_xes
     log = read_xes(Path(__file__).parent / "data" / "plane_wilma_10.xes")
     dataset = prefixes(log, label="remaining time", max_prefix=5)
     assert dataset.kind == "regression" and 40 <= len(dataset) <= 50 and all(y >= 0 for y in dataset.y)
@@ -440,8 +440,8 @@ def test_remaining_time_labels_need_timestamps():
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not has("numpy"), reason="NumPy not installed")
 def test_bootstrap_fitness_has_an_interval():
-    from cpnpy.flow.boxes.science import bootstrap_fitness
-    from cpnpy.mining import parse_simple_log, inductive_miner as engine_im
+    from openprocess.flow.boxes.science import bootstrap_fitness
+    from openprocess.mining import parse_simple_log, inductive_miner as engine_im
     log = EventLog.from_simple_log(parse_simple_log(L1))
     net = engine_im(parse_simple_log(L1)).net
     table = bootstrap_fitness(net, log, samples=30, seed=1)
@@ -450,15 +450,15 @@ def test_bootstrap_fitness_has_an_interval():
 
 @pytest.mark.skipif(not has("pandas"), reason="pandas not installed")
 def test_describe_log_through_the_converter():
-    from cpnpy.flow.boxes.science import describe_log
-    from cpnpy.mining import parse_simple_log
+    from openprocess.flow.boxes.science import describe_log
+    from openprocess.mining import parse_simple_log
     table = describe_log(EventLog.from_simple_log(parse_simple_log(L1)))
     assert "events per case" in table.columns and table.rows[0][0] == "count"
 
 
 @pytest.mark.skipif(not has("matplotlib"), reason="matplotlib not installed")
 def test_plot_scores_gives_svg():
-    from cpnpy.flow.boxes.science import plot
+    from openprocess.flow.boxes.science import plot
     figure = plot(scores=[Scores("a", {"fitness": 0.9}), Scores("b", {"fitness": 0.7})])
     assert figure.svg and figure.svg.lstrip().startswith("<?xml") or "<svg" in figure.svg
 
@@ -467,7 +467,7 @@ def test_plot_scores_gives_svg():
 # Coloured nets
 # ---------------------------------------------------------------------------
 def test_simulate_cpn_and_state_space_boxes():
-    from cpnpy.flow.boxes.cpn import simulate_cpn, state_space
+    from openprocess.flow.boxes.cpn import simulate_cpn, state_space
     from examples.models import dining_philosophers
     net = dining_philosophers()
     assert net.compile() == []
@@ -480,24 +480,24 @@ def test_simulate_cpn_and_state_space_boxes():
 def test_a_box_lists_the_algorithms_it_calls():
     """The Code tab shows the algorithm, not just the wrapper: what a box
     calls outside the framework and the standard library, in call order."""
-    from cpnpy.flow.box import algorithm_calls
+    from openprocess.flow.box import algorithm_calls
     library = standard_library()
-    alpha = algorithm_calls(library.get("cpnpy.flow.boxes.discover.alpha_miner"))
+    alpha = algorithm_calls(library.get("openprocess.flow.boxes.discover.alpha_miner"))
     names = [(c.module, c.name) for c in alpha]
-    assert names[0] == ("cpnpy.mining.discovery.alpha", "alpha_miner")
-    assert ("cpnpy.mining.footprint", "footprint_of_log") in names
-    assert all(not c.module.startswith("cpnpy.flow") for c in alpha)     # flow.show, flow.steps are left out
+    assert names[0] == ("openprocess.mining.discovery.alpha", "alpha_miner")
+    assert ("openprocess.mining.footprint", "footprint_of_log") in names
+    assert all(not c.module.startswith("openprocess.flow") for c in alpha)     # flow.show, flow.steps are left out
     found = alpha[0]
     assert "def alpha_miner(log: SimpleLog" in found.source and found.line > 0
-    assert found.where.startswith("cpnpy/mining/discovery/alpha.py:")
-    inductive = algorithm_calls(library.get("cpnpy.flow.boxes.discover.inductive_miner"))
-    assert any(c.module == "cpnpy.mining.discovery.inductive" and c.name == "inductive_miner" for c in inductive)
+    assert found.where.startswith("openprocess/mining/discovery/alpha.py:")
+    inductive = algorithm_calls(library.get("openprocess.flow.boxes.discover.inductive_miner"))
+    assert any(c.module == "openprocess.mining.discovery.inductive" and c.name == "inductive_miner" for c in inductive)
     assert all(c.module != "builtins" for c in inductive)
 
 
 def test_references_know_which_module_implements_what():
-    from cpnpy.references import reference, topics_for_module
-    (alpha,) = topics_for_module("cpnpy.mining.discovery.alpha")
+    from openprocess.references import reference, topics_for_module
+    (alpha,) = topics_for_module("openprocess.mining.discovery.alpha")
     assert alpha.name == "α-algorithm" and "aalst2004" in alpha.sources
     assert "Weijters" in reference("aalst2004").citation and reference("aalst2004").url.startswith("https://doi.org/")
-    assert topics_for_module("cpnpy.nowhere") == [] and reference("nobody") is None
+    assert topics_for_module("openprocess.nowhere") == [] and reference("nobody") is None

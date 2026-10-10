@@ -22,7 +22,7 @@ def app():
 
 @pytest.fixture(autouse=True)
 def fake_bin(tmp_path_factory, monkeypatch):
-    from cpnpy.gui.studio import app as studio_app
+    from openprocess.gui.studio import app as studio_app
     monkeypatch.setattr(studio_app, "move_to_trash", lambda path: True)
 
 
@@ -47,9 +47,9 @@ def _wait_for(app, condition, seconds: float = 6.0) -> bool:
 def test_a_notation_log_goes_back_to_its_notation(app, tmp_path):
     """Typed in notation, kept as a .log.txt in the folder, and Edit… shows the
     very text you typed; changing it rewrites the file and the page."""
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.log_editor import LogEditorDialog, log_from_notation
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.log_editor import LogEditorDialog, log_from_notation
 
     window = StudioWindow()
     window.show()
@@ -80,10 +80,10 @@ def test_a_notation_log_goes_back_to_its_notation(app, tmp_path):
 
 
 def test_editing_cases_and_events_keeps_the_other_attributes(app, tmp_path):
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.log_editor import LogEditorDialog
-    from cpnpy.mining import read_xes
-    from cpnpy.mining.log import KEY_RESOURCE, KEY_TIME
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.log_editor import LogEditorDialog
+    from openprocess.mining import read_xes
+    from openprocess.mining.log import KEY_RESOURCE, KEY_TIME
 
     source = tmp_path / "wilma.xes"
     shutil.copy(DATA / "plane_wilma_10.xes", source)
@@ -145,8 +145,8 @@ def test_editing_cases_and_events_keeps_the_other_attributes(app, tmp_path):
 
 def test_a_plain_log_can_be_edited_both_ways(app):
     """Switching between the tabs carries the edits over."""
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.log_editor import LogEditorDialog, log_from_notation
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.log_editor import LogEditorDialog, log_from_notation
 
     document = LogDocument(log_from_notation("[<a,b>^2]", "L"), notation="[<a,b>^2]")
     dialog = LogEditorDialog(document)
@@ -164,13 +164,13 @@ def test_a_plain_log_can_be_edited_both_ways(app):
 
 
 def test_new_log_from_notation_remembers_the_text(app):
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.log_editor import NotationDialog
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.log_editor import NotationDialog
 
     window = StudioWindow()
     dialog = NotationDialog(window, text="[<x,y>^2]", name="Mine")
     assert dialog.ok.isEnabled()
-    from cpnpy.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.documents import LogDocument
     window.add_document(LogDocument(dialog.log(), notation=dialog.text()))
     assert window.logs()[0].notation == "[<x,y>^2]"
     assert window.pages[window.logs()[0].id].edit_button.isEnabled()
