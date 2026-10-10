@@ -345,7 +345,10 @@ def result_widget(value, page=None, node=None) -> QWidget:
 # ---------------------------------------------------------------------------
 # How
 # ---------------------------------------------------------------------------
-def how_widget(explanation: Explanation, page=None) -> QWidget:
+def how_widget(explanation: Explanation, page=None, value=None) -> QWidget:
+    """The box's report in full, with *Step through* to play it one moment at
+    a time over a drawing of ``value`` (the box's result)."""
+    from .stepper import StepThrough, moments_of
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -354,13 +357,43 @@ def how_widget(explanation: Explanation, page=None) -> QWidget:
         layout.addWidget(label("This box has nothing to add: its result is all there is.", "muted", wrap=True))
         return host
     t = style.tokens()
+    full = QWidget()
+    full.setObjectName("plain")
+    full_layout = QVBoxLayout(full)
+    full_layout.setContentsMargins(0, 0, 0, 0)
+    full_layout.setSpacing(10)
+    if len(moments_of(explanation)) >= 2:
+        stepper: list = []
+
+        def toggle(_checked=False) -> None:
+            if stepper:
+                widget = stepper.pop()
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+                full.setVisible(True)
+                step_button.setText("Step through ▸")
+                return
+            widget = StepThrough(explanation, value, page)
+            stepper.append(widget)
+            layout.insertWidget(1, widget)
+            full.setVisible(False)
+            step_button.setText("◂ All at once")
+            widget.setFocus()
+        step_button = button("Step through ▸", toggle,
+                             tooltip="Play the derivation one step at a time, with the result lighting up "
+                                     "what each step names")
+        step_button.setObjectName("stepThrough")
+        layout.addLayout(hbox(label(f"{len(moments_of(explanation))} moments: notes, steps and values, in the "
+                                    "order the box reported them.", "muted", wrap=True), step_button))
+    layout.addWidget(full)
     for entry in explanation.entries:
         if entry[0] == "note":
             text = label("· " + entry[1], "muted" if not entry[1].startswith("Warning") else None, wrap=True,
                          selectable=True)
             if entry[1].startswith("Warning"):
                 text.setStyleSheet(f"color: {style.STATUS['warning']};")
-            layout.addWidget(text)
+            full_layout.addWidget(text)
         elif entry[0] == "steps":
             rows = []
             for title, content in entry[1]:
@@ -372,12 +405,12 @@ def how_widget(explanation: Explanation, page=None) -> QWidget:
             table.setTextFormat(Qt.RichText)
             table.setWordWrap(True)
             table.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            layout.addWidget(table)
+            full_layout.addWidget(table)
         elif entry[0] == "show":
-            caption, value = entry[1], entry[2]
+            caption = entry[1]
             if caption:
-                layout.addWidget(label(caption.upper(), "sectionLabel"))
-            layout.addWidget(result_widget(value, page))
+                full_layout.addWidget(label(caption.upper(), "sectionLabel"))
+            full_layout.addWidget(result_widget(entry[2], page))
     return host
 
 

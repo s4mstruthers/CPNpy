@@ -6,6 +6,17 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.1
+
+- **Step through an algorithm.** A box's *How* tab has *Step through ▸*: the
+  report plays one moment at a time (a note, a step of the derivation, a
+  value shown), with ◀ ▶, Play and the arrow keys, and the box's result drawn
+  above it. Each step lights up on the drawing what it names and dims the
+  rest, so the α-algorithm's eight steps become eight pictures: all the
+  activities, the start ones, the end ones, the candidate pairs, the maximal
+  pairs, the places. Nothing new is computed: the moments are the box's own
+  report, in order.
+
 ## 0.10.0
 
 Two things an academic looks for first: is this reproducible, and how do I

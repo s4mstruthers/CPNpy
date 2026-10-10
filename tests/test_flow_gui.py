@@ -998,3 +998,54 @@ def test_cite_the_app_and_an_algorithm(app):
     dialog.close()
     page.document.dirty = False
     window.close()
+
+
+def test_step_through_plays_the_derivation_over_the_result(app):
+    """The α-algorithm's How tab can be stepped: each step lights up on the net
+    what it names (all activities, the start ones, the places…), the moments
+    accumulate, and Play advances by itself."""
+    from PySide6.QtWidgets import QPushButton
+
+    from openprocess.gui.flow import stepper as stepping
+    from openprocess.gui.flow.stepper import StepThrough
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[1][1])              # Compare discovery: it has the α-algorithm
+    page = window.current_page()
+    _wait_run(app, page)
+    alpha = _node(page, "alpha_miner")
+    page.select(alpha.id, 1)                                  # How
+    _pump(app, 0.2)
+    toggle = next(b for b in page.panel_host.findChildren(QPushButton) if b.objectName() == "stepThrough")
+    toggle.click()
+    _pump(app, 0.2)
+    player = page.panel_host.findChildren(StepThrough)[0]
+    net = page.run.result(alpha).value
+    titles = [m[1] for m in player.moments if m[0] == "step"]
+    assert titles[0].startswith("1. T_L") and titles[-1].startswith("8.")
+    first_step = next(i for i, m in enumerate(player.moments) if m[0] == "step")
+    player.show_moment(first_step)                            # all activities light up
+    assert player.highlighted(first_step) == {t.id for t in net.transitions.values()}
+    player.next()                                             # the start activities only
+    lit = {net.transitions[i].name for i in player.highlighted(player.index)}
+    assert lit == {"a"} and player.body_layout.count() == first_step + 2
+    places = next(i for i, m in enumerate(player.moments) if m[0] == "step" and m[1].startswith("6."))
+    player.show_moment(places)
+    assert player.highlighted(places) >= {p.id for p in net.places.values()}   # every place is named
+    assert not player.next_button.isEnabled() if places == len(player.moments) - 1 else True
+    stepping.PLAY_MS = 60
+    player.timer.setInterval(60)
+    player.show_moment(0)
+    player.toggle_play()
+    assert player.play_button.text() == "Pause"
+    _pump(app, 1.2)
+    assert player.index == len(player.moments) - 1 and player.play_button.text() == "Play"
+    toggle.click()                                            # back to the full report
+    _pump(app, 0.1)
+    assert not page.panel_host.findChildren(StepThrough)
+    page.document.dirty = False
+    window.close()
