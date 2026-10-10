@@ -348,6 +348,23 @@ def stylesheet() -> str:
     #revealRow QLabel {{ background: transparent; }}
     #revealTitle {{ font-weight: 600; }}
 
+    /* The Summary's tiles and the Model palette. */
+    #summaryValue {{ font-size: 22px; font-weight: 600; }}
+    QPushButton#paletteTool {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 7px;
+        padding: 5px 8px; text-align: left; color: {t.text_secondary}; }}
+    QPushButton#paletteTool:hover {{ color: {t.text}; }}
+    QPushButton#paletteTool:checked {{ background: {t.accent_soft}; color: {t.text}; border-color: {t.accent}; }}
+
+    /* A page's way back to the analysis it was opened from. */
+    QPushButton#backLink {{ background: transparent; border: none; padding: 0 0 2px 0;
+        color: {t.accent}; font-size: 12px; font-weight: 500; text-align: left; }}
+    QPushButton#backLink:hover {{ text-decoration: underline; }}
+
+    /* ---- the space bar: Mine / Model / Learn at the top of the window ---- */
+    QToolBar#spaceBar {{ background: {t.sidebar}; border: none; border-bottom: 1px solid {t.border};
+        padding: 4px 10px; spacing: 8px; }}
+    QToolBar#spaceBar::separator {{ width: 0; }}
+
     /* ---- segmented control ---------------------------------------------- */
     #segmented {{ background: {qc(t.text, 0.07).name(QColor.HexArgb)}; border-radius: 8px; }}
     #segmented QPushButton {{ background: transparent; border: none; border-radius: 6px;

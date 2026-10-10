@@ -55,6 +55,7 @@ from .widgets import (
     Card, Verdict, button, flow, footprint_table, hbox, label, status_for,
 )
 from . import instances
+from .provenance import add_code
 from .definition_view import attach_definition, show_reference
 from .workers import run_in_background
 
@@ -76,6 +77,10 @@ def _math(name: str, status: str, detail: str, definition: str | None = None,
 class PetriNetPage(ConcealsResults, CpnPage):
     """Draw, play and analyse a plain Petri net (see the module docstring)."""
 
+    #: "Check against a log ›" was pressed: the window builds the analysis in Mine.
+    check_requested = Signal()
+
+
     #: The net as a model for conformance checking / the model views.
     open_model = Signal(object)
 
@@ -89,9 +94,9 @@ class PetriNetPage(ConcealsResults, CpnPage):
         self.structure_toggle.hide()
         self._toggle_structure(False)
         self.values_button.hide()
-        self.export_log_button.setText("Generate event log…")
-        self.export_log_button.setToolTip("Play the net out many times (random choices) and "
-                                          "open the traces as an event log")
+        self.export_log_button.setText("Mine a simulated log ›")
+        self.export_log_button.setToolTip("Play the net out many times (random choices), save the "
+                                          "traces as an event log in the folder and open it in Mine")
         self.inspector_tabs.changed.connect(self._inspector_tab_changed)
         # Plain nets have no variables and no clock.
         self.bindings_card.title_label.setText("Enabled transitions")
@@ -294,6 +299,12 @@ class PetriNetPage(ConcealsResults, CpnPage):
         # The hint wraps, so the row never makes the inspector wider than it is.
         layout.addLayout(hbox(label("Hover over a property (ⓘ) for its definition.", "muted",
                                     wrap=True), definitions, self.analysis_button))
+        # Conformance is Mine's job: one click builds the analysis there.
+        self.check_log_button = button("Check against a log ›", self.check_requested.emit,
+                                       tooltip="In Mine: a new analysis with this net, a log you "
+                                               "choose and Check fit, connected and run")
+        layout.addLayout(hbox(label("How well does it fit a log? Fitness, precision and more, "
+                                    "with every step shown.", "muted", wrap=True), self.check_log_button))
         self.soundness_card = Card("Soundness", f"From one token in {I}: (i) every run can "
                                    f"still reach [{O}], (ii) [{O}] is the only marking with a "
                                    f"token in {O}, (iii) every transition can fire.")
@@ -311,17 +322,21 @@ class PetriNetPage(ConcealsResults, CpnPage):
                                     "its initial marking.")
         self.footprint_card = Card("Footprint", "The ordering relations of the net's "
                                    "behaviour: which transition can directly follow which.")
-        # The card captions explain the idea; hovering shows the maths.
+        # The card captions explain the idea; hovering shows the maths; { } code opens the code.
         for card, key in ((self.soundness_card, "sound"), (self.theorem_card, "short_circuit"),
                           (self.invariants_card, "incidence_matrix"),
                           (self.footprint_card, "footprint")):
             attach_definition(card.caption_label, key)
+        for card, functions in ((self.soundness_card, (check_soundness, check_workflow_net)),
+                                (self.theorem_card, (short_circuit, analyse)),
+                                (self.structure_card, (check_workflow_net,)),
+                                (self.invariants_card, (invariants,)),
+                                (self.properties_card, (analyse,)),
+                                (self.footprint_card, (footprint_of_net,))):
+            add_code(card, *functions)
         self.more_card = Card("More")
-        self.more_card.add(label("Look at every reachable marking, or replay an event log "
-                                 "on this net (token replay, alignments).", "muted",
-                                 wrap=True))
-        self.more_card.add(flow(button("Reachability graph…", self.show_reachability_graph),
-                                button("Conformance with a log…", self.open_as_model)))
+        self.more_card.add(label("Look at every reachable marking of the net.", "muted", wrap=True))
+        self.more_card.add(flow(button("Reachability graph…", self.show_reachability_graph)))
         for card in (self.soundness_card, self.theorem_card, self.structure_card,
                      self.invariants_card, self.properties_card, self.footprint_card,
                      self.more_card):

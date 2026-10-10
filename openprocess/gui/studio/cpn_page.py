@@ -597,10 +597,10 @@ class CpnPage(QWidget):
         self.history_list.setMaximumHeight(240)
         self.history_list.itemDoubleClicked.connect(self._rewind_to_item)
         history.add(self.history_list)
-        self.export_log_button = button("Export as event log…", self._export_log,
-                                        tooltip="Turn the firings so far into an event log "
-                                                "and open it for mining (dotted chart, "
-                                                "discovery, …)")
+        self.export_log_button = button("Mine the simulated log ›", self._export_log,
+                                        tooltip="Turn the firings so far into an event log, save "
+                                                "it in the folder and open it in Mine (dotted chart, "
+                                                "discovery, conformance, …)")
         history.add(hbox(None, self.export_log_button))
         layout.addWidget(history)
         layout.addStretch(1)
@@ -690,6 +690,9 @@ class CpnPage(QWidget):
         card = Card("State space", "Every reachable marking (with its model time) and the "
                     "binding elements between them, explored breadth-first from the initial "
                     "marking — the analysis CPN Tools calls the state space tool.")
+        from ...analysis.state_space import StateSpace
+        from .provenance import add_code
+        add_code(card, StateSpace)
         self.max_nodes = QSpinBox()
         self.max_nodes.setRange(10, 1_000_000)
         self.max_nodes.setValue(20_000)

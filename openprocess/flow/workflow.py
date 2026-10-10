@@ -54,6 +54,9 @@ class Node:
     position: tuple[float, float] = (0.0, 0.0)
     #: A name the user gave it (empty: the box's name).
     title: str = ""
+    #: Where the user dragged the places and transitions of this box's result
+    #: (a net), by their id, to tidy the drawing; the net itself is untouched.
+    layout: dict[str, tuple[float, float]] = field(default_factory=dict)
 
     def swept(self) -> list[tuple[str, Sweep]]:
         return [(name, value) for name, value in self.settings.items() if is_sweep(value)]
@@ -314,7 +317,8 @@ class Workflow:
             "name": self.name,
             "boxes": [{"id": n.id, "box": n.box, "settings": {k: (v.to_json() if is_sweep(v) else _json_value(v))
                                                              for k, v in n.settings.items()},
-                       "position": list(n.position), **({"title": n.title} if n.title else {})}
+                       "position": list(n.position), **({"title": n.title} if n.title else {}),
+                       **({"layout": {k: list(v) for k, v in n.layout.items()}} if n.layout else {})}
                       for n in self.nodes.values()],
             "connections": [{"from": e.source, "output": e.output, "to": e.target, "input": e.input}
                             for e in self.edges],
@@ -329,10 +333,14 @@ class Workflow:
             settings = {k: Sweep(tuple(v["sweep"])) if isinstance(v, dict) and "sweep" in v else v
                         for k, v in item.get("settings", {}).items()}
             try:
-                wf.add(item["box"], settings, tuple(item.get("position", (0, 0))), id=item["id"],
-                       title=item.get("title", ""))
+                node = wf.add(item["box"], settings, tuple(item.get("position", (0, 0))), id=item["id"],
+                              title=item.get("title", ""))
             except KeyError:
                 raise WorkflowError(f"The workflow uses a box that is not available: {item['box']}")
+            layout = item.get("layout") or {}
+            if isinstance(layout, dict):
+                node.layout = {str(k): (float(v[0]), float(v[1])) for k, v in layout.items()
+                               if isinstance(v, (list, tuple)) and len(v) == 2}
         for item in data.get("connections", []):
             wf.connect(item["from"], item["to"], item["input"], item.get("output", "out"))
         for item in data.get("groups", []):

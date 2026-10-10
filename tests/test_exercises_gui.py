@@ -87,19 +87,20 @@ def test_a_pack_opens_on_its_overview_and_steps_through(app, demo):
     window.close()
 
 
-def test_clicking_an_exercise_in_the_sidebar_opens_it(app, demo):
+def test_learn_in_the_switcher_opens_the_folders_exercises(app, demo):
+    """Exercises are Learn's, not rows in Mine: the switcher opens the open
+    folder's pack on its overview, and Mine takes you back."""
     from openprocess.gui.studio.app import EXERCISE_ROLE
 
     window = _window()
     window.open_workspace(str(demo))
-    window.set_view_mode("folder")
-    rows = [i for i in window._all_rows() if i.data(0, EXERCISE_ROLE)]
-    assert len(rows) == 7
-    window._open_placeholder(rows[2])
-    assert window.in_learn
-    assert window.learn_mode.view.exercise.folder.name == "Exercise 3.1 The alpha-algorithm"
-    # The pack is the open folder: all four, with the overview one step away.
+    assert not [i for i in window._all_rows() if i.data(0, EXERCISE_ROLE)]
+    assert window.set_space("learn") and window.in_learn
+    assert window.space_switch.index() == 2
     assert len(window.learn_mode.pack.exercises) == 7
+    assert window.learn_mode.view is None                      # the overview, not an exercise
+    window.set_space("mine")
+    assert not window.in_learn and window.space == "mine" and window.space_switch.index() == 0
     window.close()
 
 
@@ -373,11 +374,13 @@ def test_discover_with_state_based_regions(app):
     from openprocess.gui.studio.regions_view import RegionsPanel
     from openprocess.mining import EventLog, parse_simple_log
 
-    window = _window()
+    from openprocess.gui.studio.log_page import LogPage
+
     log = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"),
                                    "L")
-    window.add_document(LogDocument(log))
-    page = window.current_page()
+    page = LogPage(LogDocument(log))             # Learn's log page: the miners run inline
+    page.resize(1200, 800)
+    page.show()
     page.tabs.set_index(6)                       # Discover
     from PySide6.QtWidgets import QComboBox
     chooser = next(box for box in page.findChildren(QComboBox)
@@ -391,7 +394,7 @@ def test_discover_with_state_based_regions(app):
     representation.setCurrentIndex(representation.findData("sequence"))
     assert wait_for(app, lambda: any(p.result.ts.states[0] == "⟨⟩"
                                      for p in page.findChildren(RegionsPanel)))
-    window.close()
+    page.close()
 
 
 def test_compare_nets_outside_an_exercise(app):

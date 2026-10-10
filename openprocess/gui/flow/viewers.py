@@ -69,10 +69,11 @@ def _table(columns: list[str], rows: list[list], max_rows: int = 500) -> QTableW
     return table
 
 
-def _graph(nodes, edges, positions=None, layer_gap: float = 48.0, height: int = 260) -> GraphView:
+def _graph(nodes, edges, positions=None, layer_gap: float = 48.0, height: int = 260,
+           movable: bool = False) -> GraphView:
     view = GraphView()
     view.setMinimumHeight(height)
-    view.graph.populate(nodes, edges, positions, layer_gap=layer_gap)
+    view.graph.populate(nodes, edges, positions, layer_gap=layer_gap, movable=movable)
     QTimer.singleShot(0, view.fit)
     return view
 
@@ -135,9 +136,11 @@ def _meter(name: str, value) -> QWidget:
 # ---------------------------------------------------------------------------
 # Result viewers
 # ---------------------------------------------------------------------------
-def result_widget(value, page=None) -> QWidget:
+def result_widget(value, page=None, node=None) -> QWidget:
     """A viewer for ``value``.  ``page`` (the workflow page) receives the
-    *Open as …* requests; None gives a read-only viewer."""
+    *Open as …* requests; None gives a read-only viewer.  ``node`` is the box
+    the value came from: a net drawn for it can be tidied by dragging, and
+    the layout is kept with the box (:attr:`~openprocess.flow.workflow.Node.layout`)."""
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -162,17 +165,29 @@ def result_widget(value, page=None) -> QWidget:
     elif isinstance(value, PetriNet):
         nodes, edges = petri_net_specs(value, show_place_names=len(value.places) <= 40)
         positions = None
-        if all(p.position for p in value.places.values()) and all(t.position for t in value.transitions.values()):
+        ids = {n.id for n in nodes}
+        if node is not None and node.layout and ids <= set(node.layout):
+            positions = {k: v for k, v in node.layout.items() if k in ids}     # as the user tidied it
+        elif all(p.position for p in value.places.values()) and all(t.position for t in value.transitions.values()):
             positions = {p.id: p.position for p in value.places.values()}
             positions |= {t.id: t.position for t in value.transitions.values()}
-        add(_graph(nodes, edges, positions))
+        view = _graph(nodes, edges, positions, movable=page is not None and node is not None)
+        add(view)
+        if page is not None and node is not None:
+            def tidied(_id: str, _x: float, _y: float, graph=view.graph, n=node) -> None:
+                n.layout = graph.positions()
+                page.layout_tidied()
+            view.graph.node_moved.connect(tidied)
         add(label(value.summary() + (f" · {value.info['algorithm']}" if value.info.get("algorithm") else ""),
                   "muted", wrap=True))
         if page is not None:
             add(hbox(button("Open as model", lambda: page.open_as_model(value),
                             tooltip="Open it as a model page: token game, analysis, conformance"),
-                     button("✎ Edit a copy", lambda: page.edit_copy(value),
-                            tooltip="Open a copy on the net canvas, to play and change it"), None))
+                     button("Open a copy in Model ›", lambda: page.edit_copy(value),
+                            tooltip="A copy on the net canvas in Model, to play with and change; "
+                                    "this result stays as it is"), None))
+            add(label("Drag places and transitions to tidy the drawing; the net itself does not change "
+                      "here. To change it, open a copy in Model.", "muted", wrap=True))
     elif isinstance(value, EventLog):
         from ...mining.stats import format_duration, summarise
         summary = summarise(value)
@@ -680,19 +695,44 @@ class SettingsWidget(QWidget):
         path typed or pasted (quotes and shell escapes are tolerated)."""
         control = QComboBox()
         control.setEditable(True)
+        # Sized by the panel, not by its longest entry: a folder with long
+        # paths would otherwise push Choose… (and the whole panel) off the edge.
+        control.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        control.setMinimumContentsLength(12)
         control.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         control.lineEdit().setPlaceholderText("Choose… or type a name in the workflow's folder")
-        for name in self._files():
-            control.addItem(name)
+        control.setMaxVisibleItems(14)
+        # The list shows file names (with the subfolder only when two names
+        # clash); the entry's data is the path relative to the folder, which
+        # is what the field holds once one is picked.
+        files = self._files()
+        names = [Path(f).name for f in files]
+        for relative, name in zip(files, names):
+            shown = f"{name}  ({Path(relative).parent})" if names.count(name) > 1 and "/" in relative else name
+            control.addItem(shown, relative)
+            control.setItemData(control.count() - 1, relative, Qt.ToolTipRole)
         control.setCurrentText("" if value in (None, "") else str(value))
 
+        last = {"text": "" if value in (None, "") else str(value)}
+
+        def picked(index: int, c=control):
+            c.setCurrentText(c.itemData(index) or c.itemText(index))
+            typed()
+
         def typed(s=setting, c=control):
+            # Only a real change is reported.  Opening the list takes the focus
+            # from the field, which counts as "editing finished"; reporting the
+            # unchanged value would re-run the box and rebuild this panel under
+            # the open list.
             text = clean_path(c.currentText())
             if text != c.currentText():
                 c.setCurrentText(text)
+            if text == last["text"]:
+                return
+            last["text"] = text
             self.changed.emit(s.name, text)
         control.lineEdit().editingFinished.connect(typed)
-        control.activated.connect(lambda _i: typed())
+        control.activated.connect(picked)
         return control
 
     def _choose_file(self, setting: Setting, control: QComboBox) -> None:
@@ -709,12 +749,11 @@ class SettingsWidget(QWidget):
         if not start and self.folder is not None:
             start = str(self.folder)
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Choose {setting.name.replace('_', ' ')}", start,
-            "Logs and nets (*.xes *.gz *.csv *.txt *.pnml *.cpn);;All files (*)")
+            self, f"Choose {setting.name.replace('_', ' ')}", start, self._dialog_filter())
         if not path:
             return
         control.setCurrentText(self.display_path(path))
-        self.changed.emit(setting.name, control.currentText())
+        control.lineEdit().editingFinished.emit()           # reported once, through typed()
 
     def display_path(self, path: str | Path) -> str:
         """``path`` relative to the workflow's folder when it is inside it, else as given."""
@@ -726,15 +765,43 @@ class SettingsWidget(QWidget):
                 pass
         return str(chosen)
 
+    def _kinds(self) -> tuple[str, ...]:
+        """The kinds of file this box can read, from what it gives: a box that
+        gives a Log reads event logs, one that gives a Petri net reads PNML,
+        and so on (nothing for a box author to declare).  Empty: any kind."""
+        kinds = []
+        for port in self.spec.outputs:
+            for cls, kind in ((EventLog, "log"), (PetriNet, "petri"), (CPNet, "cpn"),
+                              (TransitionSystem, "ts")):
+                if port.type is cls:
+                    kinds.append(kind)
+        return tuple(kinds)
+
     def _files(self) -> list[str]:
+        """The folder's files this box can read, relative to it (up to 200)."""
+        from ..studio.workspace import file_kind
         if self.folder is None or not Path(self.folder).is_dir():
             return []
+        kinds = self._kinds()
         names = []
         for path in sorted(Path(self.folder).rglob("*")):
-            if path.is_file() and not path.name.startswith(".") and path.suffix.lower() in (
-                    ".xes", ".gz", ".csv", ".txt", ".pnml", ".cpn") and len(names) < 200:
-                names.append(str(path.relative_to(self.folder)))
+            if len(names) >= 200:
+                break
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            kind = file_kind(path)
+            if kind is None or kind == "workflow" or (kinds and kind not in kinds):
+                continue
+            names.append(str(path.relative_to(self.folder)))
         return names
+
+    def _dialog_filter(self) -> str:
+        """The Choose… dialog's file types, matching :meth:`_files`."""
+        by_kind = {"log": "Event logs (*.xes *.xes.gz *.gz *.csv *.txt)",
+                   "petri": "Petri nets (*.pnml)", "cpn": "Coloured Petri nets (*.cpn)",
+                   "ts": "Transition systems (*.txt)"}
+        kinds = self._kinds() or tuple(by_kind)
+        return ";;".join([by_kind[k] for k in kinds] + ["All files (*)"])
 
 
 # ---------------------------------------------------------------------------

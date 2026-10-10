@@ -42,6 +42,7 @@ from .documents import ModelDocument
 from .graph_builders import petri_net_specs, state_graph_specs
 from .graph_view import GraphView
 from .log_page import _item, _table, derivation_widget
+from .provenance import add_code
 from .widgets import (
     suggested_path,
     Card, ElidedLabel, PageHeader, SegmentedControl, StatTile, Verdict, button, fitness_status, flow, hbox, label,
@@ -100,10 +101,17 @@ class ModelPage(ConcealsResults, QWidget):
     #: "Keep" was pressed: save this discovered model into the open folder.
     keep_requested = Signal()
 
-    def __init__(self, document: ModelDocument, open_logs, parent=None) -> None:
-        """``open_logs`` is a callable returning the currently open LogDocuments."""
+    #: "Check against a log ›" (the studio's conformance tab): the window builds the analysis in Mine.
+    check_requested = Signal()
+
+    def __init__(self, document: ModelDocument, open_logs, parent=None, conformance: str = "inline") -> None:
+        """``open_logs`` is a callable returning the currently open LogDocuments.
+        ``conformance``: "inline" replays logs on this page (Learn, where the
+        exercise is the context); "handoff" (the studio) sends it to an
+        analysis in Mine, where every step is shown and recorded."""
         super().__init__(parent)
         self.document = document
+        self.conformance_mode = conformance
         self.net = document.net
         self.open_logs = open_logs
         self.marking: Marking = self.net.initial_marking
@@ -172,7 +180,7 @@ class ModelPage(ConcealsResults, QWidget):
         self.speed.setValue(4)
         self.speed.setFixedWidth(110)
         self.speed.setToolTip("Speed: firings per second")
-        self.generate_button = _tool("Generate event log…", "Play the model out many times and "
+        self.generate_button = _tool("Mine a simulated log ›", "Play the model out many times and "
                                      "add the resulting event log to the sidebar")
         self.sim_hint = label("", "muted", wrap=True)
         self.simulate_widgets = [self.play_button, self.speed, self.speed_label_widget(),
@@ -437,7 +445,9 @@ class ModelPage(ConcealsResults, QWidget):
         self.soundness_card = Card("Soundness", "Classical soundness of the WF-net: option "
                                    "to complete, proper completion, no dead transitions. "
                                    "Hover over a property (ⓘ) for its definition.")
+        add_code(self.soundness_card, check_soundness, short_circuit, analyse)
         self.properties_card = Card("Behavioural properties")
+        add_code(self.properties_card, analyse, reachability_graph, coverability_graph)
         check = button("Run analysis", self._run_analysis, kind="primary")
         layout.addWidget(check)
         layout.addWidget(self.soundness_card)
@@ -525,8 +535,23 @@ class ModelPage(ConcealsResults, QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
+        if self.conformance_mode == "handoff":
+            card = Card("Check against a log", "Conformance happens on the canvas, where you can see "
+                        "what is done: Check fit's scores, how each case replayed, the code, and a "
+                        "record that runs again. Pick a log; the analysis is built for you, with "
+                        "this model already connected.")
+            self.check_log_button = button("Check against a log  →", self.check_requested.emit, kind="primary",
+                                           tooltip="A new analysis in Mine: Open net (this model), Open log, "
+                                                   "Check fit, connected and run")
+            card.add(hbox(self.check_log_button, None))
+            card.add(label("Then add Token replay or Alignments for the per-case view, Soundness, or a "
+                           "comparison with another model.", "muted", wrap=True))
+            layout.addWidget(card)
+            layout.addStretch(1)
+            return page
 
         chooser = Card("Replay a log", "Measures how well this model and a log agree.")
+        add_code(chooser, token_replay, align_log, precision, generalisation, simplicity)
         self.log_box = QComboBox()
         self.refresh_logs()
         self.run_conformance = button("Check conformance", self._check, kind="primary")
@@ -584,6 +609,8 @@ class ModelPage(ConcealsResults, QWidget):
         return page
 
     def refresh_logs(self) -> None:
+        if not hasattr(self, "log_box"):              # the handoff tab has no log to choose
+            return
         current = self.log_box.currentData() if self.log_box.count() else None
         self.log_box.clear()
         logs = self.open_logs()

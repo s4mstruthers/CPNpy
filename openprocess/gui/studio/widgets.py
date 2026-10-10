@@ -7,10 +7,12 @@ stays in :mod:`style`.
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QMenu, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QStyle, QStyledItemDelegate,
+    QButtonGroup, QComboBox, QFrame, QMenu, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QStyle, QStyledItemDelegate,
     QVBoxLayout, QWidget,
 )
 
@@ -528,10 +530,24 @@ class PageHeader(QWidget):
         self.subtitle = ElidedLabel(subtitle, "pageSubtitle")
         text.addWidget(self.title)
         text.addWidget(self.subtitle)
+        self._text = text
+        self.back: QPushButton | None = None
         layout.addLayout(text, 1)
         self.actions = QHBoxLayout()
         self.actions.setSpacing(8)
         layout.addLayout(self.actions)
+
+    def set_back(self, text: str, slot) -> None:
+        """A link above the title, back to where this page was opened from
+        ("‹ Back to Discover and check")."""
+        if self.back is None:
+            self.back = button(text, slot, kind="backLink")
+            self.back.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            self._text.insertWidget(0, self.back, 0, Qt.AlignLeft)
+        else:
+            self.back.setText(text)
+            self.back.clicked.disconnect()
+            self.back.clicked.connect(slot)
 
     def set_text(self, title: str, subtitle: str) -> None:
         self.title.setText(title)
@@ -554,20 +570,39 @@ class _RoundedMenus(QObject):
     POPUPS = ("QComboBoxPrivateContainer", "QTipLabel")
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.MouseButtonPress and isinstance(watched, QComboBox):
+            # Size the list before it opens.  Resizing the popup once it is
+            # showing (what _fit_list did) makes macOS flicker and close it,
+            # so a list with long entries could not be used at all.
+            self._prepare_list(watched)
         if event.type() == QEvent.Show and isinstance(watched, QWidget) \
-                and watched.metaObject().className() == "QComboBoxPrivateContainer":
+                and watched.metaObject().className() == "QComboBoxPrivateContainer" \
+                and sys.platform != "darwin":
             self._fit_list(watched)
         if event.type() == QEvent.Polish and isinstance(watched, QWidget) \
                 and (isinstance(watched, QMenu) or watched.metaObject().className()
                      in self.POPUPS) \
                 and not watched.testAttribute(Qt.WA_WState_Created):
             watched.setAttribute(Qt.WA_TranslucentBackground)
-            import sys
             if sys.platform != "darwin":
                 # Windows and Linux draw a square shadow; macOS follows the shape.
                 watched.setWindowFlag(Qt.NoDropShadowWindowHint)
         return False
 
+
+    @staticmethod
+    def _prepare_list(combo: "QComboBox") -> None:
+        """Before the list opens: at least as wide as its longest entry (within
+        reason), so the popup comes up at its final size."""
+        view = combo.view()
+        if view is None or view.model() is None or combo.count() == 0:
+            return
+        needed = view.sizeHintForColumn(0) + 2 * view.frameWidth() + 24
+        screen = combo.screen()
+        if screen is not None:
+            needed = min(needed, int(screen.availableGeometry().width() * 0.6))
+        if needed > combo.width():
+            view.setMinimumWidth(needed)
 
     @staticmethod
     def _fit_list(container: QWidget) -> None:

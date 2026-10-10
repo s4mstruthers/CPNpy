@@ -29,6 +29,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QStackedWidget,
     QDialog, QFileDialog, QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -38,11 +39,12 @@ from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING, Cache,
 from ...flow.types import EventLog, Figure, PetriNet, Scores, Table
 from ...flow.workflow import Edge, Workflow, group_to_python, to_python
 from .. import theme
-from ..studio import style
+from ..studio import motion, style
 from ..studio.widgets import Card, NoticeBar, PageHeader, SegmentedControl, button, hbox, label, scroll, vbox
 from ..studio.workers import run_in_background
 from .canvas import WorkflowScene, WorkflowView
-from .picker import BoxPicker
+from .picker import BoxPicker, input_box_for
+from .summary import SummaryWidget
 from .viewers import SettingsWidget, code_widget, how_widget, pop_out, result_widget, status_text
 
 TABS = ["Result", "How", "Code", "Settings"]
@@ -95,8 +97,8 @@ class WorkflowPage(QWidget):
     edited = Signal()
     #: A result should open as a page of its own (a LogDocument, ModelDocument, CpnDocument).
     open_document = Signal(object)
-    #: "Edit a copy" of a net: open it on the net canvas.
-    edit_requested = Signal(object)
+    #: "Open a copy in Model" of a net: the net, and where it came from ("from Inductive Miner in …").
+    edit_requested = Signal(object, str)
     keep_requested = Signal()
     #: The user allowed the folder's custom boxes to run.
     custom_allowed_changed = Signal()
@@ -116,7 +118,10 @@ class WorkflowPage(QWidget):
         self.runner = Runner(library, Cache(), folder=self.folder)
         self.run: Run | None = None
         self._running = False
+        #: Boxes to run once the current run is over (None: all of them), and
+        #: whether anything is queued at all (None alone would be ambiguous).
         self._queued: list[str] | None = None
+        self._has_queue = False
         self._stop = threading.Event()
         self._relay = _Relay()
         self._relay.status.connect(self._status_arrived)
@@ -136,6 +141,12 @@ class WorkflowPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.header = PageHeader(self.workflow.name, self._subtitle())
+        # Canvas: the boxes and wires.  Summary: every result's figure, and the process map.
+        self.summary_switch = SegmentedControl(["Canvas", "Summary"], compact=True)
+        self.summary_switch.setToolTip("Canvas: the boxes and wires.\nSummary: every result's key "
+                                       "figure, and the process map of the first log.")
+        self.summary_switch.changed.connect(self.show_view)
+        self.header.actions.addWidget(self.summary_switch)
         self.keep_button = button("Keep", self.keep_requested.emit, kind="primary",
                                   tooltip="Save this workflow into the folder")
         self.keep_button.setVisible(False)
@@ -173,6 +184,7 @@ class WorkflowPage(QWidget):
         self.scene.menu.connect(self._menu)
         self.scene.refused.connect(lambda text: self.status.emit(text))
         self.scene.open_group.connect(self.open_group)
+        self.view.files_dropped.connect(self.add_files)
 
         # The canvas, and a side panel that appears when a box is clicked.
         # Drag the gap to resize the panel; double-click it for the default.
@@ -204,7 +216,14 @@ class WorkflowPage(QWidget):
         splitter.reset_requested.connect(self.reset_layout)
         wrapper = QWidget()
         wrapper.setLayout(vbox(splitter, margins=(20, 0, 20, 16)))
-        root.addWidget(wrapper, 1)
+        self.summary = SummaryWidget(self)
+        self.summary.tile_clicked.connect(self._tile_clicked)
+        summary_wrapper = QWidget()
+        summary_wrapper.setLayout(vbox(scroll(self.summary), margins=(20, 0, 20, 16)))
+        self.body = QStackedWidget()
+        self.body.addWidget(wrapper)
+        self.body.addWidget(summary_wrapper)
+        root.addWidget(self.body, 1)
         self._picker: BoxPicker | None = None
 
         QShortcut(QKeySequence(Qt.Key_Delete), self.view, self.scene.remove_selected)
@@ -227,11 +246,29 @@ class WorkflowPage(QWidget):
         self.panel.setVisible(show)
         if show:
             self.splitter.setSizes(_sizes(WorkflowPage.LAYOUT.get("sizes")))
+            QTimer.singleShot(0, lambda: motion.lift(self.panel))     # once it has its width
         self._layout_changed()
 
     def close_panel(self) -> None:
         """The panel's ✕: nothing selected, the canvas alone."""
         self.select(None)
+
+    def show_view(self, index: int) -> None:
+        """Canvas (0) or Summary (1); the Summary is rebuilt from the run when shown."""
+        if self.body.currentIndex() != index:
+            self.body.setCurrentIndex(index)
+            motion.lift(self.body)
+        if self.summary_switch.index() != index:
+            self.summary_switch.blockSignals(True)
+            self.summary_switch.buttons[index].setChecked(True)
+            self.summary_switch.blockSignals(False)
+        if index == 1:
+            self.summary.refresh()
+
+    def _tile_clicked(self, node_id: str) -> None:
+        """A Summary tile: that box's Result, on the canvas."""
+        self.show_view(0)
+        self.select(node_id, 0)
 
     def reset_layout(self) -> None:
         """The side panel at its default width."""
@@ -266,38 +303,95 @@ class WorkflowPage(QWidget):
         """The *+ Add box* popover, built fresh each time (the library may have changed)."""
         if self._picker is not None:
             self._picker.deleteLater()
-        self._picker = BoxPicker(self.library, self)
+        self._picker = BoxPicker(self.library, self, self.folder)
         return self._picker
 
     def add_box_menu(self) -> None:
         """*+ Add box*: the picker under the button; the box lands in free space on the canvas."""
         picker = self.picker()
         picker.chosen.connect(self.add_box_in_view)
+        picker.file_chosen.connect(lambda box_id, relative: self.add_box_in_view(box_id, {"file": relative}))
         corner = self.add_button.mapToGlobal(QPoint(0, self.add_button.height() + 4))
         picker.open_at(QPoint(corner.x() + self.add_button.width() - picker.card_size()[0], corner.y()))
 
-    def add_box_in_view(self, box_id: str) -> None:
-        """Add ``box_id`` where it can be seen: bottom-left of the view, staggered."""
+    def free_spot(self) -> QPointF:
+        """Where a new box lands when nowhere was pointed at: bottom-left of the view, staggered."""
         count = len(self.workflow.nodes) % 6
         rect = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
-        self.add_box(box_id, QPointF(rect.left() + 30 + count * 24, rect.bottom() - 150 - count * 12))
+        return QPointF(rect.left() + 30 + count * 24, rect.bottom() - 150 - count * 12)
+
+    def add_box_in_view(self, box_id: str, settings: dict | None = None):
+        """Add ``box_id`` where it can be seen."""
+        return self.add_box(box_id, self.free_spot(), settings)
 
     def quick_add(self, where: QPointF) -> None:
         """A double-click (or *Add box here…*) at ``where`` (scene coordinates): the picker there."""
         picker = self.picker()
-        picker.chosen.connect(lambda box_id: self.add_box(box_id, QPointF(where.x() - 89, where.y() - 30)))
+        at = QPointF(where.x() - 89, where.y() - 30)
+        picker.chosen.connect(lambda box_id: self.add_box(box_id, at))
+        picker.file_chosen.connect(lambda box_id, relative: self.add_box(box_id, at, {"file": relative}))
         picker.open_at(self.view.mapToGlobal(self.view.mapFromScene(where)))
 
-    def add_box(self, box_id: str, where: QPointF) -> None:
-        node = self.scene.add_node(box_id, where)
+    def add_box(self, box_id: str, where: QPointF, settings: dict | None = None):
+        """Put a box on the canvas (with ``settings``, e.g. the file it reads) and say so."""
+        node = self.scene.add_node(box_id, where, settings)
         spec = self.workflow.spec(node)
         unchosen = [s for s in spec.settings if s.kind == "path" and node.settings.get(s.name) in (None, "")]
+        chosen = [s for s in spec.settings if s.kind == "path" and node.settings.get(s.name) not in (None, "")]
         if unchosen:
             # A box that needs a file: open its Settings, where the file is chosen.
             self.select(node.id, 3)
             self.status.emit(f"Added {spec.name}: press Choose… under {unchosen[0].name} in Settings, on the right")
+        elif chosen:
+            self.select(node.id)
+            self.status.emit(f"Added {spec.name} reading {Path(str(node.settings[chosen[0].name])).name}: "
+                             "drag from the dot on its right to connect it")
         else:
             self.status.emit(f"Added {spec.name}: drag from a dot on the right of a box to connect it")
+        return node
+
+    def add_box_fed_by(self, box_id: str, source_id: str | None):
+        """Add a box and connect it to ``source_id``'s output (the first input
+        that takes it), as dropping a wire would; then it runs."""
+        node = self.add_box_in_view(box_id)
+        if source_id is not None and source_id in self.workflow.nodes:
+            ok, detail = self.workflow.can_connect(source_id, node.id)
+            if ok:
+                self.workflow.connect(source_id, node.id)
+                self.scene.rebuild()
+                self._edited([node.id])
+            else:
+                self.status.emit(detail)
+        return node
+
+    def add_files(self, paths: list[str], where: QPointF | None = None) -> list:
+        """Files dropped on the canvas (or chosen for it) become input boxes:
+        a log an *Open log*, a PNML file an *Open net*, and so on, at ``where``
+        (None: in free space).  A file inside the workflow's folder is kept by
+        its relative path, one elsewhere by its full path.  Returns the nodes."""
+        from ..studio.workspace import file_kind
+        added, refused = [], []
+        for index, path in enumerate(paths):
+            kind = file_kind(Path(path))
+            box_id = input_box_for(self.library, kind) if kind else None
+            if kind == "workflow":
+                refused.append(f"{Path(path).name} is a workflow: open it from the sidebar")
+                continue
+            if box_id is None:
+                refused.append(f"{Path(path).name}: not a log, net or transition system")
+                continue
+            value = str(Path(path))
+            if self.folder is not None:
+                try:
+                    value = Path(path).resolve().relative_to(Path(self.folder).resolve()).as_posix()
+                except ValueError:
+                    pass
+            spot = self.free_spot() if where is None else QPointF(where.x() - 89 + index * 24,
+                                                                      where.y() - 30 + index * 70)
+            added.append(self.add_box(box_id, spot, {"file": value}))
+        if refused:
+            self.status.emit("; ".join(refused))
+        return added
         self.refresh_title()
 
     def reload_library(self) -> None:
@@ -333,9 +427,14 @@ class WorkflowPage(QWidget):
     def run_from(self, changed: list[str] | None) -> None:
         """Run the boxes from ``changed`` on (all of them: None), in the background."""
         if self._running:
-            self._queued = None if changed is None or self._queued is None else sorted(set(self._queued) | set(changed))
-            if changed is None:
+            # Queue it for after this run (stopping the run early); "all" wins
+            # over any list.  Before, a box added during a run was queued as
+            # "all", which then counted as nothing queued: it never ran.
+            if changed is None or (self._has_queue and self._queued is None):
                 self._queued = None
+            else:
+                self._queued = sorted(set(self._queued or []) | set(changed))
+            self._has_queue = True
             self._stop.set()
             return
         problems = [p for p in self.workflow.validate() if "connect" not in p.lower()]
@@ -411,8 +510,17 @@ class WorkflowPage(QWidget):
             self.status.emit(f"The run stopped: {outcome}")
         self.refresh_title()
         self._render_panel()
-        if self._queued is not None or (isinstance(outcome, Run) and outcome.stopped):
-            queued, self._queued = self._queued, None
+        if self.body.currentIndex() == 1:
+            self.summary.refresh()
+        if self._has_queue or (isinstance(outcome, Run) and outcome.stopped):
+            queued, self._queued, self._has_queue = self._queued, None, False
+            if queued is not None and isinstance(outcome, Run) and outcome.stopped:
+                # The stopped run left boxes unfinished: they run again too, or
+                # a box added during a run would never get its result.
+                unfinished = [node.id for node in self.workflow.nodes.values()
+                              if outcome.result(node) is None
+                              or outcome.result(node).status in (WAITING, RUNNING)]
+                queued = sorted(set(queued) | set(unfinished))
             self.run_from(queued)
 
     def rerun(self) -> None:
@@ -452,12 +560,17 @@ class WorkflowPage(QWidget):
         for node_id, values in pending.items():
             if node_id not in self.workflow.nodes:
                 continue
+            before = dict(self.workflow.nodes[node_id].settings)
             try:
                 self.workflow.set(node_id, **values)
             except (ValueError, TypeError) as error:
                 self.status.emit(str(error))
                 continue
-            changed.append(node_id)
+            if self.workflow.nodes[node_id].settings != before:    # the same value again: nothing to run
+                changed.append(node_id)
+                item = self.scene.boxes.get(node_id)
+                if item is not None:
+                    item.update()                                    # the eyebrow may name a new file
         if changed:
             self._mark_edited()
             self.run_from(changed)
@@ -691,9 +804,9 @@ class WorkflowPage(QWidget):
                 column.setContentsMargins(0, 0, 0, 0)
                 for port in spec.outputs:
                     column.addWidget(label(port.name.upper(), "sectionLabel"))
-                    column.addWidget(result_widget(result.values.get(port.name), self))
+                    column.addWidget(result_widget(result.values.get(port.name), self, node))
                 return host
-            widget = result_widget(result.value, self)
+            widget = result_widget(result.value, self, node)
             if self.run and len(self.run.variants) > 1 and self.run.result(node, 1) is not None:
                 host = QWidget()
                 host.setLayout(vbox(label(f"The first of {len(self.run.variants)} sweep values; the collecting "
@@ -723,20 +836,31 @@ class WorkflowPage(QWidget):
             pop_out(title, lambda: self._tab_widget(node, spec, result, index), self.window())
 
     # -- results opening elsewhere ------------------------------------------------------------
+    def _open_elsewhere(self, document) -> None:
+        """Open a result on its own page, which keeps a way back here."""
+        document.opened_from = self.document
+        self.open_document.emit(document)
+
     def open_as_log(self, log: EventLog) -> None:
         from ..studio.documents import LogDocument
-        self.open_document.emit(LogDocument(log))
+        self._open_elsewhere(LogDocument(log))
 
     def open_as_model(self, net: PetriNet) -> None:
         from ..studio.documents import ModelDocument
-        self.open_document.emit(ModelDocument(net, origin=f"from {self.workflow.name}"))
+        self._open_elsewhere(ModelDocument(net, origin=f"from {self.workflow.name}"))
 
     def open_as_cpn(self, net) -> None:
         from ..studio.documents import CpnDocument
-        self.open_document.emit(CpnDocument(net))
+        self._open_elsewhere(CpnDocument(net))
 
     def edit_copy(self, net: PetriNet) -> None:
-        self.edit_requested.emit(net)
+        """*Open a copy in Model ›*: the window opens a copy on the net canvas."""
+        where = self.workflow.title(self.selected) if self.selected in self.workflow.nodes else "a box"
+        self.edit_requested.emit(net, f"from {where} in {self.workflow.name}")
+
+    def layout_tidied(self) -> None:
+        """The user dragged a result's places or transitions: kept with the workflow."""
+        self._mark_edited()
 
     def save_figure(self, figure: Figure) -> None:
         from ..studio.widgets import suggested_path

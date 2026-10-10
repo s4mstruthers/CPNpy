@@ -205,11 +205,11 @@ handling (unsound — try Analysis)**.
 2. Look through the tabs: *Overview*, *Variants*, *Cases*, *Dotted chart*,
    *Process map*, *Footprint*. **Filter…** keeps part of the log as a new
    log.
-3. On the *Discover* tab, pick an algorithm: the model and how it was
-   derived update straight away. **Open as model →** adds the result to the sidebar (under **MODELS**, or
-   **UNSAVED** in a folder until you press **Keep** to save it there).
-4. On the model's *Conformance* tab, choose a log and press **Check
-   conformance**.
+3. On the *Discover* tab, pick an algorithm and press **Discover in Mine →**:
+   an analysis opens with the log and the miner connected and run. Click the
+   miner for its result, *How* it was derived, and the *Code* it ran.
+4. **+ Add box ▸ Check fit** on that canvas, wired to the miner and the
+   log, scores fitness, precision and more, every step shown.
 
 **Simulate a coloured net**
 
@@ -228,15 +228,22 @@ round.
 
 ![The folder Week 2 in the sidebar, with its subfolders, one net open and the others listed](docs/screenshots/workspace.png)
 
+**Three spaces, one folder.** The switcher at the top of the window picks
+**Mine** (event logs and analyses), **Model** (Petri nets and coloured nets)
+or **Learn** (exercises). Each has its own sidebar, so mining and modelling
+never share a list; a document opens in its space, and the folder remembers
+which space you were in.
+
 **In the sidebar**
 
-- **Every event log and net in the folder** is listed, open or not. Files
-  that are not open yet are lighter: **click one to open it**. Closing a file
-  (✕ or ⌘W) puts it back in that state; it stays in the folder.
-- **Folders** shows the folder as it is on disk, with collapsible subfolders
-  (folders first, then files, by name). **By kind** groups the files into
-  event logs, Petri nets and coloured nets instead. The choice, and which
-  subfolders are open, is remembered for each folder.
+- **Mine lists the folder's analyses**, and its logs folded under them.
+  **Model lists its models.** Files that are not open yet are lighter:
+  **click one to open it**. Closing a file (✕ or ⌘W) puts it back in that
+  state; it stays in the folder.
+- **Flat lists, the same in both spaces.** The folder's own files first,
+  then each subfolder's under a caption naming it ("Week 5 / Part 1").
+  Nothing to unfold except LOGS. An empty folder shows in both spaces until
+  it has files.
 - **Organise from the app**: right-click for **New Folder…**, **Rename…**,
   **Show in Finder** and **Move to Bin** (recoverable from the Bin; never a
   hard delete). **Drag files onto a subfolder** to move them on disk. An open
@@ -377,8 +384,10 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   a log's footprint (α-algorithm, footprint conformance).
 - **Reachability graph…**, or a coverability graph with ω when the net is
   unbounded.
-- **Conformance with a log…** opens the net as a model next to your logs,
-  for token replay and alignments.
+- **Check against a log ›** (Analysis tab) builds an analysis in Mine with
+  this net, a log you pick and *Check fit*, connected and run.
+- Every analysis card has a **{ } code** link that opens the function it is
+  computed by, so nothing here is a black box.
 
 | The counterexample, replayed | The footprint of the net |
 |---|---|
@@ -389,8 +398,10 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Step through / Simulate:** the token game, fired by hand or at random.
   With **Trace** ticked, every fired transition shows its step numbers and
   the arcs the tokens used light up, the latest step strongest.
-- **Generate event log…:** plays the net out many times and opens the
-  traces as a log.
+- **Mine a simulated log ›:** plays the net out many times, saves the traces
+  as a log in the folder and opens Mine on a new analysis reading it.
+- **Check against a log ›** (Analysis tab): picks a log and opens Mine on a
+  new analysis with this net, the log and *Check fit*, connected and run.
 - **Saving:** nets are saved as **PNML** (ProM, WoPeD and PM4Py read it), or
   as `.cpn`. *Save As* names the net after its file. With a folder open, a
   new net is `Untitled 1.pnml` in the folder from the start and is saved as
@@ -399,8 +410,9 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Renaming:** double-click the net's name in the sidebar, or its title
   above the canvas. The file is renamed with it, in the same folder (an
   existing file is never overwritten).
-- **Opening:** a `.pnml` file opens in this editor. A model you discovered
-  has **✎ Edit a copy** to bring it here.
+- **Opening:** a `.pnml` file opens in this editor. A net discovered in Mine
+  has **Open a copy in Model ›** to bring a copy here; the original result is
+  never changed, and the copy's header links back to the analysis.
 
 ![Renaming a transition in place](docs/screenshots/petri-editing.png)
 
@@ -436,21 +448,24 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   - Time unit (Auto, or seconds up to years) and a grid step you can type in.
   - Colour and shape by any attribute. The default palette can be changed
     per value: right-click a value in the legend and pick its colour.
-- **Discover:**
+- **Discover** hands the log to an analysis in Mine (**Discover in Mine →**),
+  where the miner is a box with its result, its *How* and its *Code*:
   - α-algorithm, which shows its eight steps;
-  - Inductive Miner and IMf;
-  - Heuristics Miner, as a dependency graph or as a Petri net: which forks
-    are AND and which XOR is learned from the log (a causal net, whose
-    bindings are listed). Like in ProM, such a net fits its log but is not
-    always sound;
-  - **state-based regions**, two-phase: the log becomes a transition system
-    through a state function you choose (the prefix, postfix or both of each
-    event; as a set, multiset or sequence; over the last *k* events or all
-    of them), and its minimal regions become the places. The derivation
-    shows the transition system (pick a trace to light up the states it
-    passes through), the regions, GER and minimal pre- and post-regions of
-    every event, state separation and forward closure, and whether the
-    net's reachability graph is isomorphic to the transition system.
+  - Inductive Miner (with a noise setting for IMf);
+  - Heuristics Miner, as a Petri net: which forks are AND and which XOR is
+    learned from the log (a causal net, whose bindings are listed). Like in
+    ProM, such a net fits its log but is not always sound;
+  - **state-based regions**, two-phase: *Classical states* turns the log
+    into a transition system through a state function you choose (the
+    prefix, postfix or both of each event; as a set, multiset or sequence;
+    over the last *k* events or all of them), and *Regions to net* makes its
+    minimal regions the places. The derivation shows the transition system,
+    the regions, GER and minimal pre- and post-regions of every event, state
+    separation and forward closure, and whether the net's reachability graph
+    is isomorphic to the transition system.
+
+  In Learn, an exercise's log page keeps the miners on the page, since the
+  exercise is the context there.
 - **Transition systems** (File ▸ New Transition System…, or a `ts.txt` file):
   type one as `s0 -a-> s1, s0 -b-> s2` and get the same region analysis and
   synthesis. *Is this a region?* answers yes or no for any set of states
@@ -715,20 +730,40 @@ Miner, a fitness check), *Compare discovery* (three miners side by side),
 confidence* (bootstrap intervals, a test and a plot; needs the `science`
 extra) and *Predict the next activity*. Or start empty.
 
-- **The page is the canvas.** Three buttons in its header: **+ Add box**,
-  **Run ▶**, and **⋯** for Re-run, Record, Export experiment and Save.
+- **The page is the canvas.** Its header has **Canvas | Summary**, then
+  **+ Add box**, **Run ▶**, and **⋯** for Re-run, Record, Export experiment
+  and Save. The sidebar beside it lists the folder's analyses and, folded
+  under them, its logs.
 - **+ Add box** (or a double-click on the canvas) opens every box, by group:
   the six core groups side by side (Input, Filter, Discover, Check, Compare,
   Output) and one line for the rest (Science, Predict, Coloured nets, Sweep,
-  your own boxes) with *Show all*. Type to search them all: "alpha" finds the
-  α-algorithm; Enter adds the first match.
+  your own boxes) with *Show all*. Under *Input*, **the folder's own files**:
+  one click adds the box that reads the file, already set. Type to search
+  them all: "alpha" finds the α-algorithm, "boarding" the log; Enter adds the
+  first match.
+- **Files flow into the canvas.** Drop a log, a PNML file, a .cpn or a
+  ts.txt on the canvas and it becomes its input box at that spot; an input
+  box names its file ("INPUT · boarding.xes"). *Open log…* and *Log from
+  notation…* in the sidebar land as boxes on the current analysis (or a new
+  one named after the file). In a box's **Settings**, *Choose…* picks the
+  file and the list beside it offers only the files the box can read.
+- **Summary** is the key figure of every box, in one place: a tile per box,
+  in the order the boxes run (a score's first metric, a table's size, a
+  log's cases, a net's places and transitions). Nothing is computed there:
+  a tile is the box's result, as on the canvas, and a tile opens the box.
+  The process map under the tiles is the *Directly-follows graph* box's
+  result; an analysis without that box offers to add it in one click.
 - **Connect** by dragging from the dot on the right of a box: while you drag,
   only the inputs that take that kind of result light up, so a wrong
   connection cannot be made. Click a wire and press Delete to remove it.
 - **Click a box** and the side panel appears beside the canvas, on
   **Result** (the net, the log's figures, the table, the figure; a log's
   Result has *Open as log ›* for the dotted chart, process map, footprint,
-  variants and cases). Its other tabs: **How** (what the box reported: notes,
+  variants and cases, and a net's has *Open a copy in Model ›*). A page
+  opened this way shows "‹ Back to <analysis>" above its title. A
+  discovered net can be tidied on the Result tab by dragging its places and
+  transitions (the layout is saved with the workflow); the net itself is not
+  changed there. Its other tabs: **How** (what the box reported: notes,
   intermediate values, the derivation), **Code** (the box's few lines and,
   under them, the actual algorithm it calls: the α-algorithm's eight steps,
   the Inductive Miner's cuts, with the work each follows and *Whole file* for
@@ -754,6 +789,14 @@ extra) and *Predict the next activity*. Or start empty.
   material for a paper, which `openprocess run --check` can verify.
 - **The side panel** resizes by dragging the gap beside it; double-click the
   gap, or *View ▸ Reset Workflow Layout*, for its default width.
+- **Connections** (at the bottom of the sidebar, or *View ▸ Connections*)
+  draws what flows in, OpenProcess and its boxes, what flows out, and the
+  optional tools (pandas, numpy, scipy, matplotlib, …) with whether each is
+  installed, how to install it and the boxes it brings. All of it is read
+  from the box library.
+- **Motion** is kept short: a space switch, the side panel and Canvas ↔
+  Summary settle in a fifth of a second, and a box pulses once when it
+  finishes. `OPENPROCESS_NO_MOTION=1` turns it off.
 
 ## Workflows from Python
 

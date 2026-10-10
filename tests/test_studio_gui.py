@@ -50,6 +50,10 @@ def _pump(app, seconds: float) -> None:
     while time.time() < end:
         app.processEvents()
         time.sleep(0.01)
+    # Under load one processEvents can outlast the budget; drain what came due
+    # meanwhile (a page's deferred fit, say), so the test sees a settled window.
+    for _ in range(3):
+        app.processEvents()
 
 
 def test_studio_end_to_end(app):
@@ -73,10 +77,14 @@ def test_studio_end_to_end(app):
     window.add_document(ModelDocument(result.net, origin="test", derivation=result,
                                       source_log=log))
     model_page = window.current_page()
-    model_page._check()
+    # In the studio, conformance is a handoff to an analysis; Learn's model page replays inline.
+    assert model_page.conformance_mode == "handoff" and model_page.check_log_button is not None
+    from openprocess.gui.studio.model_page import ModelPage
+    inline = ModelPage(window.documents[-1], window.logs)
+    inline._check()
     _pump(app, 2.0)
-    assert model_page.conformance is not None
-    replay, alignments = model_page.conformance
+    assert inline.conformance is not None
+    replay, alignments = inline.conformance
     assert alignments.average_fitness == pytest.approx(1.0)
 
     # Step through: a real mouse click on an enabled transition fires it.
@@ -108,7 +116,7 @@ def test_studio_end_to_end(app):
 
     # dotted chart: zoom, back, reconfigure
     log_page = window.pages[log.id]
-    window.tree.setCurrentItem(window.items[log.id])
+    window._select_document(log)                        # back to Mine
     log_page.tabs.set_index(3)
     _pump(app, 0.3)
     from openprocess.gui.studio.dotted_chart import DottedChartPanel
@@ -250,7 +258,7 @@ def test_cpn_page_edit_simulate_analyse(app, tmp_path):
     assert isinstance(window.documents[-1], LogDocument)
 
     # Editing a guard recompiles, marks the model dirty and resets the simulation.
-    window.tree.setCurrentItem(window.items[page.document.id])
+    window._select_document(page.document)              # the log opened in Mine; back to Model
     page.mode_switch.set_index(0)
     move_up = next(t for t in page.net.all_transitions() if t.name == "Move up")
     page.reveal_element(move_up.id)
@@ -1265,39 +1273,45 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     window.open_path(str(root / "examples" / "petri" / "order_handling_unsound.pnml"))
     assert window.open_workspace(str(week))
 
-    # The outside file was closed; the folder's files are listed (here grouped by kind).
-    window.set_view_mode("kind")
+    # The outside file was closed.  Mine lists the folder's logs (folded under
+    # their subfolder); Model lists its nets.
     assert [d.name for d in window.documents] == []
     assert window.sidebar_title.text() == "Week 2"
     assert not window.workspace_caption.isHidden()
     assert window.windowTitle() == f"Week 2 — {APPLICATION_NAME}"
-    assert rows(window.petri_section) == ["order"]
-    assert rows(window.cpn_section) == ["transfer"]
-    assert rows(window.logs_section) == ["boarding"]             # the subfolder is in the tooltip
-    assert window.logs_section.child(0).toolTip(0).startswith("logs/boarding.xes")
+    assert window.space == "mine" and window.analyses_section.isHidden()
+    assert window.material_section.text(0) == "LOGS  ·  1"
+    assert rows(window.material_section) == ["logs"]
+    assert rows(window.folder_items["logs"]) == ["boarding"]
+    assert window.folder_items["logs"].child(0).toolTip(0).startswith("logs/boarding.xes")
+    assert window.set_space("model") and window.space_switch.index() == 1
+    assert rows(window.models_section) == ["order", "transfer"]
 
     # One click opens a file; its row becomes the open document.
-    window._open_placeholder(window.petri_section.child(0))
+    window._open_placeholder(window.models_section.child(0))
     net = window.documents[-1]
-    assert net.name == "order" and window.petri_section.childCount() == 1
-    assert window.petri_section.child(0).data(0, FILE_ROLE) is None
+    assert net.name == "order" and window.models_section.childCount() == 2
+    assert window.models_section.child(0).data(0, FILE_ROLE) is None
     assert window.windowTitle() == "order — Week 2"
     # A double-click right after that click does not ask to rename it.
     window._on_double_click(window.items[net.id], 0)
 
-    # A log opens in the background.
-    window._open_placeholder(window.logs_section.child(0))
+    # A log opens in the background, in Mine.
+    window.set_space("mine")
+    window._open_placeholder(window.folder_items["logs"].child(0))
     assert wait_for(lambda: any(isinstance(d, LogDocument) for d in window.documents))
-    assert rows(window.logs_section) == ["Boarding"]
+    assert window.space == "mine" and rows(window.folder_items["logs"]) == ["Boarding"]
 
     # Closing a file lists it again, ready to reopen.
+    window.set_space("model")
+    assert window.windowTitle() == "order — Week 2"          # Model remembers its document
     window.remove_documents([net.id])
-    assert rows(window.petri_section) == ["order"]
-    assert window.petri_section.child(0).data(0, FILE_ROLE)
+    assert rows(window.models_section) == ["order", "transfer"]
+    assert window.models_section.child(0).data(0, FILE_ROLE)
 
     # Files added in Finder appear by themselves (the folder is watched).
     shutil.copy(week / "order.pnml", week / "another net.pnml")
-    assert wait_for(lambda: rows(window.petri_section) == ["another net", "order"])
+    assert wait_for(lambda: rows(window.models_section) == ["another net", "order", "transfer"])
 
     # A new net's Save dialog starts in the workspace folder.
     window.action_new_petri()
@@ -1310,10 +1324,10 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     assert window.current_page().export()
     assert Path(offered["path"]).parent == week
     window._rescan_workspace()
-    assert rows(window.petri_section) == ["another net", "my model", "order"]
-    assert sum(1 for i in range(3) if window.petri_section.child(i).data(0, FILE_ROLE)) == 2
+    assert rows(window.models_section) == ["another net", "my model", "order", "transfer"]
+    assert sum(1 for i in range(4) if window.models_section.child(i).data(0, FILE_ROLE)) == 3
 
-    # What was open is remembered in the folder and comes back next time.
+    # What was open, and which space, is remembered in the folder and comes back next time.
     assert (week / ".openprocess").exists()
     window.close()
     again = StudioWindow()
@@ -1321,12 +1335,16 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     assert again.open_workspace(str(week))
     assert wait_for(lambda: len(again.documents) == 2)
     assert sorted(d.name for d in again.documents) == ["Boarding", "my model"]
+    assert again.space == "model"
     assert again.windowTitle() == "my model — Week 2"          # it was selected
+    again.set_space("mine")
+    assert again.windowTitle() == f"Week 2 — {APPLICATION_NAME}"  # nothing was current in Mine
 
     # Closing the workspace closes everything and goes back to "OpenProcess Studio".
     assert again.close_workspace()
     assert again.documents == [] and again.sidebar_title.text() == APPLICATION_NAME
-    assert all(s.isHidden() for s in (again.logs_section, again.petri_section, again.cpn_section))
+    assert all(s.isHidden() for s in (again.analyses_section, again.models_section,
+                                      again.material_section))
     again.close()
 
 
@@ -1557,43 +1575,54 @@ def _layout(window) -> list[str]:
     return lines
 
 
-def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
-    from openprocess.gui.studio.app import FOLDER_ROLE, StudioWindow
+def test_each_space_lists_its_own_files_and_remembers_them(app, tmp_path):
+    """Mine lists logs under LOGS (folded), Model lists the nets; in both, the
+    list is flat, with each subfolder's files under a caption naming it, so
+    nothing is nested and nothing moves between the spaces.  The space and
+    the unfolded LOGS are remembered in the folder."""
+    from openprocess.gui.studio.app import FOLDER_ROLE, GROUP_ROLE, StudioWindow
     from openprocess.gui.studio.workspace import Workspace
 
     week = _week(tmp_path)
     window = StudioWindow()
     window.show()
     window.open_workspace(str(week))
-    assert window.view_mode == "folder" and not window.view_row.isHidden()
-    # Folders first, then files, as in Finder; subfolders start collapsed.
-    assert _layout(window) == ["empty", "logs", "models", "transfer"]
-    window.folder_items["models"].setExpanded(True)
-    assert _layout(window) == ["empty", "logs", "models", "  order", "transfer"]
+    assert window.space == "mine" and window.space_switch.index() == 0
+    assert not window.footers["mine"].isHidden() and window.footers["model"].isHidden()
+    # No analyses yet, so ANALYSES holds only the empty subfolder's caption (a
+    # folder with nothing in it shows in both spaces, waiting); LOGS is folded.
+    assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1"]
+    window.material_section.setExpanded(True)
+    assert _layout(window) == ["ANALYSES", "  empty", "LOGS  ·  1", "  logs", "    boarding"]
+    caption = window.folder_items["logs"]
+    assert caption.data(0, GROUP_ROLE) and caption.data(0, FOLDER_ROLE) == str(week.resolve() / "logs")
+    caption.setExpanded(False)                                   # a caption never folds
+    assert caption.isExpanded()
+
+    # Model: the folder's own files first, then each subfolder's under its caption.
+    window.set_space("model")
+    assert not window.footers["model"].isHidden() and window.footers["mine"].isHidden()
+    assert _layout(window) == ["MODELS", "  transfer", "  empty", "  models", "    order"]
     assert window.folder_items["models"].data(0, FOLDER_ROLE) == str(week.resolve() / "models")
 
-    # Opening a file keeps it in its subfolder; a new net goes into the folder.
+    # Opening a file keeps it under its caption.
     window._open_placeholder(window.placeholders[window._key(week / "models" / "order.pnml")])
     assert window.documents[-1].name == "order"
-    assert _layout(window) == ["empty", "logs", "models", "  order", "transfer"]
+    assert _layout(window) == ["MODELS", "  transfer", "  empty", "  models", "    order"]
     assert window.tree.currentItem() is window.items[window.documents[-1].id]
+    for i in range(window.models_section.childCount()):          # the rows are laid out
+        assert window.tree.visualItemRect(window.models_section.child(i)).height() > 0
 
-    # The view and the expanded subfolders are remembered in the folder.
-    window.set_view_mode("kind")
-    assert "PETRI NETS" in _layout(window) and "models" not in _layout(window)
-    # Regression: the headings' rows were in the tree but not laid out (an
-    # empty By kind view), so check what the view actually shows.
-    for section in (window.logs_section, window.petri_section, window.cpn_section):
-        for i in range(section.childCount()):
-            assert window.tree.visualItemRect(section.child(i)).height() > 0
-    assert Workspace(week).settings() == {"view": "kind", "expanded": ["models"]}
+    # The space and the unfolded LOGS are remembered in the folder.
+    assert Workspace(week).settings() == {"material_expanded": True, "space": "model"}
     window.close()
     again = StudioWindow()
     again.show()
     again.open_workspace(str(week))
-    assert again.view_mode == "kind" and again.view_switch.index() == 1
-    again.set_view_mode("folder")
-    assert again.folder_items["models"].isExpanded()
+    assert again.space == "model" and again.space_switch.index() == 1
+    again.set_space("mine")
+    assert again.material_section.isExpanded()
+    assert _layout(again) == ["ANALYSES", "  empty", "LOGS  ·  1", "  logs", "    boarding"]
     again.close()
 
 
@@ -1617,6 +1646,7 @@ def test_organising_files_from_the_sidebar(app, tmp_path, monkeypatch, fake_bin)
     window = StudioWindow()
     window.show()
     window.open_workspace(str(week))
+    window.set_space("model")                      # the nets' space
 
     # New Folder, inside "models".
     answers.append("assignment 1")
@@ -1726,7 +1756,8 @@ def test_changes_on_disk_reach_the_app(app, tmp_path):
     _pump(app, 1.5)
     assert not path.exists()                   # autosave does not bring it back
 
-    # A new subfolder made in Finder, with a log copied straight into it.
+    # A new subfolder made in Finder, with a log copied straight into it (listed in Mine).
+    window.set_space("mine")
     (week / "week 3").mkdir()
     write_xes(EventLog.from_simple_log(parse_simple_log("[<x,y>]"), "New"),
               week / "week 3" / "fresh.xes")
@@ -2235,17 +2266,29 @@ def test_log_tabs_fit_the_window(app):
     while not isinstance(area, QScrollArea):
         area = area.parentWidget()
     names = [b.text() for b in page.tabs.buttons]
-    for name in ("Process map", "Discover"):
+    for name in ("Process map", "Discover"):              # Discover: the handoff card, in the studio
         page.tabs.set_index(names.index(name))
         _pump(app, 0.3)
-    for box in page.findChildren(QComboBox):
+    assert page.height() <= area.viewport().height()
+    # Learn's log page runs the miners inline: its drawn process tree keeps its zoom bar in the card.
+    from openprocess.gui.studio.log_page import LogPage
+    inline = LogPage(LogDocument(read_xes(DATA / "plane_wilma_10.xes")))
+    holder = QScrollArea()
+    holder.setWidgetResizable(True)
+    holder.setWidget(inline)
+    holder.resize(1200, 760)
+    holder.show()
+    inline.tabs.set_index([b.text() for b in inline.tabs.buttons].index("Discover"))
+    _pump(app, 0.3)
+    for box in inline.findChildren(QComboBox):
         if box.findData("im") >= 0:
             box.setCurrentIndex(box.findData("im"))
     _pump(app, 2.0)
-    assert page.height() <= area.viewport().height()
-    tree = page.findChildren(TreeView)[0]
+    assert inline.height() <= holder.viewport().height()
+    tree = inline.findChildren(TreeView)[0]
     bar = tree.zoom_controls
     assert bar.isVisible() and tree.viewport().geometry().contains(bar.geometry())
+    holder.close()
     window.close()
 
 
@@ -2299,4 +2342,161 @@ def test_the_name_box_follows_the_node(app):
     assert view.name_editor is None
     assert [t.name for t in page.net.all_transitions()] == ["pay"]
     page.document.dirty = False
+    window.close()
+
+
+def test_connections_view_and_the_model_palette(app, tmp_path):
+    """Connections draws what flows in and out and the tools that plug in, from
+    the library; in Model, a net page's tools are a palette in the sidebar."""
+    from openprocess.gui.studio import connections
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.show()
+    window.show_connections()
+    assert window.content.currentWidget() is window.connections_page
+    cards = window.connections_page.cards
+    assert {"Event logs", "Petri nets", "PNML", "OpenProcess", "Your own boxes"} <= set(cards)
+    tools = {t["name"]: t for t in connections.tools(window.library())}
+    assert "pandas" in tools and "Describe log" in tools["pandas"]["boxes"]
+    assert tools["pandas"]["name"] in cards
+
+    window.action_new_petri()
+    page = window.current_page()
+    assert window.space == "model" and not window.palette.isHidden()
+    assert page.tool_switch.isHidden()                       # the palette stands in for it
+    window.palette_group.button(1).click()
+    assert page.tool_switch.index() == 1 and page.scene.tool == "place"
+    page.tool_switch.set_index(3)
+    assert window.palette_group.checkedId() == 3
+    window.toggle_sidebar(False, remember=False)
+    assert not page.tool_switch.isHidden()                   # no sidebar: the page's own tools
+    window.toggle_sidebar(True, remember=False)
+    assert page.tool_switch.isHidden()
+    window.set_space("mine")
+    assert window.palette.isHidden()
+    window.set_space("model")
+    assert not window.palette.isHidden() and window.current_page() is page
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_studio_log_page_hands_discovery_to_the_canvas(app, tmp_path):
+    """In the studio, the log page's Discover tab runs no miner: it builds an
+    analysis in Mine with the log and the chosen miner, connected and run,
+    so every step is shown.  (Learn keeps the inline miners.)"""
+    from PySide6.QtWidgets import QComboBox
+
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument, WorkflowDocument
+    from openprocess.gui.studio.log_page import LogPage
+    from openprocess.mining import EventLog, parse_simple_log
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    log = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"), "L")
+    window.add_document(LogDocument(log, notation="[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"))
+    page = window.current_page()
+    assert isinstance(page, LogPage) and page.discover_mode == "handoff"
+    page.tabs.set_index(6)                                   # Discover
+    _pump(app, 0.1)
+    assert not [b for b in page.findChildren(QComboBox) if b.findData("im") >= 0]   # no inline miners
+    page.discover_chooser.setCurrentIndex(page.discover_chooser.findData("alpha_miner"))
+    page.discover_button.click()
+    _pump(app, 0.2)
+    analysis = window.current_page()
+    assert isinstance(analysis.document, WorkflowDocument) and window.space == "mine"
+    assert analysis.workflow.name == "Discover L"
+    names = [analysis.workflow.spec(n).name for n in analysis.workflow.order()]
+    assert names == ["Open log", "α-algorithm"] and len(analysis.workflow.edges) == 1
+    miner = analysis.workflow.order()[1]
+    assert analysis.selected == miner.id                     # its Result is open
+    end = time.time() + 8
+    while time.time() < end and (analysis.run is None or analysis._running):
+        _pump(app, 0.02)
+    assert analysis.run.result(miner).status == "done", analysis.run.result(miner).error
+    # Learn's log page keeps the miners inline.
+    inline = LogPage(LogDocument(log))
+    assert inline.discover_mode == "inline"
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def test_a_tool_can_be_installed_from_connections(app, monkeypatch):
+    """Install… on a tool's card runs pip for this app's Python in the
+    background, after asking; the card says Installing…, then the boxes
+    that need the tool are available."""
+    from openprocess.gui.studio import app as studio_app, connections
+    from openprocess.gui.studio.app import StudioWindow
+
+    fake = {"name": "fakestats", "installed": False, "install": "pip install fakestats", "boxes": ["Fake box"]}
+    monkeypatch.setattr(connections, "tools", lambda library: [fake])
+    monkeypatch.setattr(connections, "can_install", lambda: True)
+    monkeypatch.setattr(studio_app.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: studio_app.QMessageBox.Yes))
+    ran = []
+
+    def pip(command):
+        ran.append(command)
+        fake["installed"] = True
+        return 0, "Successfully installed fakestats"
+    monkeypatch.setattr(studio_app, "PIP_RUNNER", pip)
+
+    window = StudioWindow()
+    window.show()
+    window.show_connections()
+    page = window.connections_page
+    assert "fakestats" in page.install_buttons
+    page.install_buttons["fakestats"].click()
+    assert "fakestats" in page.installing                     # at once: Installing…
+    assert "fakestats" not in page.install_buttons
+    end = time.time() + 6
+    while time.time() < end and page.installing:
+        _pump(app, 0.05)
+    assert ran == [[studio_app.sys.executable, "-m", "pip", "install", "fakestats"]]
+    assert not page.installing and "fakestats" not in page.install_buttons   # installed: no button
+    assert "Installed fakestats" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_every_computed_card_links_to_its_code(app):
+    """What a page computes on its own (a process map, a footprint, soundness,
+    regions) is as open as a box: its card has a { } code link that opens the
+    file, scrolled to the function."""
+    from PySide6.QtWidgets import QPlainTextEdit, QPushButton
+
+    from openprocess.gui.flow import viewers
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.mining import read_xes
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.add_document(LogDocument(read_xes(DATA / "plane_wilma_10.xes"), path=str(DATA / "plane_wilma_10.xes")))
+    page = window.current_page()
+    names = [b.text() for b in page.tabs.buttons]
+    page.tabs.set_index(names.index("Footprint"))
+    _pump(app, 0.2)
+    links = [b for b in page.findChildren(QPushButton) if b.text() == "{ } code" and b.isVisible()]
+    assert links
+    links[0].click()
+    _pump(app, 0.2)
+    shown = viewers._windows[-1].findChild(QPlainTextEdit).toPlainText()
+    assert "def footprint_of_log" in shown
+    for dialog in list(viewers._windows):
+        dialog.close()
+    window.action_new_petri()
+    net_page = window.current_page()
+    net_page.inspector_tabs.set_index(2)                     # Analysis
+    _pump(app, 0.3)
+    texts = [b.text() for b in net_page.findChildren(QPushButton)]
+    assert texts.count("{ } code") >= 6                      # soundness, theorem, structure, invariants, …
+    assert not any("Conformance with a log" in t for t in texts)   # one route: Check against a log ›
+    for document in window.documents:
+        document.dirty = False
     window.close()

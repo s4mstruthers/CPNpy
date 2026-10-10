@@ -4,7 +4,9 @@ Rows carry what they stand for in their item data:
 
 * ``Qt.UserRole`` -- the id of an open document;
 * :data:`FILE_ROLE` -- the path of a file in the folder that is not open yet;
-* :data:`FOLDER_ROLE` -- the path of a subfolder (in the Folder view).
+* :data:`FOLDER_ROLE` -- the path of a subfolder;
+* :data:`FOLDABLE_ROLE` -- a heading that folds open and shut (a click toggles it);
+* :data:`GROUP_ROLE` -- a subfolder's caption: the rows under it are the files in it.
 
 The tree also handles dragging: rows can be dragged onto a subfolder (to move
 the files on disk) or out of the window (to Finder, say), and files dragged
@@ -26,6 +28,10 @@ from . import style
 FILE_ROLE = Qt.UserRole + 1
 #: Sidebar item data: the path of a subfolder.
 FOLDER_ROLE = Qt.UserRole + 2
+#: Sidebar item data: a heading that folds (the LOGS section in Mine): it gets a chevron.
+FOLDABLE_ROLE = Qt.UserRole + 5
+#: Sidebar item data: a subfolder's caption, which groups the files in it (always open, no chevron).
+GROUP_ROLE = Qt.UserRole + 6
 
 
 class SidebarTree(QTreeWidget):
@@ -54,8 +60,9 @@ class SidebarTree(QTreeWidget):
         the selected row's highlight in the indentation, so that is covered up."""
         painter.fillRect(rect, QColor(style.tokens().sidebar))
         item = self.itemFromIndex(index)
-        if item is None or item.childCount() == 0 or not item.data(0, FOLDER_ROLE):
-            return                      # only subfolders get one, not section headings
+        if item is None or item.childCount() == 0 or item.data(0, GROUP_ROLE) \
+                or not (item.data(0, FOLDER_ROLE) or item.data(0, FOLDABLE_ROLE)):
+            return                      # only a foldable heading gets one; captions never fold
         size = 3.5
         centre = QPointF(rect.right() - self.indentation() / 2 + 2, rect.center().y() + 1)
         path = QPainterPath()

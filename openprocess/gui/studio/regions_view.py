@@ -36,13 +36,14 @@ from PySide6.QtWidgets import (
 )
 
 from ...mining.discovery.state_regions import RegionResult, region_result
-from ...mining.regions import check_region, format_states
+from ...mining.regions import analyse_regions, check_region, format_states
 from ...mining.transition_system import (
     TransitionSystem, parse_states, parse_transition_system,
 )
 from . import instances, style
 from ..learn.concealment import ConcealsResults
 from .definition_view import attach_definition
+from .provenance import add_code
 from .graph_view import EdgeSpec, GraphView, NodeSpec
 from .widgets import Card, PageHeader, Verdict, button, hbox, label, scroll, status_for, \
     suggested_path
@@ -250,6 +251,7 @@ class RegionsPanel(ConcealsResults, QWidget):
         regions = Card("Regions", f"{len(analysis.regions)} non-trivial region(s), "
                        f"{len(analysis.minimal)} minimal. Each minimal region becomes a "
                        "place of the net.")
+        add_code(regions, analyse_regions, check_region)
         attach_definition(regions.caption_label, "minimal_region",
                           instances.regions(analysis, "minimal_region"))
         lines = [f"r{number} = {format_states(region, order)}"
@@ -273,6 +275,7 @@ class RegionsPanel(ConcealsResults, QWidget):
         net_card = Card("Synthesised net", "One place per minimal region, an arc from each "
                         "pre-region and to each post-region, a token in every minimal region "
                         "holding the initial state.")
+        add_code(net_card, region_result)
         attach_definition(net_card.caption_label, "region_synthesis",
                           instances.regions(analysis, "region_synthesis", synthesis))
         for warning in result.warnings:
