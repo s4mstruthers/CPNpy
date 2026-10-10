@@ -324,7 +324,8 @@ def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
     header = [b.text() for b in page.header.findChildren(QPushButton)
               if b.isVisible() and b.objectName() != "reproBadge"]
     assert header == ["Canvas", "Summary", "+ Add box", "Run ▶", "⋯"]
-    assert [a.text() for a in page.more_menu.actions() if a.text()] == ["Re-run", "Record…", "Export experiment…", "Save"]
+    assert [a.text() for a in page.more_menu.actions() if a.text()] == [
+        "Re-run", "Record…", "Export experiment…", "Export report…", "Save"]
     assert not page.panel.isVisible() and not hasattr(page, "box_tree")
     log, miner = page.workflow.order()[:2]
     page.select(log.id)
@@ -1047,5 +1048,34 @@ def test_step_through_plays_the_derivation_over_the_result(app):
     toggle.click()                                            # back to the full report
     _pump(app, 0.1)
     assert not page.panel_host.findChildren(StepThrough)
+    page.document.dirty = False
+    window.close()
+
+
+def test_export_report_writes_one_page_with_the_drawings(app, tmp_path, monkeypatch):
+    """⋯ ▸ Export report…: an HTML file with the net and the map drawn as SVG."""
+    from PySide6.QtGui import QDesktopServices
+
+    from openprocess.gui.flow import page as flow_page
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    target = tmp_path / "report.html"
+    monkeypatch.setattr(flow_page.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(target), "")))
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(lambda url: opened.append(url.toLocalFile()) or True))
+    assert any(a.text() == "Export report…" for a in page.more_menu.actions())
+    page.export_report()
+    text = target.read_text(encoding="utf-8")
+    assert "<svg" in text and page.workflow.name in text and "How to cite" in text
+    miner = page.workflow.order()[1]
+    assert miner.id in page.drawings()                       # the net was drawn
+    assert opened == [str(target)]
     page.document.dirty = False
     window.close()

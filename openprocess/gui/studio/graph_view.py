@@ -697,6 +697,25 @@ class GraphView(CanvasPanning, QGraphicsView):
         painter.end()
         image.save(path)
 
+    def svg_text(self) -> str:
+        """The drawing as SVG text (for a report)."""
+        from PySide6.QtCore import QBuffer, QByteArray
+        from PySide6.QtSvg import QSvgGenerator
+        rect = self.graph.sceneRect()
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QBuffer.WriteOnly)
+        generator = QSvgGenerator()
+        generator.setOutputDevice(buffer)
+        generator.setSize(rect.size().toSize())
+        generator.setViewBox(QRectF(0, 0, rect.width(), rect.height()))
+        painter = QPainter(generator)
+        self.graph.render(painter, QRectF(0, 0, rect.width(), rect.height()), rect)
+        painter.end()
+        buffer.close()
+        text = bytes(data).decode("utf-8", errors="replace")
+        return text[text.index("<svg"):] if "<svg" in text else text
+
     def export_svg(self, path: str) -> None:
         from PySide6.QtSvg import QSvgGenerator
         rect = self.graph.sceneRect()

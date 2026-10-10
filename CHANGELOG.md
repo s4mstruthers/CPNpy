@@ -6,6 +6,15 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.2
+
+- **Export report.** ⋯ ▸ *Export report…* on an analysis writes one HTML
+  page, with nothing to install: the reproducibility status, the key figure
+  of every box, each box's result (nets, maps and trees drawn; tables and
+  scores as tables), how it got there, the code it ran and the papers it
+  follows, what it read with fingerprints, and how to cite. For a
+  supervisor, a reviewer, a hand-in. It opens in your browser when written.
+
 ## 0.10.1
 
 - **Step through an algorithm.** A box's *How* tab has *Step through ▸*: the

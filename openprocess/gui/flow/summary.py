@@ -14,7 +14,8 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QSlider, QSizePolicy, QVBoxLayout, QWidget
 
-from ...flow.types import DFG, EventLog, Figure, PetriNet, Scores, Table, Text
+from ...flow.figures import tile_parts
+from ...flow.types import DFG, EventLog
 from ..studio import style
 from ..studio.graph_builders import dfg_specs
 from ..studio.graph_view import GraphView
@@ -22,42 +23,6 @@ from ..studio.widgets import Card, ElidedLabel, Legend, LegendSwatch, button, fl
 
 #: How many tiles at most (an analysis with a sweep can have hundreds of results).
 TILE_LIMIT = 24
-
-
-def _number(value) -> str:
-    if isinstance(value, bool):
-        return "yes" if value else "no"
-    if isinstance(value, float):
-        return f"{value:.2f}" if abs(value) < 1000 else f"{value:,.0f}"
-    if isinstance(value, int):
-        return f"{value:,}"
-    return str(value)
-
-
-def tile_parts(value) -> tuple[str, str] | None:
-    """(the big figure, the line under it) for a result, or None for a result
-    that has no figure to show (a trace, a prediction model, …)."""
-    if isinstance(value, Scores):
-        items = [(k, v) for k, v in value.metrics.items() if not isinstance(v, (dict, list))]
-        if not items:
-            return None
-        first, rest = items[0], items[1:4]
-        return (f"{_number(first[1])} {first[0]}".strip(),
-                " · ".join(f"{k} {_number(v)}" for k, v in rest) or value.model)
-    if isinstance(value, Table):
-        return f"{len(value.rows):,} × {len(value.columns)}", f"rows × columns · {value.name}"
-    if isinstance(value, Figure):
-        return "figure", value.caption or value.name
-    if isinstance(value, EventLog):
-        return f"{len(value):,} cases", f"{value.event_count:,} events"
-    if isinstance(value, PetriNet):
-        return f"{len(value.places)} · {len(value.transitions)}", "places · transitions"
-    if isinstance(value, DFG):
-        return f"{len(value.activities)} · {len(value.all_edges())}", "activities · paths"
-    if isinstance(value, Text):
-        first = str(value).strip().splitlines()[0] if str(value).strip() else ""
-        return first[:40], value.name
-    return None
 
 
 class SummaryTile(QFrame):

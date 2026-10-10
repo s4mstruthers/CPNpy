@@ -170,9 +170,12 @@ class WorkflowPage(QWidget):
         self.more_menu.addAction("Export experiment…", self.export_experiment).setToolTip(
             "A zip with the workflow, its inputs, your boxes, every result and a README: "
             "supplementary material for a paper")
+        self.more_menu.addAction("Export report…", self.export_report).setToolTip(
+            "One HTML page: every box's result, how it got there, the code it ran, the papers it "
+            "follows, what it read, and how to cite. For a supervisor, a reviewer, a hand-in")
         self.more_menu.addSeparator()
         self.more_menu.addAction("Save", self.save).setToolTip("Save the workflow and its record")
-        self.more_button = button("⋯", self._show_more_menu, tooltip="Re-run, Record, Export experiment, Save")
+        self.more_button = button("⋯", self._show_more_menu, tooltip="Re-run, Record, Export experiment, Export report, Save")
         self.more_button.setObjectName("moreButton")
         self.more_button.setFixedWidth(40)
         self.header.actions.addWidget(self.more_button)
@@ -988,6 +991,62 @@ class WorkflowPage(QWidget):
             if not path.lower().endswith(".cpnflow"):
                 path += ".cpnflow"
             self.write_to(path)
+
+    def drawings(self) -> dict[str, str]:
+        """SVG per box whose result the canvas can draw: nets, maps, trees (for the report)."""
+        from ...flow.types import DFG, PetriNet, ProcessTree
+        from ..studio.graph_builders import dfg_specs, petri_net_specs
+        from ..studio.graph_view import GraphView
+        out: dict[str, str] = {}
+        if self.run is None:
+            return out
+        for node in self.workflow.order():
+            result = self.run.result(node)
+            if result is None or result.status != DONE:
+                continue
+            value = result.value
+            view = GraphView()
+            if isinstance(value, PetriNet):
+                nodes, edges = petri_net_specs(value, show_place_names=len(value.places) <= 40)
+                positions = None
+                ids = {n.id for n in nodes}
+                if node.layout and ids <= set(node.layout):
+                    positions = {k: v for k, v in node.layout.items() if k in ids}
+                view.graph.populate(nodes, edges, positions)
+            elif isinstance(value, DFG):
+                nodes, edges = dfg_specs(value, "frequency")
+                view.graph.populate(nodes, edges, layer_gap=64)
+            elif isinstance(value, ProcessTree):
+                from ..studio.derivation_view import tree_specs
+                nodes, edges, positions = tree_specs(value)
+                view.graph.populate(nodes, edges, positions, layer_gap=40)
+            else:
+                continue
+            try:
+                out[node.id] = view.svg_text()
+            except Exception:  # noqa: BLE001 - a drawing that fails is left out, the report still comes
+                continue
+        return out
+
+    def export_report(self) -> None:
+        """⋯ ▸ Export report…: the analysis as one HTML page."""
+        from ...flow import report as reports
+        from ..studio.widgets import suggested_path
+        path, _ = QFileDialog.getSaveFileName(self, "Export report", suggested_path(f"{self.workflow.name}.html"),
+                                              "Web page (*.html)")
+        if not path:
+            return
+        try:
+            reports.write_report(path, workflow=self.workflow, run=self.run, folder=self.folder,
+                                 drawings=self.drawings(), record=getattr(self.document, "record", None),
+                                 status=self._repro)
+        except OSError as error:
+            QMessageBox.warning(self, "Could not export", str(error))
+            return
+        self.status.emit(f"Exported the report to {Path(path).name}")
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def export_experiment(self) -> None:
         from ..studio.widgets import suggested_path
