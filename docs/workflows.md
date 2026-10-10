@@ -163,6 +163,23 @@ print(to_python(wf))                    # and back to source
 Calling a box inside a recorded function makes a node instead of running
 it; the function itself still runs normally when called.
 
+### Groups and composite boxes
+
+A **group** is a set of nodes shown as one box (`Workflow.groups`; ⌘G on
+the canvas, ⇧⌘G to ungroup). Its connection points are the inputs and
+outputs of its members that reach outside the group, and double-clicking
+it opens the group's own canvas. `to_python(wf)` writes every group as a
+function of its own, called once; `group_to_python(wf, group_id)` gives
+one group.
+
+A `@workflow` function **with typed parameters** is itself a box (a
+*composite*, `box.composite`): its parameters are its inputs and settings,
+its return value its output, and recording it records its members and
+groups them. *Save as a box* on the canvas writes a group as such a
+function into the folder's `boxes/`, where the library lists it under
+*Yours*; the standard boxes it imports stay standard (only the boxes a
+module defines are registered from it).
+
 ### How the runner works
 
 - **Order.** Topological, left to right on ties.
@@ -236,6 +253,8 @@ cpnpy run experiment.cpnflow --save          # record the results in the file
 cpnpy run experiment.cpnflow --sweep noise=0..0.5 step 0.1
 cpnpy run experiment.cpnflow -o results/     # every result as a file (CSV, PNML, SVG)
 cpnpy run experiment.cpnflow --lock          # write requirements.lock
+cpnpy run experiment.cpnflow --export experiment.zip   # the workflow, its record, inputs, boxes,
+                                             # results, requirements.lock and a README: for a paper
 cpnpy boxes [folder]                         # the boxes, with a folder's boxes/
 cpnpy datasets list | fetch "Sepsis cases" | where
 ```

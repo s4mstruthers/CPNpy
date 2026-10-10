@@ -30,6 +30,24 @@ notice, not how it was done.
   a prediction pipeline, and pandas, NumPy, SciPy and matplotlib examples
   behind `pip install cpnpy[science]`), and your own box is one function in
   a `boxes/` folder. See `docs/workflows.md`.
+- **Groups and composite boxes.** Select boxes on the canvas and ⌘G makes
+  one box of them, with the connections that reach outside; double-click
+  opens the group's own canvas, ⇧⌘G ungroups. The side panel shows a group
+  as Python, and *Save as a box* writes it to the folder's `boxes/`, where
+  it is listed under *Yours*. In Python, a `@workflow` function with typed
+  parameters is itself a box.
+- **From a page to a workflow in one click.** *As a workflow* on a log's
+  Discover tab and on a model page, and *Use in a workflow* on the net
+  canvas, open a workflow with that file as its source.
+- **Export experiment.** A button on the Workflows page (and
+  `cpnpy run --export`) writes a zip with the workflow file and its record,
+  the input files, your boxes, every result as a file (CSV, PNML, SVG,
+  XES), a `requirements.lock` and a README that says what was run:
+  supplementary material for a paper.
+- **The Workflows page's panels** can be dragged, hidden (*View ▸ Show Box
+  List*, *Show Box Panel*) and reset (*View ▸ Reset Workflow Layout*); the
+  layout is remembered. The Result tab shows the discovery derivation the
+  Discover tab shows.
 - **Learn.** Exercises are now *CPNpy Learn*, a mode of its own on top of
   the app, under the new **Learn** menu. Twelve new kinds of answer box:
   a marking, a set of markings, the net as (P, T, F, m₀), a transition

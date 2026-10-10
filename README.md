@@ -40,6 +40,7 @@
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Files](#files)
 - [For developers](#for-developers)
+- [Workflows](#workflows)
 - [Workflows from Python](#workflows-from-python)
 - [Limitations and roadmap](#limitations-and-roadmap)
 
@@ -709,6 +710,20 @@ extra) and *Predict the next activity*. Or start empty.
 - **Your own boxes**: a `.py` file in the folder's `boxes/` subfolder (see
   below). The app asks once per folder before running them, and reloads a
   box when its file is saved.
+- **Groups**: select boxes and press ⌘G to make one box of them, with the
+  connections that reach outside; double-click it to open its own canvas,
+  ⇧⌘G to ungroup. *Save as a box* in the side panel writes the group to
+  `boxes/`, so it is listed under *Yours* and can be used in any workflow.
+- **From a page**: *As a workflow* on a log's Discover tab or a model page,
+  and *Use in a workflow* on the net canvas, open a workflow with that file
+  as its source.
+- **Export experiment** writes a zip with the workflow file and its record,
+  the inputs, your boxes, every result as a file (CSV, PNML, SVG, XES), a
+  `requirements.lock` and a README that says what was run: supplementary
+  material for a paper, which `cpnpy run --check` can verify.
+- **The three panels** (box list, canvas, side panel) resize by dragging the
+  gaps, hide with *⇤ Boxes* / *Panel ⇥* or the View menu, and come back with
+  *View ▸ Reset Workflow Layout*.
 
 ## Workflows from Python
 
