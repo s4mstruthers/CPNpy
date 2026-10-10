@@ -268,6 +268,11 @@ examples/models.py   four complete models, also used as test fixtures
   model/
     plain.py         plain Petri nets in the editor (black tokens, weights, τ)
     examples.py      example Petri nets (File ▸ Open Example Petri Net)
+  gui/flow/
+    canvas.py        the workflow canvas: box items, wires, dragging a wire to connect
+    viewers.py       a box's result, how it got there, its code, its settings; pop-out windows
+    page.py          the Workflows page: box list, canvas, side panel, running in the background
+    templates.py     the ready-made workflows (File ▸ New Workflow)
   gui/studio/
     app.py           window, sidebar rows, welcome page, file opening, keeping the
                      open folder and the app in step (watching, autosave, moving)

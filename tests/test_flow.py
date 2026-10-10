@@ -281,7 +281,7 @@ def test_record_notices_a_changed_input_file(tmp_path):
     log = wf.add(open_log, {"file": "orders.txt"})
     model = wf.add(inductive_miner)
     wf.connect(log, model)
-    run = Runner(library=wf.library).run(_resolved(wf, tmp_path))
+    run = Runner(library=wf.library, folder=tmp_path).run(wf)
     record = save(wf, tmp_path / "w.cpnflow", run, folder=tmp_path)
     assert record.inputs[0]["file"] == "orders.txt" and len(record.inputs[0]["sha256"]) == 64
     log_file.write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,d>]", encoding="utf-8")

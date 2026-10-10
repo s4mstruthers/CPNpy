@@ -8,6 +8,17 @@ notice, not how it was done.
 
 ## 0.6.0
 
+- **Workflows.** A new kind of file, `.cpnflow`: boxes on a canvas, wired
+  together. *File ▸ New Workflow* opens one that already runs (a log, a
+  miner, a fitness check; or three miners compared; or a setting swept over
+  a range; or the prediction pipeline). Click a box to see its **Result**,
+  **How** it got there (the α-algorithm's eight steps, the Inductive Miner's
+  cuts, the replay per variant), its **Code** and its **Settings**; every tab
+  opens in a window of its own. Change a setting and only the boxes after
+  it run again. Drag from the dot on the right of a box to connect it: only
+  the inputs that fit light up. Workflows live in the folder like logs and
+  nets, and are saved as you go. Your own box is a Python function in the
+  folder's `boxes/` subfolder; the app asks once before running them.
 - **Workflows, from Python.** The new `cpnpy.flow` framework: every
   algorithm is a *box* (a Python function with type hints), an analysis is
   a *workflow* of boxes you can run, save as a `.cpnflow` file and re-run
@@ -18,8 +29,7 @@ notice, not how it was done.
   filters, comparing, saving, simulating plain and coloured nets, sweeps,
   a prediction pipeline, and pandas, NumPy, SciPy and matplotlib examples
   behind `pip install cpnpy[science]`), and your own box is one function in
-  a `boxes/` folder. See `docs/workflows.md`. The app's Workflows page
-  follows in the next version.
+  a `boxes/` folder. See `docs/workflows.md`.
 - **Public datasets by name**: `cpnpy datasets` lists the BPI Challenge,
   Sepsis, Road Traffic Fine and Hospital Billing logs with their DOIs,
   fetches them into a shared cache and checks their fingerprints.

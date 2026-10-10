@@ -39,6 +39,7 @@ KINDS = {
     ".csv": "log",
     ".pnml": "petri",
     ".cpn": "cpn",
+    ".cpnflow": "workflow",
 }
 
 #: Text files the app opens, by the end of their name: a log in textbook

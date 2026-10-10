@@ -38,13 +38,13 @@ from .sweep import Sweep
 from .types import (AlignmentResult, Any, CPNet, DFG, Dataset, EventLog, Figure, Footprint, Marking,
                     PetriNet, Predictions, Predictor, ProcessTree, Regions, ReplayResult, Scores,
                     SimpleLog, Table, Text, TransitionSystem, register_type)
-from .workflow import Edge, Group, Node, Workflow, WorkflowError, record, to_python, workflow
+from .workflow import Edge, Group, Node, Workflow, WorkflowError, to_python, workflow
 
 __all__ = [
     "AlignmentResult", "Any", "Box", "BoxError", "BoxSpec", "CPNet", "Cache", "DFG", "Dataset", "Edge",
     "EventLog", "Explanation", "Figure", "Footprint", "Group", "Library", "Marking", "Node", "PetriNet",
     "Port", "Predictions", "Predictor", "ProcessTree", "Regions", "ReplayResult", "Result", "Run",
     "Runner", "Scores", "Setting", "SimpleLog", "Sweep", "Table", "Text", "TransitionSystem", "Workflow",
-    "WorkflowError", "box", "check", "current", "differences", "library_for", "load", "note", "record",
+    "WorkflowError", "box", "check", "current", "differences", "library_for", "load", "note",
     "register_type", "save", "show", "standard_library", "steps", "to_python", "workflow",
 ]

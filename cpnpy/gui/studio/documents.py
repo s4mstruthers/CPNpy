@@ -121,6 +121,23 @@ class ComparisonDocument:
 
 
 @dataclass(eq=False)
+class WorkflowDocument:
+    """A workflow of boxes (a ``.cpnflow`` file), with the record of its last save."""
+
+    workflow: object                 # cpnpy.flow.workflow.Workflow
+    path: str | None = None
+    record: object | None = None     # cpnpy.flow.record.Record
+    id: int = field(default_factory=lambda: next(_ids))
+    dirty: bool = False
+    autosave: bool = False
+    missing: bool = False
+
+    @property
+    def name(self) -> str:
+        return self.workflow.name
+
+
+@dataclass(eq=False)
 class TransitionSystemDocument:
     """A transition system, typed or from a ``ts.txt`` file, to study its regions."""
 

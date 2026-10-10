@@ -378,11 +378,6 @@ def command_run(arguments: argparse.Namespace) -> int:
     folder = path.parent
     library = library_for(folder)
     workflow, record = load(path, library)
-    for node in workflow.nodes.values():                    # files are relative to the folder
-        for setting in workflow.spec(node).settings:
-            value = node.settings.get(setting.name)
-            if setting.kind == "path" and value and not Path(value).is_absolute():
-                node.settings[setting.name] = folder / value
     if arguments.lock:
         target = folder / "requirements.lock"
         target.write_text(requirements_lock(record), encoding="utf-8")
@@ -405,7 +400,7 @@ def command_run(arguments: argparse.Namespace) -> int:
         print(f"cpnpy: {line}", file=sys.stderr)
     if problems:
         return 2
-    run = Runner(library).run(workflow)
+    run = Runner(library, folder=folder).run(workflow)      # file settings are relative to the folder
     for node in workflow.order():
         result = run.result(node)
         value = run.value(node)

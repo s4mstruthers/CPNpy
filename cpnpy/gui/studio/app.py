@@ -76,7 +76,9 @@ from ..canvas import NetScene, NetView
 from .compare_page import ComparePage
 from .cpn_page import CpnPage
 from .petri_page import PetriNetPage
-from .documents import (
+from ..flow.page import WorkflowPage
+from ..flow.templates import TEMPLATES, first_log
+from .documents import (WorkflowDocument, 
     ComparisonDocument, CpnDocument, LogDocument, ModelDocument, TransitionSystemDocument,
 )
 from .file_dialogs import IMPORT_CHOICES, ImportDialog, SettingsDialog, ask_about_clash
@@ -216,6 +218,11 @@ def _icon_pixmap(kind: str, ink: QColor | None) -> QPixmap:
         painter.drawLine(13, 15, 18, 15)
         painter.drawLine(15, 12, 18, 15)
         painter.drawLine(15, 18, 18, 15)
+    elif kind == "workflow":
+        # Two boxes joined by a wire.
+        painter.drawRoundedRect(QRectF(3, 6, 11, 9), 2, 2)
+        painter.drawRoundedRect(QRectF(18, 17, 11, 9), 2, 2)
+        painter.drawLine(14, 10, 18, 21)
     elif kind == "exercise":
         # A sheet with a question mark.
         painter.drawRoundedRect(QRectF(6, 4, 20, 24), 3, 3)
@@ -465,6 +472,9 @@ class StudioWindow(QMainWindow):
         #: document opens the same tab, so e.g. flicking between logs in the
         #: dotted chart keeps showing dotted charts.
         self.remembered = {"log_tab": 0, "model_inspector": 0, "model_view": 0}
+        #: The boxes available to workflows: CPNpy's, installed packages', and the folder's boxes/.
+        self._library = None
+        self._boxes_signature: tuple = ()
         # Any size down to this works: pages scroll when they do not fit.
         self.setMinimumSize(720, 480)
         self._fit_to_screen()
@@ -651,6 +661,7 @@ class StudioWindow(QMainWindow):
         self.models_section = self._section("MODELS")
         self.cpn_section = self._section("COLOURED NETS")
         self.ts_section = self._section("TRANSITION SYSTEMS")
+        self.workflows_section = self._section("WORKFLOWS")
         self.exercises_section = self._section("EXERCISES")
         self.elsewhere_section = self._section("OTHER FILES")
         self.elsewhere_section.setToolTip(0, "Open files that are not in the folder")
@@ -919,6 +930,10 @@ class StudioWindow(QMainWindow):
             ("Coloured Petri nets", "CPN Tools models (.cpn): edit, simulate step by step or "
              "automatically, analyse the state space, and mine the simulated behaviour.",
              "Open CPN model…", self.action_open_cpn),
+            ("Build a workflow", "Boxes on a canvas: a log, a miner, a check, a comparison. Click a "
+             "box to see its result and how it got there; change a setting and only what follows "
+             "runs again. Saved with everything needed to get the same numbers back.",
+             "New workflow", lambda: self.action_new_workflow(TEMPLATES[0][1])),
         ]
         for index, (heading, text, action, slot) in enumerate(cards):
             card = Card(heading)
@@ -961,6 +976,12 @@ class StudioWindow(QMainWindow):
         self._action(file_menu, "New Petri Net", QKeySequence.New, self.action_new_petri)
         self._action(file_menu, "New Coloured Petri Net", "Ctrl+Shift+N", self.action_new_cpn)
         self._action(file_menu, "New Transition System…", None, self.action_new_ts)
+        workflows = file_menu.addMenu("New Workflow")
+        for text, build, about in TEMPLATES:
+            action = workflows.addAction(text, lambda b=build: self.action_new_workflow(b))
+            action.setToolTip(about)
+        workflows.addSeparator()
+        workflows.addAction("Empty workflow", lambda: self.action_new_workflow(None))
         examples = file_menu.addMenu("Open Example Log")
         for name, text in EXAMPLES.items():
             examples.addAction(name, lambda n=name, t=text: self.add_document(LogDocument(
@@ -1130,6 +1151,19 @@ class StudioWindow(QMainWindow):
         elif isinstance(document, ComparisonDocument):
             page = ComparePage(document)
             page.tabs.changed.connect(lambda i: self.remembered.__setitem__("compare_tab", i))
+        elif isinstance(document, WorkflowDocument):
+            page = WorkflowPage(document, self.library(),
+                                self.workspace.folder if self.workspace is not None else None)
+            page.open_document.connect(lambda doc, source=document: self.add_document(doc, near=source.path))
+            page.edit_requested.connect(self.edit_petri_net)
+            page.keep_requested.connect(lambda doc=document: self.keep_workflow(doc))
+            page.edited.connect(lambda doc=document: (self._refresh_item(doc), self._schedule_autosave(doc)))
+            if self.workspace is not None:
+                page.custom_allowed = bool(self.workspace.settings().get("boxes_allowed"))
+                page._refresh_custom_bar()
+                page.custom_allowed_changed.connect(
+                    lambda: self.workspace and self.workspace.update_settings(boxes_allowed=True))
+            QTimer.singleShot(0, lambda p=page: p.run_from(None))
         elif isinstance(document, CpnDocument):
             plain = getattr(document.net, "plain", False)
             page = PetriNetPage(document) if plain else CpnPage(document)
@@ -1492,6 +1526,10 @@ class StudioWindow(QMainWindow):
             document.log.attributes["concept:name"] = name
         elif isinstance(document, TransitionSystemDocument):
             document.ts.name = name
+        elif isinstance(document, WorkflowDocument):
+            document.workflow.name = name
+            document.dirty = True
+            self._schedule_autosave(document)
         else:
             document.net.name = name
         if isinstance(document, CpnDocument) and not renames_file:
@@ -1906,7 +1944,13 @@ class StudioWindow(QMainWindow):
             return
         size = _signature(path)
         try:
-            if lower.endswith(".pnml"):
+            if lower.endswith(".cpnflow"):
+                from ...flow.record import load as load_workflow
+                workflow, record = load_workflow(path, self.library())
+                self.add_document(WorkflowDocument(workflow, path=path, record=record))
+                self.statusBar().showMessage(f"Opened {name}: click a box to see its result and how it "
+                                             "got there", 10000)
+            elif lower.endswith(".pnml"):
                 self.add_document(CpnDocument(self._read_net(path), path=path))
                 self.statusBar().showMessage(f"Opened {name} — edit it, play the token game, "
                                              "or see the Analysis tab for soundness and more",
@@ -2039,6 +2083,79 @@ class StudioWindow(QMainWindow):
         editable.name = f"{net.name} (edited)"
         self.add_document(CpnDocument(editable))
 
+    def library(self):
+        """The boxes available in this window (the folder's boxes/ included)."""
+        from ...flow.library import library_for
+        folder = self.workspace.folder if self.workspace is not None else None
+        signature = self._boxes_files(folder)
+        if self._library is None or signature != self._boxes_signature:
+            self._library = library_for(folder)
+            self._boxes_signature = signature
+        return self._library
+
+    @staticmethod
+    def _boxes_files(folder) -> tuple:
+        if folder is None:
+            return ()
+        boxes = Path(folder) / "boxes"
+        if not boxes.is_dir():
+            return ()
+        try:
+            return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in boxes.glob("*.py")))
+        except OSError:
+            return ()
+
+    def _reload_boxes(self) -> None:
+        """The folder's boxes/ changed: open workflow pages get the new boxes."""
+        if self.workspace is None:
+            return
+        signature = self._boxes_files(self.workspace.folder)
+        if signature == self._boxes_signature:
+            return
+        self._boxes_signature = signature
+        if self._library is not None:
+            self._library.load_folder(Path(self.workspace.folder) / "boxes")
+        for document in self.documents:
+            if isinstance(document, WorkflowDocument):
+                page = self.pages.get(document.id)
+                if page is not None:
+                    page.reload_library()
+        self.statusBar().showMessage("Reloaded the folder's boxes", 6000)
+
+    def action_new_workflow(self, build=None) -> None:
+        """A new workflow from a template (or empty), on the first log of the folder."""
+        from ...flow.workflow import Workflow
+        folder = self.workspace.folder if self.workspace is not None else None
+        library = self.library()
+        if build is None:
+            workflow = Workflow(self._unique_cpn_name(), library)
+        else:
+            workflow = build(library, first_log(folder))
+            workflow.name = self._unique_name(workflow.name)
+        self.add_document(WorkflowDocument(workflow))
+        self.statusBar().showMessage("New workflow: click a box to see what it gives, drag from a dot to "
+                                     "connect boxes, double-click the canvas to add one", 10000)
+
+    def _unique_name(self, base: str) -> str:
+        names = {d.name for d in self.documents}
+        if self.workspace is not None:
+            names |= {f.path.stem for folder in (self._tree.walk() if self._tree else []) for f in folder.files}
+        name, index = base, 2
+        while name in names:
+            name = f"{base} {index}"
+            index += 1
+        return name
+
+    def keep_workflow(self, document) -> None:
+        """Save a workflow that is not in the folder yet (the Keep button)."""
+        if self.workspace is None or document.path:
+            self.pages[document.id].export()
+            return
+        target = unique_path(self.workspace.folder, safe_file_name(document.name) + ".cpnflow")
+        self.pages[document.id].write_to(str(target), quiet=True)
+        self.statusBar().showMessage(f"Kept as {target.name}", 8000)
+        self._rebuild_sidebar()
+
     def action_new_cpn(self) -> None:
         from ...model.net import CPNet
         net = CPNet(self._unique_cpn_name())
@@ -2059,7 +2176,7 @@ class StudioWindow(QMainWindow):
 
     def action_save(self) -> None:
         page = self.current_page()
-        if isinstance(page, CpnPage):
+        if isinstance(page, (CpnPage, WorkflowPage)):
             page.save()
         elif page is not None:
             page.export()
@@ -2069,7 +2186,7 @@ class StudioWindow(QMainWindow):
         self.notes.flush()
         if self.exercise_mode.view is not None:
             self.exercise_mode.view.flush()
-        dirty = [d for d in self.documents if isinstance(d, CpnDocument) and d.dirty]
+        dirty = [d for d in self.documents if isinstance(d, (CpnDocument, WorkflowDocument)) and d.dirty]
         if dirty:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Warning)
@@ -2368,6 +2485,7 @@ class StudioWindow(QMainWindow):
                                          "gone (moved or deleted?)", 10000)
             return
         self._tree = self.workspace.tree()
+        self._reload_boxes()
         signature = tuple((f.relative, tuple((x.relative, x.in_cloud) for x in f.files))
                           for f in self._tree.walk())
         missing_changed = self._check_missing()
@@ -2396,7 +2514,7 @@ class StudioWindow(QMainWindow):
     def _sections(self) -> list[QTreeWidgetItem]:
         return [self.unsaved_section, self.exercises_section, self.logs_section,
                 self.petri_section, self.models_section, self.cpn_section, self.ts_section,
-                self.elsewhere_section, self.compare_section]
+                self.workflows_section, self.elsewhere_section, self.compare_section]
 
     def _row_id(self, item: QTreeWidgetItem | None):
         """What a row stands for, so the same row can be found after a rebuild."""
@@ -2492,6 +2610,7 @@ class StudioWindow(QMainWindow):
     def _document_row(self, document) -> QTreeWidgetItem:
         kind = ("compare" if isinstance(document, ComparisonDocument) else
                 "ts" if isinstance(document, TransitionSystemDocument) else
+                "workflow" if isinstance(document, WorkflowDocument) else
                 "log" if isinstance(document, LogDocument) else
                 "cpn" if isinstance(document, CpnDocument)
                 and not getattr(document.net, "plain", False) else "model")
@@ -2504,7 +2623,7 @@ class StudioWindow(QMainWindow):
 
     def _file_row(self, file, text: str) -> QTreeWidgetItem:
         """A file of the folder that is not open: lighter, opens with a click."""
-        kind = {"log": "log", "cpn": "cpn", "ts": "ts"}.get(file.kind, "model")
+        kind = {"log": "log", "cpn": "cpn", "ts": "ts", "workflow": "workflow"}.get(file.kind, "model")
         key = self._key(file.path)
         if file.in_cloud:
             text += "  ☁"
@@ -2527,7 +2646,7 @@ class StudioWindow(QMainWindow):
         tree = self.tree
         for section in (self.exercises_section, self.logs_section, self.petri_section,
                         self.models_section, self.cpn_section, self.ts_section,
-                        self.compare_section):
+                        self.workflows_section, self.compare_section):
             tree.addTopLevelItem(section)
         if self._tree is not None:
             for folder in self._tree.walk():
@@ -2538,6 +2657,8 @@ class StudioWindow(QMainWindow):
                 section = self.logs_section
             elif isinstance(document, TransitionSystemDocument):
                 section = self.ts_section
+            elif isinstance(document, WorkflowDocument):
+                section = self.workflows_section
             elif isinstance(document, ComparisonDocument):
                 section = self.compare_section
             elif isinstance(document, CpnDocument):
@@ -2552,7 +2673,7 @@ class StudioWindow(QMainWindow):
         short = [display_name(f.path.name) for f in files]
         clashes = {name for name in short if short.count(name) > 1}
         sections = {"log": self.logs_section, "petri": self.petri_section,
-                    "cpn": self.cpn_section, "ts": self.ts_section}
+                    "cpn": self.cpn_section, "ts": self.ts_section, "workflow": self.workflows_section}
         for file, name in zip(files, short):
             sections[file.kind].addChild(self._file_row(file, file.name if name in clashes
                                                         else name))
@@ -2800,7 +2921,8 @@ class StudioWindow(QMainWindow):
         if isinstance(document, ModelDocument):
             page.keep_button.setVisible(True)
             return
-        if not isinstance(document, (LogDocument, CpnDocument, TransitionSystemDocument)):
+        if not isinstance(document, (LogDocument, CpnDocument, TransitionSystemDocument,
+                                     WorkflowDocument)):
             return
         folder = self.workspace.folder
         if near and self.workspace.contains(near) and Path(near).parent.is_dir():
@@ -2813,6 +2935,9 @@ class StudioWindow(QMainWindow):
                 page.write_to(str(target), quiet=True)
             elif isinstance(document, TransitionSystemDocument):
                 target = unique_path(folder, safe_file_name(document.name) + ".ts.txt")
+                page.write_to(str(target), quiet=True)
+            elif isinstance(document, WorkflowDocument):
+                target = unique_path(folder, safe_file_name(document.name) + ".cpnflow")
                 page.write_to(str(target), quiet=True)
             else:
                 plain = getattr(document.net, "plain", False)
@@ -2860,13 +2985,13 @@ class StudioWindow(QMainWindow):
         """
         return (self.autosave_enabled and self.workspace is not None
                 and document.id not in self._autosave_failed
-                and isinstance(document, CpnDocument) and bool(document.path)
+                and isinstance(document, (CpnDocument, WorkflowDocument)) and bool(document.path)
                 and self.workspace.contains(document.path) and not document.missing
                 and (not document.path.lower().endswith(".cpn")
                      or document.id in self._cpnpy_files))
 
     def _update_autosave(self, document) -> None:
-        if not isinstance(document, CpnDocument):
+        if not isinstance(document, (CpnDocument, WorkflowDocument)):
             return
         autosave = self._autosaves(document)
         if autosave != document.autosave:

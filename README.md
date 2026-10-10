@@ -21,6 +21,7 @@
 | **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
 | **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner, state-based regions). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
+| **Workflows** | Boxes on a canvas: a log, a miner, a fitness check, a comparison, a sweep over a setting, a prediction pipeline. Click a box to see its result, *how* it got there (the α-algorithm's eight steps, the replay per variant), its code and its settings. Change a setting and only what follows runs again. Saved as a `.cpnflow` file with everything needed to get the same numbers back. Your own algorithm is one Python function in a `boxes/` folder. | RapidProM |
 | **Exercises** | A quiet mode of its own for worksheets: answer in boxes on the sheet (sets, footprint matrices, firing sequences, yes/no, choices, a net in the editor beside it) and press **Check**. Most answers are checked automatically, often against answers worked out from the given log or net. Professors write packs as plain Markdown. Demo exercises included. | Answer sheets, a notes app and guesswork |
 | **Folders** | Open a folder such as *Week 2*: every log and net in it is listed in the sidebar, with its subfolders. The folder and the app stay in step both ways: new nets and edits are saved into it as you go, and changes made in Finder show up by themselves. | Finder windows and *File ▸ Open* every time |
 
@@ -659,6 +660,36 @@ print(report.sound, report.findings)
 [**docs/how-it-works.md**](docs/how-it-works.md) covers the architecture, the
 CPN ML subset, binding search, timed nets, the state space, the file format
 and the project layout.
+
+## Workflows
+
+**File ▸ New Workflow** opens a workflow that already runs on the first log of
+your folder (or a typed log): *Discover and check* (a log, the Inductive
+Miner, a fitness check), *Compare discovery* (three miners side by side),
+*Noise sweep* (one setting over a range, the scores stacked), *Fitness with
+confidence* (bootstrap intervals, a test and a plot; needs the `science`
+extra) and *Predict the next activity*. Or start empty.
+
+- **Boxes** are listed on the left in groups (Input, Filter, Discover, Check,
+  Compare, Output, Science, Predict, Coloured nets, Sweep, Yours) with a
+  search field. Click one to add it, or double-click the canvas.
+- **Connect** by dragging from the dot on the right of a box: while you drag,
+  only the inputs that take that kind of result light up, so a wrong
+  connection cannot be made. Click a wire and press Delete to remove it.
+- **Click a box** for the side panel: **Result** (the net, the log's figures,
+  the table, the figure), **How** (what the box reported: notes, intermediate
+  values, the derivation), **Code** (its source, with *Open in your editor*)
+  and **Settings** (a control per setting; *Sweep* a number over a range).
+  **⤢** opens the tab in a window of its own.
+- **Only what changed runs again.** Every box shows a status dot: waiting,
+  running, done, failed (the error is on the Result tab; the rest keeps
+  working), or waiting for your OK.
+- **Record** shows the workflow as Python and the file with its record;
+  **Re-run** says what changed since it was saved (an input file, a box file,
+  a seed) before running everything again.
+- **Your own boxes**: a `.py` file in the folder's `boxes/` subfolder (see
+  below). The app asks once per folder before running them, and reloads a
+  box when its file is saved.
 
 ## Workflows from Python
 

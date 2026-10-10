@@ -129,10 +129,13 @@ def settings_key(settings: dict[str, Any]) -> str:
 
 
 class Runner:
-    def __init__(self, library=None, cache: Cache | None = None) -> None:
+    def __init__(self, library=None, cache: Cache | None = None, folder=None) -> None:
+        """``folder`` is where a workflow's relative file settings point (its
+        own folder in the app); without it they are taken as they are."""
         from .library import standard_library
         self.library = library or standard_library()
         self.cache = cache or Cache()
+        self.folder = folder
         self._per_variant: set[str] = set()
 
     # -- the public call ----------------------------------------------------------------
@@ -220,6 +223,12 @@ class Runner:
         if not spec.available:
             result.status, result.message = BLOCKED, spec.unavailable_reason
             return result
+        if self.folder is not None:
+            from pathlib import Path
+            for setting in spec.settings:
+                value = settings.get(setting.name)
+                if setting.kind == "path" and value and not Path(value).is_absolute():
+                    settings[setting.name] = Path(self.folder) / value
         # Gather inputs
         inputs: dict[str, Any] = {}
         keys: list[str] = []
