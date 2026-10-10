@@ -327,8 +327,14 @@ class WorkflowPage(QWidget):
 
     def add_box(self, box_id: str, where: QPointF) -> None:
         node = self.scene.add_node(box_id, where)
-        self.status.emit(f"Added {self.workflow.spec(node).name}: drag from a dot on the right of a box to "
-                         "connect it")
+        spec = self.workflow.spec(node)
+        unchosen = [s for s in spec.settings if s.kind == "path" and node.settings.get(s.name) in (None, "")]
+        if unchosen:
+            # A box that needs a file: open its Settings, where the file is chosen.
+            self.select(node.id, 3)
+            self.status.emit(f"Added {spec.name}: choose its {unchosen[0].name} in Settings, on the right")
+        else:
+            self.status.emit(f"Added {spec.name}: drag from a dot on the right of a box to connect it")
         self.refresh_title()
 
     def reload_library(self) -> None:

@@ -260,6 +260,13 @@ class Runner:
                     values.append(self._fit(value, port))
                     keys.append(upstream.key + ":" + output)
             inputs[port.name] = values if port.many else values[0]
+        # A file not chosen yet (a box just added from the list): wait and say
+        # so, rather than run and fail with a traceback about None.
+        for setting in spec.settings:
+            if setting.kind == "path" and settings.get(setting.name) in (None, ""):
+                result.status = IDLE
+                result.message = f"Choose the {setting.name} in Settings"
+                return result
         result.key = hashlib.sha256(
             (spec.fingerprint + "|" + settings_key(settings) + "|" + "|".join(keys)).encode()).hexdigest()
         cached = self.cache.get(result.key)

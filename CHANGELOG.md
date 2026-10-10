@@ -6,6 +6,18 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.7.3
+
+- **A box that needs a file waits for it.** *Open log*, *Open net* and the
+  other boxes that read a file used to run the moment they were added, and
+  fail in red with a traceback about a missing path. They now wait, say
+  "Choose the file in Settings", and the Settings tab opens by itself when
+  you add one.
+- **Fixed: adding a box to an opened workflow could fail** with "There is
+  already a box with id 'n3'". Box ids are numbered per app session, so a
+  workflow opened from a file made earlier could already hold the next
+  number; a new box now takes the first number the workflow does not have.
+
 ## 0.7.2
 
 - **A failed box says what went wrong in its own words first.** *Open

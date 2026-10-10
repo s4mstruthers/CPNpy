@@ -102,7 +102,15 @@ class Workflow:
             title: str = "") -> Node:
         """Put a box on the canvas, with its default settings unless given."""
         spec = self.library.resolve(box)
-        node_id = id or fresh_id()
+        if id is None:
+            # The counter is per process, so a workflow opened from a file (or
+            # made in an earlier session) may already hold the next number:
+            # take the first one it does not.
+            node_id = fresh_id()
+            while node_id in self.nodes:
+                node_id = fresh_id()
+        else:
+            node_id = id
         if node_id in self.nodes:
             raise WorkflowError(f"There is already a box with id {node_id!r}")
         values = spec.defaults()
@@ -188,7 +196,11 @@ class Workflow:
                 raise WorkflowError(f"No box {m!r}")
             if self.group_of(m) is not None:
                 raise WorkflowError("A box can be in one group only")
-        group = Group(id or fresh_id("g"), name, list(members))
+        if id is None:
+            id = fresh_id("g")
+            while id in self.groups:                        # see add(): ids are per process
+                id = fresh_id("g")
+        group = Group(id, name, list(members))
         xs = [self.nodes[m].position[0] for m in members]
         ys = [self.nodes[m].position[1] for m in members]
         group.position = (min(xs), min(ys))

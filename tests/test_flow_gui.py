@@ -362,3 +362,24 @@ def test_a_failed_box_says_what_went_wrong_in_its_own_words(app, tmp_path, monke
     assert _linkified("see https://doi.org/10.1/x, then") == 'see <a href="https://doi.org/10.1/x">https://doi.org/10.1/x</a>, then'
     page.document.dirty = False                   # closing would otherwise ask to save
     window.close()
+
+
+def test_adding_a_file_box_opens_its_settings(app):
+    """Open log from the box list: the box waits for its file and the Settings
+    tab opens, instead of a red box with a traceback."""
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow()
+    page = window.current_page()
+    items = page.box_tree.findItems("Open log", Qt.MatchExactly | Qt.MatchRecursive)
+    page._box_list_clicked(items[0], 0)
+    _wait_run(app, page)
+    node = _node(page, "open_log")
+    assert page.selected == node.id and page.tab == 3                 # Settings
+    assert page.run.result(node).status == "idle"
+    assert "Choose the file" in page.run.result(node).message
+    page.document.dirty = False
+    window.close()

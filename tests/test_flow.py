@@ -501,3 +501,28 @@ def test_references_know_which_module_implements_what():
     assert alpha.name == "α-algorithm" and "aalst2004" in alpha.sources
     assert "Weijters" in reference("aalst2004").citation and reference("aalst2004").url.startswith("https://doi.org/")
     assert topics_for_module("openprocess.nowhere") == [] and reference("nobody") is None
+
+
+def test_a_new_box_never_takes_an_id_the_workflow_already_has():
+    """Ids are numbered per process: a workflow from a file (or a template made
+    earlier) may hold the next number already.  0.7.2 then refused the box."""
+    from openprocess.flow.workflow import fresh_id
+    wf = Workflow("opened", standard_library())
+    upcoming = fresh_id()                                   # what the counter gives next
+    number = int(upcoming[1:])
+    for taken in range(number + 1, number + 4):            # the file already holds n+1..n+3
+        wf.add("typed_log", {"text": "[<a>]"}, id=f"n{taken}")
+    added = wf.add("inductive_miner")
+    assert added.id not in {f"n{taken}" for taken in range(number + 1, number + 4)}
+    assert len(wf.nodes) == 4 and added.id in wf.nodes
+    with pytest.raises(WorkflowError, match="already a box"):
+        wf.add("check_fit", id=added.id)
+
+
+def test_a_box_without_its_file_waits_instead_of_failing():
+    wf = Workflow("files", standard_library())
+    log = wf.add("open_log")                                 # no file chosen yet
+    run = Runner(standard_library()).run(wf)
+    result = run.result(log)
+    assert result.status == "idle" and "Choose the file in Settings" in result.message
+    assert not run.failed()
