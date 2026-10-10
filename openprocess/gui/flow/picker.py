@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QGridLayout, Q
 
 from ...flow.library import GROUP_ORDER, Library
 from .. import theme
-from ..studio import style
+from ..studio import motion, style
 from ..studio.widgets import hbox, label, vbox
 from ..studio.workspace import display_name, file_kind
 
@@ -125,6 +125,7 @@ class BoxPicker(QWidget):
             y = max(screen.top(), min(y, screen.bottom() - height))
         self.move(x - SHADOW_MARGIN, y - SHADOW_MARGIN)
         self.show()
+        motion.fade_in(self)
         self.search.setFocus()
 
     def card_size(self) -> tuple[int, int]:

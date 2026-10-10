@@ -39,7 +39,7 @@ from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING, Cache,
 from ...flow.types import EventLog, Figure, PetriNet, Scores, Table
 from ...flow.workflow import Edge, Workflow, group_to_python, to_python
 from .. import theme
-from ..studio import style
+from ..studio import motion, style
 from ..studio.widgets import Card, NoticeBar, PageHeader, SegmentedControl, button, hbox, label, scroll, vbox
 from ..studio.workers import run_in_background
 from .canvas import WorkflowScene, WorkflowView
@@ -246,6 +246,7 @@ class WorkflowPage(QWidget):
         self.panel.setVisible(show)
         if show:
             self.splitter.setSizes(_sizes(WorkflowPage.LAYOUT.get("sizes")))
+            QTimer.singleShot(0, lambda: motion.lift(self.panel))     # once it has its width
         self._layout_changed()
 
     def close_panel(self) -> None:
@@ -254,7 +255,9 @@ class WorkflowPage(QWidget):
 
     def show_view(self, index: int) -> None:
         """Canvas (0) or Summary (1); the Summary is rebuilt from the run when shown."""
-        self.body.setCurrentIndex(index)
+        if self.body.currentIndex() != index:
+            self.body.setCurrentIndex(index)
+            motion.lift(self.body)
         if self.summary_switch.index() != index:
             self.summary_switch.blockSignals(True)
             self.summary_switch.buttons[index].setChecked(True)

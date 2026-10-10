@@ -889,3 +889,35 @@ def test_the_summary_writes_itself(app):
     assert page.selected == last.node_id and page.tab == 0
     page.document.dirty = False
     window.close()
+
+
+def test_motion_settles_the_window_and_can_be_turned_off(app, monkeypatch):
+    """A space switch and Canvas ↔ Summary lift a veil that is gone a moment
+    later; a box pulses once when it finishes; OPENPROCESS_NO_MOTION turns it off."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio import motion
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.motion import Veil
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    box = page.scene.boxes[page.workflow.order()[0].id]
+    assert box.pulse_animation is not None                          # it finished: one pulse
+    window.set_space("model")
+    assert window.modes.findChildren(Veil)
+    _pump(app, 0.5)
+    assert not window.modes.findChildren(Veil)                      # lifted and gone
+    window.set_space("mine")
+    _pump(app, 0.5)
+    page.summary_switch.set_index(1)
+    assert page.body.findChildren(Veil)
+    _pump(app, 0.5)
+    assert not page.body.findChildren(Veil)
+    monkeypatch.setattr(motion, "enabled", False)
+    assert motion.lift(window.modes) is None and motion.fade_in(window) is None
+    page.document.dirty = False
+    window.close()

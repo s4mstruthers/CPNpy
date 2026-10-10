@@ -74,7 +74,7 @@ from ...mining.log import EventLog, parse_simple_log
 from ...mining.pnml import read_pnml, write_pnml
 from ...mining.xes import read_xes, write_xes
 from .. import theme
-from . import style
+from . import motion, style
 from ..canvas import NetScene, NetView
 from .compare_page import ComparePage
 from .connections import ConnectionsPage
@@ -839,6 +839,7 @@ class StudioWindow(QMainWindow):
             self.tree.setCurrentItem(None)
             self.content.setCurrentIndex(0)
             self._set_title(None)
+        motion.lift(self.modes)                      # the whole window moved: let it settle
         return True
 
     def _set_space_quietly(self, space: str) -> None:
@@ -4100,6 +4101,7 @@ class StudioWindow(QMainWindow):
         self._space_before_learn = self.space
         self.modes.setCurrentWidget(self.learn_mode)
         self._sync_space_switch()
+        motion.lift(self.modes)
         self.learn_mode._update_bar()               # the window's title names the exercise
         self.statusBar().showMessage("Answers are saved in each exercise's folder as you go",
                                      6000)
@@ -4117,6 +4119,7 @@ class StudioWindow(QMainWindow):
         if to is not None and to != self.space:
             self._set_space_quietly(to)
         self._sync_space_switch()
+        motion.lift(self.modes)
         if self.workspace is not None:
             self._rescan_workspace(force=True)
         self._set_title(self._current_document())    # back to the file you had open

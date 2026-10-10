@@ -6,6 +6,21 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.4
+
+Motion: a few short transitions, so the window reads as one flow. Nothing
+moves for its own sake.
+
+- **A space switch settles.** Switching Mine, Model or Learn lifts a veil
+  over the window in about a fifth of a second, so the new space arrives
+  rather than snaps. The side panel on an analysis and Canvas ↔ Summary do
+  the same.
+- **A box pulses once when it finishes**, green for done, red for failed,
+  so your eye finds what just changed on the canvas.
+- **+ Add box fades in.**
+- **Off switch:** set ``OPENPROCESS_NO_MOTION=1`` before starting the app
+  (for screenshots, slow machines, or if motion bothers you).
+
 ## 0.9.3
 
 The patterns worth borrowing from the process-mining tools, without their
