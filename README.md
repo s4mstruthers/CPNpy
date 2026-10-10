@@ -396,8 +396,10 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Step through / Simulate:** the token game, fired by hand or at random.
   With **Trace** ticked, every fired transition shows its step numbers and
   the arcs the tokens used light up, the latest step strongest.
-- **Generate event log…:** plays the net out many times and opens the
-  traces as a log.
+- **Mine a simulated log ›:** plays the net out many times, saves the traces
+  as a log in the folder and opens Mine on a new analysis reading it.
+- **Check against a log ›** (Analysis tab): picks a log and opens Mine on a
+  new analysis with this net, the log and *Check fit*, connected and run.
 - **Saving:** nets are saved as **PNML** (ProM, WoPeD and PM4Py read it), or
   as `.cpn`. *Save As* names the net after its file. With a folder open, a
   new net is `Untitled 1.pnml` in the folder from the start and is saved as
@@ -406,8 +408,9 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
 - **Renaming:** double-click the net's name in the sidebar, or its title
   above the canvas. The file is renamed with it, in the same folder (an
   existing file is never overwritten).
-- **Opening:** a `.pnml` file opens in this editor. A model you discovered
-  has **✎ Edit a copy** to bring it here.
+- **Opening:** a `.pnml` file opens in this editor. A net discovered in Mine
+  has **Open a copy in Model ›** to bring a copy here; the original result is
+  never changed, and the copy's header links back to the analysis.
 
 ![Renaming a transition in place](docs/screenshots/petri-editing.png)
 
@@ -722,20 +725,39 @@ Miner, a fitness check), *Compare discovery* (three miners side by side),
 confidence* (bootstrap intervals, a test and a plot; needs the `science`
 extra) and *Predict the next activity*. Or start empty.
 
-- **The page is the canvas.** Three buttons in its header: **+ Add box**,
-  **Run ▶**, and **⋯** for Re-run, Record, Export experiment and Save.
+- **The page is the canvas.** Its header has **Canvas | Summary**, then
+  **+ Add box**, **Run ▶**, and **⋯** for Re-run, Record, Export experiment
+  and Save. The sidebar beside it lists the folder's analyses and, folded
+  under them, its logs.
 - **+ Add box** (or a double-click on the canvas) opens every box, by group:
   the six core groups side by side (Input, Filter, Discover, Check, Compare,
   Output) and one line for the rest (Science, Predict, Coloured nets, Sweep,
-  your own boxes) with *Show all*. Type to search them all: "alpha" finds the
-  α-algorithm; Enter adds the first match.
+  your own boxes) with *Show all*. Under *Input*, **the folder's own files**:
+  one click adds the box that reads the file, already set. Type to search
+  them all: "alpha" finds the α-algorithm, "boarding" the log; Enter adds the
+  first match.
+- **Files flow into the canvas.** Drop a log, a PNML file, a .cpn or a
+  ts.txt on the canvas and it becomes its input box at that spot; an input
+  box names its file ("INPUT · boarding.xes"). *Open log…* and *Log from
+  notation…* in the sidebar land as boxes on the current analysis (or a new
+  one named after the file). In a box's **Settings**, *Choose…* picks the
+  file and the list beside it offers only the files the box can read.
+- **Summary** is the dashboard that writes itself: a tile per result, named
+  after the box, in the order the boxes run (a score's first metric, a
+  table's size, a log's cases, a net's places and transitions), and the
+  process map of the first log with a *Detail* slider. Nothing is
+  configured; a tile opens the box on the canvas.
 - **Connect** by dragging from the dot on the right of a box: while you drag,
   only the inputs that take that kind of result light up, so a wrong
   connection cannot be made. Click a wire and press Delete to remove it.
 - **Click a box** and the side panel appears beside the canvas, on
   **Result** (the net, the log's figures, the table, the figure; a log's
   Result has *Open as log ›* for the dotted chart, process map, footprint,
-  variants and cases). Its other tabs: **How** (what the box reported: notes,
+  variants and cases, and a net's has *Open a copy in Model ›*). A page
+  opened this way shows "‹ Back to <analysis>" above its title. A
+  discovered net can be tidied on the Result tab by dragging its places and
+  transitions (the layout is saved with the workflow); the net itself is not
+  changed there. Its other tabs: **How** (what the box reported: notes,
   intermediate values, the derivation), **Code** (the box's few lines and,
   under them, the actual algorithm it calls: the α-algorithm's eight steps,
   the Inductive Miner's cuts, with the work each follows and *Whole file* for
@@ -761,6 +783,14 @@ extra) and *Predict the next activity*. Or start empty.
   material for a paper, which `openprocess run --check` can verify.
 - **The side panel** resizes by dragging the gap beside it; double-click the
   gap, or *View ▸ Reset Workflow Layout*, for its default width.
+- **Connections** (at the bottom of the sidebar, or *View ▸ Connections*)
+  draws what flows in, OpenProcess and its boxes, what flows out, and the
+  optional tools (pandas, numpy, scipy, matplotlib, …) with whether each is
+  installed, how to install it and the boxes it brings. All of it is read
+  from the box library.
+- **Motion** is kept short: a space switch, the side panel and Canvas ↔
+  Summary settle in a fifth of a second, and a box pulses once when it
+  finishes. `OPENPROCESS_NO_MOTION=1` turns it off.
 
 ## Workflows from Python
 

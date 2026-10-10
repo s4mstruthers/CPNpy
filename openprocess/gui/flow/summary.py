@@ -109,7 +109,7 @@ class SummaryWidget(QWidget):
         self.tiles_layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.tiles_host)
         self.map_card = Card("Process map", "")
-        self.map_mode = ElidedLabel("", "muted")
+        self.map_mode = label("", "muted")
         self.detail = QSlider(Qt.Horizontal)
         self.detail.setRange(0, 100)
         self.detail.setValue(100)

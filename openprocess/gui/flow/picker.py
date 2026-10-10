@@ -219,9 +219,11 @@ class BoxPicker(QWidget):
         files, more = self.shown_files()
         if not files:
             return
+        from ..studio.app import _faded_icon            # the sidebar's file icons (no cycle: app is loaded)
         rows.addSpacing(6)
         rows.addWidget(label("IN THIS FOLDER", "sectionLabel"))
         names = [Path(relative).name for relative, _kind in files]
+        icons = {"log": "log", "cpn": "cpn", "ts": "ts", "petri": "model"}
         for relative, kind in files:
             name = Path(relative).name
             text = display_name(name)
@@ -229,13 +231,14 @@ class BoxPicker(QWidget):
                 text += f"  ({Path(relative).parent})"
             choice = QPushButton(text)
             choice.setObjectName("boxChoice")
+            choice.setIcon(_faded_icon(icons.get(kind, "model")))
             choice.setCursor(Qt.PointingHandCursor)
             choice.setToolTip(f"{relative}\nAdds an input box that reads this file")
             choice.clicked.connect(lambda _checked=False, r=relative, k=kind: self._choose_file(k, r))
             rows.addWidget(choice)
             self.file_buttons.append(choice)
         if more:
-            rows.addWidget(label(f"… {more} more: Choose… in the box's Settings", "muted"))
+            rows.addWidget(label(f"… {more} more (Choose… in Settings)", "muted"))
 
     def _choose_file(self, kind: str, relative: str) -> None:
         box_id = input_box_for(self.library, kind)
