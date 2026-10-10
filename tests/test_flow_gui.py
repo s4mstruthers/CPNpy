@@ -233,3 +233,83 @@ def test_custom_boxes_wait_for_an_ok(app, tmp_path):
     assert page.run.status(node) == "done" and window.workspace.settings().get("boxes_allowed") is True
     page.document.dirty = False
     window.close()
+
+
+def test_groups_show_as_one_box_and_open_their_own_canvas(app, tmp_path):
+    from cpnpy.gui.flow.canvas import GroupItem
+    from cpnpy.gui.flow.page import WorkflowPage
+    from cpnpy.gui.flow.templates import compare_discovery
+    from cpnpy.gui.studio.documents import WorkflowDocument
+    from cpnpy.flow.library import library_for
+
+    library = library_for(tmp_path)
+    wf = compare_discovery(library)
+    page = WorkflowPage(WorkflowDocument(wf), library, tmp_path)
+    page.resize(1300, 760)
+    page.show()
+    page.run_from(None)
+    _wait_run(app, page, 15)
+    alpha, fit = _node(page, "alpha_miner"), [n for n in wf.nodes.values() if n.box.endswith("check_fit")][0]
+    page.scene.clearSelection()
+    page.scene.boxes[alpha.id].setSelected(True)
+    page.scene.boxes[fit.id].setSelected(True)
+    page.group_selected()
+    _pump(app, 0.1)
+    group = next(iter(wf.groups.values()))
+    assert group.members == [alpha.id, fit.id] or set(group.members) == {alpha.id, fit.id}
+    assert alpha.id not in page.scene.boxes and group.id in page.scene.groups
+    item = page.scene.groups[group.id]
+    assert isinstance(item, GroupItem) and item.status == "done"
+    inputs, outputs = wf.group_ports(group)
+    assert {p.name for _, _, p in inputs} == {"log"} and len(inputs) == 2 and len(outputs) == 1
+    # The side panel shows the group, with its Python.
+    page.select(group.id)
+    _pump(app, 0.1)
+    texts = " ".join(w.text() for w in page.panel_host.findChildren(QLabel))
+    assert "Workflow · 2 boxes" in texts
+    # Open it: the members, with stubs for the wires that come from outside.
+    page.open_group(group.id)
+    _pump(app, 0.1)
+    assert page.scene.view_group == group.id and set(page.scene.boxes) == {alpha.id, fit.id}
+    assert any(w.stub and w.stub.startswith("from") for w in page.scene.wires)
+    assert any(w.stub and w.stub.startswith("to") for w in page.scene.wires)
+    page.close_group()
+    assert page.scene.view_group is None
+    # Save as a box: a @workflow file in boxes/, which the library lists under Yours.
+    page.save_group_as_box(group.id)
+    _pump(app, 0.2)
+    files = list((tmp_path / "boxes").glob("*.py"))
+    assert len(files) == 1 and "@workflow" in files[0].read_text(encoding="utf-8")
+    spec = next(s for s in page.library if s.custom)
+    assert spec.name == group.name and [p.name for p in spec.inputs] == ["log", "log_2"]
+    # Ungroup puts the boxes back.
+    page.scene.ungroup(group.id)
+    assert not wf.groups and alpha.id in page.scene.boxes
+    page.close()
+
+
+def test_quick_actions_make_workflows(app):
+    from PySide6.QtWidgets import QPushButton
+    from cpnpy.gui.flow.page import WorkflowPage
+    from cpnpy.gui.studio.app import StudioWindow
+    from cpnpy.gui.studio.documents import LogDocument
+    from cpnpy.mining import read_xes
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    path = Path(__file__).parent / "data" / "plane_wilma_10.xes"
+    window.add_document(LogDocument(read_xes(path), path=str(path)))
+    log_page = window.current_page()
+    log_page.tabs.set_index(6)                                      # Discover
+    _pump(app, 0.8)
+    next(b for b in log_page.findChildren(QPushButton) if b.text().startswith("As a workflow")).click()
+    _pump(app, 0.2)
+    page = window.current_page()
+    assert isinstance(page, WorkflowPage)
+    assert [page.workflow.spec(n).name for n in page.workflow.order()] == ["Open log", "Inductive Miner", "Check fit"]
+    _wait_run(app, page)
+    assert page.run.ok and str(_node(page, "open_log").settings["file"]) == str(path)
+    for document in window.documents:
+        document.dirty = False
+    window.close()

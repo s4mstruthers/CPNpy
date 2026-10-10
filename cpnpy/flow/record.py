@@ -288,5 +288,98 @@ def check(workflow: Workflow, record: Record, run: Run) -> list[str]:
     return out
 
 
-__all__ = ["FORMAT", "Record", "check", "differences", "environment", "fingerprint", "load",
-           "make_record", "requirements_lock", "save", "sha256_file", "sha256_text", "versions"]
+# ---------------------------------------------------------------------------
+# Export experiment: everything in one zip, for a paper's supplementary material
+# ---------------------------------------------------------------------------
+def export_experiment(workflow: Workflow, run: Run | None, target: str | Path,
+                      folder: str | Path | None = None, library=None) -> Path:
+    """A zip with the workflow file and its record, the input files, the
+    custom box files, every result as a file (CSV, PNML, SVG, XES), a
+    ``requirements.lock`` and a ``README.md`` that says what was run."""
+    import io
+    import zipfile
+    target = Path(target)
+    folder = Path(folder) if folder is not None else target.parent
+    record = make_record(workflow, run, folder)
+    data = {"format": FORMAT, **workflow.to_dict(), "record": record.to_dict()}
+    name = workflow.name or "workflow"
+    lines = [f"# {name}", "", f"Exported {record.saved} with CPNpy {record.versions.get('cpnpy', '')}, "
+             f"Python {record.versions.get('python', '')}.", "",
+             "Run it again with `cpnpy run " + f"{name}.cpnflow --check`: it fails if any result differs "
+             "from the recorded one. `requirements.lock` is the environment it ran in.", "", "## Boxes", ""]
+    for node in workflow.order():
+        spec = workflow.spec(node)
+        settings = ", ".join(f"{k} = {v}" for k, v in node.settings.items()) or "no settings"
+        fed = ", ".join(f"{p} ← {workflow.title(src)}" for p, sources in workflow.inputs_of(node).items()
+                        for src, _ in sources) or "no inputs"
+        result = run.result(node) if run else None
+        verdict = ""
+        if result is not None and result.status == DONE:
+            verdict = " → " + _describe(result.value)
+        lines.append(f"- **{workflow.title(node)}** (`{spec.id}`): {settings}; {fed}{verdict}")
+    lines += ["", "## Inputs", ""] + [f"- `{i['file']}` sha256 `{i['sha256']}`" for i in record.inputs] +         ["", "## Your boxes", ""] + [f"- `{b['file']}` sha256 `{b['sha256']}`" for b in record.custom_boxes]
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zipped:
+        zipped.writestr(f"{name}.cpnflow", json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        zipped.writestr("requirements.lock", requirements_lock(record))
+        zipped.writestr("README.md", "\n".join(lines) + "\n")
+        for item in record.inputs:
+            path = _resolve(item["file"], folder)
+            if path.is_file():
+                zipped.write(path, f"inputs/{Path(item['file']).name}")
+        for item in record.custom_boxes:
+            path = _resolve(item["file"], folder)
+            if path.is_file():
+                zipped.write(path, f"boxes/{path.name}")
+        if run is not None:
+            for node in workflow.order():
+                value = run.value(node)
+                stem = "results/" + f"{node.id} {workflow.title(node)}".replace("/", "-")
+                payload = _as_file(value, stem)
+                if payload is not None:
+                    file_name, content = payload
+                    zipped.writestr(file_name, content)
+    return target
+
+
+def _describe(value) -> str:
+    if isinstance(value, Scores):
+        return ", ".join(f"{k} {v:.3f}" if isinstance(v, float) else f"{k} {v}" for k, v in value.metrics.items())
+    if isinstance(value, Table):
+        return f"table {len(value.rows)} × {len(value.columns)}"
+    if isinstance(value, EventLog):
+        return f"{len(value)} cases, {value.event_count} events"
+    if isinstance(value, PetriNet):
+        return value.summary()
+    return type(value).__name__ if value is not None else "done"
+
+
+def _as_file(value, stem: str):
+    """(name, bytes or text) for a result worth a file of its own."""
+    if isinstance(value, Table):
+        import csv
+        import io
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(value.columns)
+        writer.writerows(value.rows)
+        return f"{stem}.csv", buffer.getvalue()
+    if isinstance(value, Scores):
+        return _as_file(Table.from_scores([value]), stem)
+    if isinstance(value, PetriNet):
+        from ..mining.pnml import pnml_string
+        return f"{stem}.pnml", pnml_string(value)
+    if isinstance(value, Figure):
+        if value.svg:
+            return f"{stem}.svg", value.svg
+        if value.png:
+            return f"{stem}.png", value.png
+    if isinstance(value, Text):
+        return f"{stem}.txt", value.text
+    if isinstance(value, EventLog) and len(value) <= 20_000:
+        from ..mining.xes import xes_string
+        return f"{stem}.xes", xes_string(value)
+    return None
+
+
+__all__ = ["FORMAT", "Record", "check", "differences", "environment", "export_experiment", "fingerprint",
+           "load", "make_record", "requirements_lock", "save", "sha256_file", "sha256_text", "versions"]

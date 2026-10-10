@@ -17,22 +17,24 @@ The page edits a :class:`~cpnpy.flow.workflow.Workflow` and saves it as a
 
 from __future__ import annotations
 
+import textwrap
+import re
 import json
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog, QFileDialog, QFrame, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit,
-    QSplitter, QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ...flow import record as records
 from ...flow.library import GROUP_ORDER, Library
 from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING, Cache, Result, Run, Runner
 from ...flow.types import EventLog, Figure, PetriNet, Scores, Table
-from ...flow.workflow import Edge, Workflow, to_python
+from ...flow.workflow import Edge, Workflow, group_to_python, to_python
 from .. import theme
 from ..studio import style
 from ..studio.widgets import Card, NoticeBar, PageHeader, SegmentedControl, button, hbox, label, scroll, vbox
@@ -94,6 +96,12 @@ class WorkflowPage(QWidget):
     keep_requested = Signal()
     #: The user allowed the folder's custom boxes to run.
     custom_allowed_changed = Signal()
+    #: The panels were shown, hidden or resized (the window remembers the layout).
+    layout_changed = Signal()
+
+    #: The layout every new Workflows page starts with; the window restores a
+    #: saved one into it.  ``sizes`` are the splitter's: box list, canvas, panel.
+    LAYOUT: dict = {"box_list": True, "panel": True, "sizes": [220, 760, 380]}
 
     def __init__(self, document, library: Library, folder: str | Path | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -132,6 +140,9 @@ class WorkflowPage(QWidget):
                                              tooltip="Run again, after checking the record for changed inputs"))
         self.header.actions.addWidget(button("Record", self.show_record,
                                              tooltip="The workflow as Python, and the file with its record"))
+        self.header.actions.addWidget(button("Export experiment…", self.export_experiment,
+                                             tooltip="A zip with the workflow, its inputs, your boxes, every "
+                                                     "result and a README: supplementary material for a paper"))
         self.header.actions.addWidget(button("Save", self.save, tooltip="Save the workflow and its record"))
         root.addWidget(self.header)
         self.custom_bar = NoticeBar()
@@ -145,12 +156,20 @@ class WorkflowPage(QWidget):
         self.scene.add_here.connect(self.quick_add)
         self.scene.menu.connect(self._menu)
         self.scene.refused.connect(lambda text: self.status.emit(text))
+        self.scene.open_group.connect(self.open_group)
 
-        splitter = QSplitter()
-        splitter.setHandleWidth(14)
-        splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
+        # Three panels on a splitter: drag the gaps to resize, the toggles (or
+        # the View menu) hide a side panel, double-click a gap for the default.
+        splitter = _Splitter()
         splitter.addWidget(self._build_box_list())
         canvas = Card()
+        self.box_list_toggle = _tool("⇤ Boxes", "Show or hide the box list", self.toggle_box_list)
+        self.panel_toggle = _tool("Panel ⇥", "Show or hide the side panel (Result, How, Code, Settings)",
+                                  self.toggle_panel)
+        self.back_button = button("← Back", self.close_group, tooltip="Back to the whole workflow")
+        self.back_button.setVisible(False)
+        self.group_crumb = label("", "muted")
+        canvas.add(hbox(self.box_list_toggle, 6, self.back_button, self.group_crumb, None, self.panel_toggle))
         canvas.add(self.view, 1)
         self.legend = label("", "muted", wrap=True)
         canvas.add(self.legend)
@@ -159,11 +178,17 @@ class WorkflowPage(QWidget):
         self.panel_layout = QVBoxLayout(self.panel_host)
         self.panel_layout.setContentsMargins(0, 0, 0, 0)
         self.panel = scroll(self.panel_host)
-        self.panel.setMinimumWidth(300)
+        self.panel.setMinimumWidth(280)
         splitter.addWidget(self.panel)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([220, 760, 380])
+        splitter.setCollapsible(1, False)
         self.splitter = splitter
+        self.box_list_card.setVisible(bool(self.LAYOUT.get("box_list", True)))
+        self.panel.setVisible(bool(self.LAYOUT.get("panel", True)))
+        splitter.setSizes([int(v) for v in self.LAYOUT.get("sizes") or [220, 760, 380]])
+        splitter.splitterMoved.connect(lambda *_: self._layout_changed())
+        splitter.reset_requested.connect(self.reset_layout)
+        self._sync_toggles()
         wrapper = QWidget()
         wrapper.setLayout(vbox(splitter, margins=(20, 0, 20, 16)))
         root.addWidget(wrapper, 1)
@@ -171,11 +196,58 @@ class WorkflowPage(QWidget):
         QShortcut(QKeySequence(Qt.Key_Delete), self.view, self.scene.remove_selected)
         QShortcut(QKeySequence(Qt.Key_Backspace), self.view, self.scene.remove_selected)
         QShortcut(QKeySequence("Ctrl+D"), self.view, lambda: self.scene.duplicate(self.selected) if self.selected else None)
+        QShortcut(QKeySequence("Ctrl+G"), self.view, self.group_selected)
+        QShortcut(QKeySequence("Ctrl+Shift+G"), self.view, lambda: self.scene.ungroup(self.selected)
+                  if self.selected in self.workflow.groups else None)
         self._refresh_custom_bar()
         self._render_panel()
         QTimer.singleShot(0, self.view.fit)
         if not self.workflow.nodes:
             self.status.emit("An empty workflow: double-click the canvas or click a box in the list to add one")
+
+    # -- the layout: panels shown, hidden, resized ---------------------------------------
+    def toggle_box_list(self, show: bool | None = None) -> None:
+        """Show or hide the box list (hidden, the canvas takes its width)."""
+        if show is None:
+            show = not self.box_list_card.isVisible()
+        self.box_list_card.setVisible(show)
+        self._layout_changed()
+
+    def toggle_panel(self, show: bool | None = None) -> None:
+        """Show or hide the side panel."""
+        if show is None:
+            show = not self.panel.isVisible()
+        self.panel.setVisible(show)
+        self._layout_changed()
+
+    def reset_layout(self) -> None:
+        """Both side panels back, at the default widths."""
+        self.box_list_card.setVisible(True)
+        self.panel.setVisible(True)
+        self.splitter.setSizes([220, max(400, self.splitter.width() - 600), 380])
+        self._layout_changed()
+
+    def layout_state(self) -> dict:
+        return {"box_list": self.box_list_card.isVisible(), "panel": self.panel.isVisible(),
+                "sizes": [max(s, 1) if i != 1 else s for i, s in enumerate(self.splitter.sizes())]}
+
+    def _layout_changed(self) -> None:
+        self._sync_toggles()
+        state = self.layout_state()
+        sizes = state["sizes"]
+        if not state["box_list"]:                     # keep the width the panel had, for when it is back
+            sizes[0] = WorkflowPage.LAYOUT.get("sizes", [220])[0]
+        if not state["panel"]:
+            sizes[2] = WorkflowPage.LAYOUT.get("sizes", [220, 760, 380])[2]
+        WorkflowPage.LAYOUT = {**state, "sizes": sizes}
+        if self.view.auto_fit:
+            QTimer.singleShot(0, self.view.fit)
+        self.layout_changed.emit()
+
+    def _sync_toggles(self) -> None:
+        boxes, panel = self.box_list_card.isVisible(), self.panel.isVisible()
+        self.box_list_toggle.setText("⇤ Boxes" if boxes else "Boxes ⇥")
+        self.panel_toggle.setText("Panel ⇥" if panel else "⇤ Panel")
 
     # -- header --------------------------------------------------------------------------
     def _subtitle(self) -> str:
@@ -190,6 +262,10 @@ class WorkflowPage(QWidget):
 
     # -- the box list -----------------------------------------------------------------------
     def _build_box_list(self) -> QWidget:
+        self.box_list_card = self._make_box_list()
+        return self.box_list_card
+
+    def _make_box_list(self) -> QWidget:
         card = Card("Boxes")
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search boxes")
@@ -197,8 +273,9 @@ class WorkflowPage(QWidget):
         self.search.textChanged.connect(self._fill_box_list)
         card.add(self.search)
         self.box_tree = QTreeWidget()
+        self.box_tree.setObjectName("boxList")
         self.box_tree.setHeaderHidden(True)
-        self.box_tree.setIndentation(10)
+        self.box_tree.setIndentation(6)
         self.box_tree.setRootIsDecorated(False)
         self.box_tree.itemClicked.connect(self._box_list_clicked)
         self.box_tree.setToolTip("Click a box to add it to the canvas")
@@ -226,7 +303,7 @@ class WorkflowPage(QWidget):
             for spec in shown:
                 item = QTreeWidgetItem([spec.name + ("  (Yours)" if spec.custom else "")])
                 item.setData(0, Qt.UserRole, spec.id)
-                tip = (spec.help or "").strip().split("\n")[0]
+                tip = _paragraphs(spec.help).split("\n\n")[0]
                 if not spec.available:
                     tip += f"\n({spec.unavailable_reason})"
                     item.setForeground(0, QBrush(QColor(t.text_muted)))
@@ -417,7 +494,56 @@ class WorkflowPage(QWidget):
             self._mark_edited()
             self.run_from(changed)
 
-    # -- selection and the side panel ----------------------------------------------------------
+    # -- groups ------------------------------------------------------------------------------
+    def group_selected(self) -> None:
+        group = self.scene.group_selected()
+        if group is not None:
+            self._mark_edited()
+            self.select(group.id)
+            self.status.emit(f"Grouped {len(group.members)} boxes. Double-click the group to open it; "
+                             "⇧⌘G ungroups it")
+
+    def open_group(self, group_id: str) -> None:
+        if group_id not in self.workflow.groups:
+            return
+        self.scene.show_group(group_id)
+        self.back_button.setVisible(True)
+        self.group_crumb.setText(f"{self.workflow.name} › {self.workflow.groups[group_id].name}")
+        self.selected = None
+        self._render_panel()
+        QTimer.singleShot(0, self.view.fit)
+
+    def close_group(self) -> None:
+        group_id = self.scene.view_group
+        self.scene.show_group(None)
+        self.back_button.setVisible(False)
+        self.group_crumb.setText("")
+        self.select(group_id if group_id in self.workflow.groups else None)
+        QTimer.singleShot(0, self.view.fit)
+
+    def save_group_as_box(self, group_id: str) -> None:
+        """Write the group as a @workflow function into the folder's boxes/."""
+        group = self.workflow.groups.get(group_id)
+        if group is None:
+            return
+        if self.folder is None:
+            QMessageBox.information(self, "Save as a box", "Open a folder first: the box is saved as a "
+                                    "Python file in its boxes/ subfolder.")
+            return
+        from ...flow.workflow import _identifier
+        source = group_to_python(self.workflow, group)
+        header = _box_file_header(self.workflow, group)
+        boxes = self.folder / "boxes"
+        boxes.mkdir(exist_ok=True)
+        target = boxes / f"{_identifier(group.name)}.py"
+        if target.exists():
+            answer = QMessageBox.question(self, "Save as a box", f"{target.name} exists in boxes/. Replace it?")
+            if answer != QMessageBox.Yes:
+                return
+        target.write_text(header + source, encoding="utf-8")
+        self.reload_library()
+        self.status.emit(f"Saved {target.name}: “{group.name}” is in the box list under Yours")
+
     def _select(self, node_id: str | None) -> None:
         if node_id != self.selected:
             self.selected = node_id
@@ -442,9 +568,15 @@ class WorkflowPage(QWidget):
             elif item.layout() is not None:
                 _delete_layout(item.layout())
         node = self.workflow.nodes.get(self.selected) if self.selected else None
+        group = self.workflow.groups.get(self.selected) if self.selected else None
+        if group is None and node is None and self.scene.view_group:
+            group = self.workflow.groups.get(self.scene.view_group)
+        if group is not None:
+            self._render_group_panel(group)
+            return
         if node is None:
-            layout.addWidget(label("Click a box to see its result, how it got there, its code and its settings.",
-                                   "muted", wrap=True))
+            layout.addWidget(label("Click a box to see its result, how it got there, its code and its settings. "
+                                   "Shift-click several boxes and press ⌘G to make them one.", "muted", wrap=True))
             layout.addStretch(1)
             return
         spec = self.workflow.spec(node)
@@ -458,7 +590,7 @@ class WorkflowPage(QWidget):
                       f"</span> &nbsp; <span style='color: {colour}; font-weight: 600'>{chip_text}</span>")
         chips.setTextFormat(Qt.RichText)
         layout.addWidget(chips)
-        help_text = label((spec.help or "").strip(), "muted", wrap=True)
+        help_text = label(_paragraphs(spec.help), "muted", wrap=True)
         layout.addWidget(help_text)
         tabs = SegmentedControl(TABS, compact=True)
         tabs.set_index(self.tab)
@@ -475,6 +607,60 @@ class WorkflowPage(QWidget):
                               button("Disconnect all", lambda: self.scene.disconnect_all(node.id)),
                               button("Remove box", lambda: self.scene.remove_node(node.id), kind="danger"), None))
         layout.addStretch(1)
+
+    def _render_group_panel(self, group) -> None:
+        layout = self.panel_layout
+        inside = self.scene.view_group == group.id
+        layout.addWidget(label(group.name, "pageTitle"))
+        statuses = [self.scene.statuses.get(m, ("waiting", "", ""))[0] for m in group.members]
+        state = ("failed" if "failed" in statuses else "running" if "running" in statuses else
+                 "done" if statuses and all(s == "done" for s in statuses) else "waiting")
+        layout.addWidget(label(f"Workflow · {len(group.members)} boxes · {state}", "muted"))
+        layout.addWidget(label("You are inside this group: boxes you add here become part of it." if inside else
+                               "A sub-workflow shown as one box. Its inputs and outputs are the connections that "
+                               "reach outside it. Double-click it to open its own canvas.", "muted", wrap=True))
+        name = QLineEdit(group.name)
+        name.setPlaceholderText("Name")
+        name.editingFinished.connect(lambda g=group, n=name: self._rename_group(g, n.text()))
+        layout.addWidget(label("NAME", "sectionLabel"))
+        layout.addWidget(name)
+        layout.addWidget(label("INSIDE", "sectionLabel"))
+        for member in group.members:
+            if member in self.workflow.nodes:
+                status = self.scene.statuses.get(member, ("waiting", "", ""))
+                row = button(f"{self.workflow.title(member)}  ·  {status[0]}",
+                             lambda _=False, m=member, g=group: (self.open_group(g.id), self.select(m)))
+                layout.addWidget(row)
+        inputs, outputs = self.workflow.group_ports(group)
+        takes = ", ".join(f"{p.label or p.name} ({p.type_name})" for _, _, p in inputs) or "nothing"
+        gives = ", ".join(p.type_name for _, _, p in outputs) or "nothing"
+        layout.addWidget(label(f"Takes {takes}. Gives {gives}.", "muted", wrap=True))
+        layout.addWidget(label("AS PYTHON", "sectionLabel"))
+        code = QPlainTextEdit(group_to_python(self.workflow, group))
+        code.setReadOnly(True)
+        code.setFont(theme.mono_font(10.5))
+        code.setMaximumHeight(220)
+        from .viewers import PythonHighlighter
+        PythonHighlighter(code.document())
+        layout.addWidget(code)
+        layout.addWidget(label("The group and this function are the same thing: Save as a box writes it to the "
+                               "folder's boxes/ and it appears in the box list; a file like it opens as this group.",
+                               "muted", wrap=True))
+        layout.addLayout(hbox(button("Close" if inside else "Open", self.close_group if inside else
+                                     (lambda: self.open_group(group.id)), kind="primary"),
+                              button("Save as a box", lambda: self.save_group_as_box(group.id)),
+                              button("Ungroup", lambda: (self.scene.ungroup(group.id), self._mark_edited(),
+                                                         self.select(None))),
+                              button("Remove", lambda: self.scene.remove_group(group.id), kind="danger"), None))
+        layout.addStretch(1)
+
+    def _rename_group(self, group, name: str) -> None:
+        name = name.strip()
+        if name and name != group.name:
+            group.name = name
+            self._mark_edited()
+            self.scene.rebuild()
+            self.group_crumb.setText(f"{self.workflow.name} › {name}" if self.scene.view_group == group.id else "")
 
     def _tab_changed(self, index: int) -> None:
         self.tab = index
@@ -572,12 +758,22 @@ class WorkflowPage(QWidget):
             menu.addAction("Disconnect all", lambda: self.scene.disconnect_all(node_id))
             menu.addSeparator()
             menu.addAction("Remove", lambda: self.scene.remove_node(node_id))
+        elif kind == "group":
+            group_id = what
+            menu.addAction("Open", lambda: self.open_group(group_id))
+            menu.addAction("Save as a box", lambda: self.save_group_as_box(group_id))
+            menu.addAction("Ungroup", lambda: (self.scene.ungroup(group_id), self._mark_edited(), self.select(None)))
+            menu.addSeparator()
+            menu.addAction("Remove", lambda: self.scene.remove_group(group_id))
         elif kind == "edge":
             edge: Edge = what
             menu.addAction("Remove connection", lambda: self.scene.remove_edge(edge))
         else:
             point: QPointF = what
             menu.addAction("Add box here…", lambda: self.quick_add(point))
+            selected = [i for i in self.scene.selectedItems() if hasattr(i, "node")]
+            if len(selected) >= 2 and self.scene.view_group is None:
+                menu.addAction(f"Group {len(selected)} boxes", self.group_selected)
             menu.addAction("Fit to window", self.view.fit)
         menu.exec(QPoint(int(screen_pos.x()), int(screen_pos.y())) if hasattr(screen_pos, "x") else screen_pos)
 
@@ -682,8 +878,77 @@ class WorkflowPage(QWidget):
                 path += ".cpnflow"
             self.write_to(path)
 
+    def export_experiment(self) -> None:
+        from ..studio.widgets import suggested_path
+        path, _ = QFileDialog.getSaveFileName(self, "Export experiment", suggested_path(f"{self.workflow.name}.zip"),
+                                              "Zip archive (*.zip)")
+        if not path:
+            return
+        try:
+            target = records.export_experiment(self.workflow, self.run, path, self.folder, self.library)
+        except OSError as error:
+            QMessageBox.warning(self, "Could not export", str(error))
+            return
+        self.status.emit(f"Exported the experiment to {Path(target).name}")
+
     def stop(self) -> None:
         self._stop.set()
+
+
+def _box_file_header(workflow, group) -> str:
+    """The imports a group's Python needs, as a file in boxes/."""
+    imports: dict[str, set[str]] = {}
+    types: set[str] = set()
+    for member in group.members:
+        spec = workflow.spec(member)
+        imports.setdefault(spec.module, set()).add(spec.function.__name__)
+        for port in [*spec.inputs, *spec.outputs]:
+            if port.info is not None:
+                types.add(port.info.python)
+    lines = ['"""' + f"{group.name}: a workflow saved as a box from CPNpy.\n\nEdit it as any box file: "
+             'the app reloads it when you save."""', "", "from cpnpy.flow import workflow"
+             + (", " + ", ".join(sorted(types)) if types else "")]
+    for module, functions in sorted(imports.items()):
+        lines.append(f"from {module} import {', '.join(sorted(functions))}")
+    return "\n".join(lines) + "\n\n\n"
+
+
+def _tool(text: str, tooltip: str, slot) -> QToolButton:
+    tool = QToolButton()
+    tool.setObjectName("canvasTool")
+    tool.setText(text)
+    tool.setToolTip(tooltip)
+    tool.setCursor(Qt.PointingHandCursor)
+    tool.clicked.connect(lambda: slot())
+    return tool
+
+
+class _Splitter(QSplitter):
+    """The page's splitter: wide, quiet handles that light up under the
+    mouse; double-click one to get the default layout back."""
+    reset_requested = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setHandleWidth(14)
+        self.setChildrenCollapsible(False)
+
+    def createHandle(self):  # noqa: N802
+        handle = super().createHandle()
+        handle.installEventFilter(self)
+        return handle
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if event.type() == QEvent.MouseButtonDblClick:
+            self.reset_requested.emit()
+            return True
+        return super().eventFilter(watched, event)
+
+
+def _paragraphs(text: str | None) -> str:
+    """A docstring as paragraphs: the source's line breaks joined, blank lines kept."""
+    blocks = re.split(r"\n\s*\n", textwrap.dedent(text or "").strip())
+    return "\n\n".join(" ".join(line.strip() for line in block.splitlines()) for block in blocks)
 
 
 def _delete_layout(layout) -> None:

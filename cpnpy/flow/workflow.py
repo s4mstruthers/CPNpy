@@ -357,6 +357,14 @@ class _Builder:
 
     def call(self, box: Box, args: tuple, kwargs: dict) -> Any:
         spec = box.spec
+        if getattr(box, "composite", None) is not None:
+            # A @workflow function used as a box: record what it calls, as a group.
+            before = set(self.workflow.nodes)
+            value = box.composite(*args, **kwargs)
+            new = [n for n in self.workflow.nodes if n not in before and self.workflow.group_of(n) is None]
+            if len(new) >= 2:
+                self.workflow.group(new, spec.name)
+            return value
         bound = _bind(spec, args, kwargs)
         settings = {k: v for k, v in bound.items() if spec.setting(k) is not None}
         node = self.workflow.add(spec, settings, position=(self.column * 230.0, 0.0))
@@ -406,26 +414,56 @@ def record(function: Callable, name: str | None = None, library=None) -> Workflo
     return wf
 
 
-def workflow(function: Callable | None = None, *, name: str | None = None):
+class Recorded:
+    """A ``@workflow`` function: still callable, with ``.workflow`` drawn on
+    first use.  One with typed parameters is also a *composite box*: in the
+    box list it is one box, on the canvas it can be opened as a group."""
+
+    def __init__(self, fn: Callable, name: str | None, group: str) -> None:
+        self.fn = fn
+        self.name = name or fn.__name__.replace("_", " ")
+        self.group_name = group
+        self._workflow: Workflow | None = None
+        self.__name__ = fn.__name__
+        self.__doc__ = fn.__doc__
+        self.__wrapped__ = fn
+        self.__module__ = fn.__module__
+
+    @property
+    def workflow(self) -> Workflow:
+        if self._workflow is None:
+            self._workflow = record(self.fn, self.name)
+        return self._workflow
+
+    def __call__(self, *args, **kwargs):
+        builder = recording()
+        if builder is not None:
+            box = self.as_box()
+            if box is not None:
+                return builder.call(box, args, kwargs)
+        return self.fn(*args, **kwargs)
+
+    def as_box(self) -> Box | None:
+        """The function as a box (None when its parameters are not typed as a box's)."""
+        from .box import BoxError, make_spec
+        try:
+            spec = make_spec(self.fn, name=self.name, group=self.group_name)
+        except BoxError:
+            return None
+        if not spec.inputs and not spec.settings:
+            return None
+        box = Box(self.fn, spec)
+        box.composite = self.fn
+        return box
+
+
+def workflow(function: Callable | None = None, *, name: str | None = None, group: str = "Yours"):
     """``@workflow``: the function is recorded when first asked for, as
-    ``function.workflow``; calling the function still runs it normally."""
-    def decorate(fn: Callable):
-        class _Recorded:
-            def __init__(self) -> None:
-                self._workflow: Workflow | None = None
-                self.__name__ = fn.__name__
-                self.__doc__ = fn.__doc__
-                self.__wrapped__ = fn
-
-            @property
-            def workflow(self) -> Workflow:
-                if self._workflow is None:
-                    self._workflow = record(fn, name or fn.__name__.replace("_", " "))
-                return self._workflow
-
-            def __call__(self, *args, **kwargs):
-                return fn(*args, **kwargs)
-        return _Recorded()
+    ``function.workflow``; calling the function still runs it normally.  A
+    ``@workflow`` function with typed parameters is also a box (a group on the
+    canvas), listed in ``group``."""
+    def decorate(fn: Callable) -> Recorded:
+        return Recorded(fn, name, group)
     return decorate(function) if function is not None else decorate
 
 
@@ -452,28 +490,31 @@ def _identifier(text: str) -> str:
     return text + "_" if keyword.iskeyword(text) else text
 
 
-def to_python(wf: Workflow) -> str:
-    """The workflow as a ``@workflow`` function that would record it back."""
-    names: dict[str, str] = {}
-    used: dict[str, int] = {}
-    lines, imports, types_used, customs = [], set(), set(), set()
+def _call_lines(wf: Workflow, nodes: list[Node], names: dict, used: dict, imports: set, customs: set,
+                types_used: set, params: dict | None = None) -> list[str]:
+    """The box calls for ``nodes`` (in order), naming each result."""
+    lines = []
+    params = params or {}
 
     def fresh(base: str) -> str:
         used[base] = used.get(base, 0) + 1
         return base if used[base] == 1 else f"{base}_{used[base]}"
 
-    for node in wf.order():
+    for node in nodes:
         spec = wf.spec(node)
         function = spec.function.__name__
         (customs if spec.custom else imports).add((spec.module, function))
         fed = wf.inputs_of(node)
         args = []
         for port in spec.inputs:
-            sources = fed[port.name]
+            sources = [names.get(s, params.get((node.id, port.name))) for s in fed[port.name]]
+            sources = [s for s in sources if s]
+            if not sources and (node.id, port.name) in params:
+                sources = [params[(node.id, port.name)]]
             if port.many:
-                args.append(f"{port.name}=[{', '.join(names[(n, o)] for n, o in sources)}]")
+                args.append(f"{port.name}=[{', '.join(sources)}]")
             elif sources:
-                args.append(f"{port.name}={names[sources[0]]}")
+                args.append(f"{port.name}={sources[0]}")
         for setting in spec.settings:
             value = node.settings.get(setting.name, setting.default)
             if is_sweep(value):
@@ -491,12 +532,84 @@ def to_python(wf: Workflow) -> str:
                 types_used.add(port.info.python if port.info else "Any")
         else:
             port = spec.outputs[0]
-            base = port.info.key if port.info else "value"
-            var = fresh(_identifier(base))
+            var = fresh(_identifier(port.info.key if port.info else "value"))
             names[(node.id, "out")] = var
             types_used.add(port.info.python if port.info else "Any")
             lines.append(f"{var} = {call}")
-    header = ["from cpnpy.flow import workflow" + (", Sweep" if wf.swept() else "")]
+    return lines
+
+
+def group_to_python(wf: Workflow, group: Group) -> str:
+    """A group as a ``@workflow`` function: its outside inputs are the
+    parameters, its outside outputs the return value."""
+    inputs, outputs = wf.group_ports(group)
+    params, seen, signature = {}, {}, []
+    for node_id, port_name, port in inputs:
+        base = _identifier(port.label or port.name)
+        seen[base] = seen.get(base, 0) + 1
+        name = base if seen[base] == 1 else f"{base}_{seen[base]}"
+        params[(node_id, port_name)] = name
+        signature.append(f"{name}: {port.info.python if port.info else 'Any'}")
+    names, used, imports, customs, types_used = {}, {}, set(), set(), set()
+    members = [n for n in wf.order() if n.id in group.members]
+    lines = _call_lines(wf, members, names, used, imports, customs, types_used, params)
+    returns = [names.get((node_id, port_name), "None") for node_id, port_name, _ in outputs]
+    if returns:
+        lines.append("return " + ", ".join(returns))
+    if len(outputs) == 1:
+        return_type = outputs[0][2].info.python if outputs[0][2].info else "Any"
+    elif outputs:
+        return_type = "tuple[" + ", ".join(o[2].info.python if o[2].info else "Any" for o in outputs) + "]"
+    else:
+        return_type = "None"
+    body = "\n".join("    " + line for line in lines) or "    pass"
+    return (f"@workflow(name={group.name!r})\ndef {_identifier(group.name)}({', '.join(signature)}) -> {return_type}:\n"
+            f"{body}\n")
+
+
+def to_python(wf: Workflow) -> str:
+    """The workflow as a ``@workflow`` function that would record it back;
+    every group becomes a function of its own, called once."""
+    names, used, imports, customs, types_used = {}, {}, set(), set(), set()
+    lines, group_defs = [], []
+    done_groups: set[str] = set()
+    for node in wf.order():
+        group = wf.group_of(node.id)
+        if group is None:
+            lines.extend(_call_lines(wf, [node], names, used, imports, customs, types_used))
+            continue
+        if group.id in done_groups:
+            continue
+        done_groups.add(group.id)
+        group_defs.append(group_to_python(wf, group))
+        inputs, outputs = wf.group_ports(group)
+        args = []
+        for node_id, port_name, port in inputs:
+            sources = [names.get(s) for s in wf.inputs_of(node_id)[port_name]]
+            sources = [s for s in sources if s]
+            if sources:
+                args.append(f"[{', '.join(sources)}]" if port.many else sources[0])
+            else:
+                args.append("None")
+        function = _identifier(group.name)
+        if not outputs:
+            lines.append(f"{function}({', '.join(args)})")
+        else:
+            targets = []
+            for node_id, port_name, port in outputs:
+                base = _identifier(port.info.key if port.info else "value")
+                used[base] = used.get(base, 0) + 1
+                var = base if used[base] == 1 else f"{base}_{used[base]}"
+                names[(node_id, port_name)] = var
+                targets.append(var)
+            lines.append(f"{', '.join(targets)} = {function}({', '.join(args)})")
+        for node_id, _, _ in inputs:
+            pass
+        # Spec imports of the members are collected by group_to_python; redo for the header.
+        _call_lines(wf, [n for n in wf.order() if n.id in group.members], {}, {}, imports, customs, set(),
+                    {(n, p): "x" for n, p, _ in inputs})
+    header = ["from cpnpy.flow import workflow" + (", Sweep" if wf.swept() else "")
+              + (", " + ", ".join(sorted(types_used)) if types_used and group_defs else "")]
     by_module: dict[str, list[str]] = {}
     for module, function in sorted(imports):
         by_module.setdefault(module, []).append(function)
@@ -505,8 +618,11 @@ def to_python(wf: Workflow) -> str:
     for module, function in sorted(customs):
         header.append(f"from {module} import {function}")
     body = "\n".join("    " + line for line in lines) or "    pass"
-    return "\n".join(header) + f"\n\n\n@workflow(name={wf.name!r})\ndef {_identifier(wf.name)}():\n{body}\n"
+    parts = "\n".join(header) + "\n\n\n"
+    for definition in group_defs:
+        parts += definition + "\n\n"
+    return parts + f"@workflow(name={wf.name!r})\ndef {_identifier(wf.name)}():\n{body}\n"
 
 
-__all__ = ["Edge", "Group", "Node", "Ref", "Workflow", "WorkflowError", "fresh_id",
-           "record", "recording", "to_python", "workflow"]
+__all__ = ["Edge", "Group", "Node", "Recorded", "Ref", "Workflow", "WorkflowError", "fresh_id",
+           "group_to_python", "record", "recording", "to_python", "workflow"]

@@ -25,7 +25,7 @@ from PySide6.QtCore import QRegularExpression, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QHBoxLayout, QLabel,
-    QLineEdit, QPlainTextEdit, QProgressBar, QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem,
+    QLayout, QLineEdit, QPlainTextEdit, QProgressBar, QSizePolicy, QSpinBox, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -119,9 +119,22 @@ def result_widget(value, page=None) -> QWidget:
     layout.setSpacing(8)
 
     def add(widget) -> None:
-        layout.addWidget(widget)
+        if isinstance(widget, QLayout):
+            layout.addLayout(widget)
+        else:
+            layout.addWidget(widget)
 
-    if isinstance(value, PetriNet):
+    from ...mining.discovery.alpha import AlphaResult
+    from ...mining.discovery.heuristics import HeuristicsResult
+    from ...mining.discovery.inductive import InductiveResult
+    from ...mining.discovery.state_regions import RegionResult
+    if isinstance(value, (AlphaResult, InductiveResult, HeuristicsResult)):
+        from ..studio.derivation_view import derivation_view
+        add(derivation_view(value))              # the typeset derivation the Discover tab shows
+    elif isinstance(value, RegionResult):
+        from ..studio.regions_view import RegionsPanel
+        add(RegionsPanel(value, show_net=False, flat=True))
+    elif isinstance(value, PetriNet):
         nodes, edges = petri_net_specs(value, show_place_names=len(value.places) <= 40)
         positions = None
         if all(p.position for p in value.places.values()) and all(t.position for t in value.transitions.values()):

@@ -26,6 +26,7 @@ def alpha_miner(log: EventLog) -> PetriNet:
     result = alpha_module.alpha_miner(log.simple_log())
     flow.show(footprint_of_log(log.simple_log()), "Footprint of the log")
     flow.steps(result.steps())
+    flow.show(result, "The derivation, typeset")
     for warning in result.warnings:
         flow.note(f"Warning: {warning}")
     result.net.name = f"α({log.name})"
@@ -41,7 +42,7 @@ def inductive_miner(log: EventLog, noise: float = 0.0) -> PetriNet:
     noise: the IMf noise threshold, 0 for the plain Inductive Miner
     """
     result = _inductive(log.simple_log(), noise_threshold=noise)
-    flow.show(result.tree, "Process tree")
+    flow.show(result, "Process tree and the recursion")
     flow.steps([(f"{'  ' * s.depth}{s.kind}", s.text) for s in result.steps])
     result.net.name = f"IM{'f' if noise > 0 else ''}({log.name})"
     return result.net
@@ -70,6 +71,7 @@ def heuristics_miner(log: EventLog, dependency: float = 0.9) -> PetriNet:
     dependency: the threshold a ⇒ b must reach
     """
     result = heuristics_net(log.simple_log(), dependency_threshold=dependency)
+    flow.show(result, "Dependency graph and bindings")
     graph = result.graph
     rows = [[a, b, round(measure, 3), "kept" if (a, b) in graph.edges else "dropped"]
             for (a, b), measure in sorted(graph.all_dependencies.items())]
@@ -97,7 +99,7 @@ def regions_to_net(ts: TransitionSystem) -> PetriNet:
     """Synthesises a Petri net from the minimal regions of a transition
     system: one place per minimal region (Cortadella et al.)."""
     result = region_result(ts)
-    flow.show(result.analysis, "Regions")
+    flow.show(result, "Regions, checks and synthesis")
     flow.note(f"{len(result.analysis.regions)} regions, {len(result.analysis.minimal)} minimal")
     if result.synthesis.isomorphic is not None:
         flow.note("The net's reachability graph is isomorphic to the transition system"

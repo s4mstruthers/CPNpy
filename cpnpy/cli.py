@@ -419,6 +419,9 @@ def command_run(arguments: argparse.Namespace) -> int:
         print(f"{len(run.variants)} sweep variants")
     if arguments.output:
         _write_outputs(workflow, run, Path(arguments.output))
+    if arguments.export:
+        from .flow.record import export_experiment
+        print(f"Wrote {export_experiment(workflow, run, arguments.export, folder, library)}")
     if arguments.check:
         report = check(workflow, record, run)
         if report:
@@ -562,6 +565,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--lock", action="store_true",
                      help="write requirements.lock from the record's environment")
     run.add_argument("-o", "--output", metavar="FOLDER", help="write every result as a file")
+    run.add_argument("--export", metavar="FILE.zip",
+                     help="zip the workflow, its inputs, boxes and results, with a README")
     run.add_argument("-v", "--verbose", action="store_true", help="also print the boxes' notes")
     run.set_defaults(handler=command_run)
 

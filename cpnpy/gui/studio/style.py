@@ -441,6 +441,12 @@ def stylesheet() -> str:
         border-bottom: 1px solid {t.border}; padding: 6px 8px; font-weight: 600;
         font-size: 11px; }}
     QTableCornerButton::section {{ background: {t.surface}; border: none; }}
+    /* The Workflows page's box list: rows like the sidebar's, group names as captions. */
+    #boxList {{ background: transparent; }}
+    #boxList::item {{ padding: 4px 6px; border-radius: 6px; margin: 0 2px; }}
+    #boxList::item:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
+    #boxList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
+    #boxList::item:has-children {{ padding-top: 10px; background: transparent; }}
     /* A list on its own in a dialog (Compare logs, the Filter dialog's
        activities) gets a rounded frame, like a text field. */
     QDialog QListWidget, QDialog QListView {{ border: 1px solid {t.border};
@@ -457,6 +463,10 @@ def stylesheet() -> str:
         background: none; border: none; height: 0; width: 0; }}
 
     QSplitter::handle {{ background: {t.border}; }}
+    /* The Workflows page: gaps between cards, lit under the mouse so they read as handles. */
+    WorkflowPage QSplitter::handle {{ background: transparent; }}
+    WorkflowPage QSplitter::handle:hover {{ background: {qc(t.accent, 0.35).name(QColor.HexArgb)};
+        margin: 6px 5px; border-radius: 2px; }}
     QGraphicsView {{ background: {t.canvas}; border: none; }}
     QStatusBar {{ background: {t.page}; color: {t.text_muted}; border-top: 1px solid {t.border}; }}
     /* Pop-up menus: rounded like the cards (see widgets.round_menus, which

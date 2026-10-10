@@ -107,7 +107,22 @@ class Library:
             self.specs[spec.id] = spec
 
     def register_module(self, module, custom: bool = False) -> list[BoxSpec]:
-        found = [value for value in vars(module).values() if isinstance(value, Box)]
+        """Register the boxes *defined* in ``module`` (a box it merely imports,
+        such as a standard box used by a saved group, stays as it is)."""
+        from .workflow import Recorded
+        own = module.__name__
+
+        def defined_here(value) -> bool:
+            fn = value.fn if isinstance(value, Recorded) else value.spec.function
+            return getattr(fn, "__module__", own) == own
+
+        found = [value for value in vars(module).values() if isinstance(value, Box) and defined_here(value)]
+        for value in vars(module).values():
+            if isinstance(value, Recorded) and defined_here(value):   # a @workflow function with typed parameters
+                box = value.as_box()
+                if box is not None:
+                    box.spec.id = f"{module.__name__}.{value.__name__}"
+                    found.append(box)
         found.sort(key=lambda b: b.spec.line)
         self.register(*found, custom=custom)
         return [b.spec for b in found]
