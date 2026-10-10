@@ -36,6 +36,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import inspect
+import os
 import importlib.util
 import types
 import typing
@@ -85,6 +86,21 @@ class Port:
         return issubclass(other.type, self.type) or self.type is other.type
 
 
+def clean_path(value: Any) -> str:
+    """A path as typed or pasted, cleaned up: surrounding quotes and spaces
+    dropped, shell escapes like ``Week\\ 2`` undone, ``~`` expanded.  A path
+    dragged from a terminal or copied from a shell then works as it is."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        text = text[1:-1].strip()
+    text = text.replace("\\ ", " ")
+    if text.startswith("~"):
+        text = os.path.expanduser(text)
+    return text
+
+
 @dataclass(frozen=True)
 class Setting:
     """A parameter that is not an input: shown as a control in the side panel."""
@@ -111,7 +127,10 @@ class Setting:
                 raise ValueError(f"{self.name!r} must be one of {', '.join(map(str, self.choices))}")
             return value
         if self.kind == "path":
-            return Path(value) if value not in (None, "") else None
+            if isinstance(value, Path):
+                return value
+            text = clean_path(value)
+            return Path(text) if text else None
         return str(value)
 
 

@@ -24,10 +24,10 @@ def _resolve(file: Path) -> Path:
 
 @box(name="Open log", group="Input")
 def open_log(file: Path) -> EventLog:
-    """Reads an event log from the folder: XES (also gzipped), CSV, or a
-    ``.txt`` file in the course notation ``[<a,b,c>^3, <a,c>]``.
+    """Reads an event log: XES (also gzipped), CSV, or a ``.txt`` file in
+    the course notation ``[<a,b,c>^3, <a,c>]``.
 
-    file: the log file, relative to the workflow's folder
+    file: the log file. Choose… picks it; a name alone means a file in the workflow's folder
     """
     path = _resolve(file)
     lower = path.name.lower()
@@ -52,7 +52,10 @@ def typed_log(text: str = "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", name: str = "Ty
 
 @box(name="Open net", group="Input")
 def open_net(file: Path) -> PetriNet:
-    """Opens a Petri net from the folder: a PNML file, or a net drawn in the editor."""
+    """Opens a Petri net: a PNML file, or a net drawn in the editor.
+
+    file: the net file. Choose… picks it; a name alone means a file in the workflow's folder
+    """
     from ...mining.pnml import read_pnml
     net = read_pnml(_resolve(file))
     flow.note(f"{Path(file).name}: {net.summary()}")
@@ -61,7 +64,10 @@ def open_net(file: Path) -> PetriNet:
 
 @box(name="Open coloured net", group="Input")
 def open_cpn(file: Path) -> CPNet:
-    """Opens a coloured Petri net (a CPN Tools ``.cpn`` file)."""
+    """Opens a coloured Petri net (a CPN Tools ``.cpn`` file).
+
+    file: the ``.cpn`` file. Choose… picks it; a name alone means a file in the workflow's folder
+    """
     from ...io.cpn_reader import read_cpn
     net = read_cpn(str(_resolve(file)))
     if net.errors:
@@ -71,7 +77,10 @@ def open_cpn(file: Path) -> CPNet:
 
 @box(name="Open transition system", group="Input")
 def open_transition_system(file: Path) -> TransitionSystem:
-    """Opens a transition system typed as ``s0 -a-> s1, s0 -b-> s2`` (a ``ts.txt`` file)."""
+    """Opens a transition system typed as ``s0 -a-> s1, s0 -b-> s2`` (a ``ts.txt`` file).
+
+    file: the ``.txt`` file. Choose… picks it; a name alone means a file in the workflow's folder
+    """
     path = _resolve(file)
     return parse_transition_system(path.read_text(encoding="utf-8"), path.stem)
 

@@ -295,7 +295,7 @@ class WorkflowPage(QWidget):
         if unchosen:
             # A box that needs a file: open its Settings, where the file is chosen.
             self.select(node.id, 3)
-            self.status.emit(f"Added {spec.name}: choose its {unchosen[0].name} in Settings, on the right")
+            self.status.emit(f"Added {spec.name}: press Choose… under {unchosen[0].name} in Settings, on the right")
         else:
             self.status.emit(f"Added {spec.name}: drag from a dot on the right of a box to connect it")
         self.refresh_title()

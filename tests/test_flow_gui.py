@@ -492,3 +492,77 @@ def test_adding_a_file_box_opens_its_settings(app):
     assert "Choose the file" in page.run.result(node).message
     page.document.dirty = False
     window.close()
+
+
+def test_choose_picks_the_file_in_a_dialog(app, tmp_path, monkeypatch):
+    """Choose… under a file setting opens a file dialog in the workflow's
+    folder; a file inside the folder is kept by its relative name, one
+    elsewhere by its full path, and the box runs with either."""
+    from PySide6.QtWidgets import QComboBox, QFileDialog, QPushButton
+
+    from openprocess.flow.library import library_for
+    from openprocess.flow.workflow import Workflow
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.studio.documents import WorkflowDocument
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    inside = week / "orders.log.txt"
+    inside.write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    elsewhere = tmp_path / "other place" / "boarding.txt"
+    elsewhere.parent.mkdir()
+    elsewhere.write_text("[<a,b>^2]", encoding="utf-8")
+
+    library = library_for(week)
+    wf = Workflow("Pick a file", library)
+    node = wf.add(next(s for s in library.specs.values() if s.id.endswith("open_log")))
+    page = WorkflowPage(WorkflowDocument(wf), library, week)
+    page.resize(1300, 760)
+    page.show()
+    page.run_from(None)
+    _wait_run(app, page)
+    assert page.run.result(node).status == "idle"                   # no file yet
+    page.select(node.id, 3)                                          # Settings
+    _pump(app, 0.1)
+
+    def controls():                                                  # the panel is rebuilt after each run
+        return (next(b for b in page.panel_host.findChildren(QPushButton) if b.text() == "Choose…"),
+                next(c for c in page.panel_host.findChildren(QComboBox) if c.isEditable()))
+
+    choose, field = controls()
+    asked = {}
+
+    def fake_dialog(parent, title, start, filters):
+        asked.update(title=title, start=start, filters=filters)
+        return asked.pop("answer"), "Logs and nets"
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(fake_dialog))
+    asked["answer"] = str(inside)
+    choose.click()
+    assert asked["title"] == "Choose file" and Path(asked["start"]) == week and "*.xes" in asked["filters"]
+    assert field.currentText() == "orders.log.txt"                 # relative: the folder may move
+    _pump(app, 0.6)                                                  # settings apply after a short pause
+    _wait_run(app, page)
+    assert page.run.result(node).status == "done", page.run.result(node).error
+    assert page.workflow.nodes[node.id].settings["file"] == Path("orders.log.txt")
+
+    asked["answer"] = str(elsewhere)
+    choose, field = controls()
+    choose.click()
+    assert Path(asked["start"]) == inside                           # the dialog opens where the file is
+    assert field.currentText() == str(elsewhere)                    # outside the folder: the full path
+    _pump(app, 0.6)
+    _wait_run(app, page)
+    assert page.run.result(node).status == "done", page.run.result(node).error
+    assert page.scene.boxes[node.id].subtitle == "2 cases · 4 events"
+
+    asked["answer"] = ""                                             # Cancel changes nothing
+    choose, field = controls()
+    choose.click()
+    assert field.currentText() == str(elsewhere)
+
+    field.setCurrentText(f'"{str(inside).replace(" ", chr(92) + " ")}"')   # pasted from a shell
+    field.lineEdit().editingFinished.emit()
+    assert field.currentText() == str(inside)
+    page.document.dirty = False
+    page.close()
