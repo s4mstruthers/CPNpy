@@ -402,10 +402,10 @@ def test_the_pages_no_longer_offer_as_a_workflow(app):
     path = Path(__file__).parent / "data" / "plane_wilma_10.xes"
     window.add_document(LogDocument(read_xes(path), path=str(path)))
     log_page = window.current_page()
-    log_page.tabs.set_index(6)                                      # Discover
+    log_page.tabs.set_index(6)                                      # Discover: the handoff to Mine
     _pump(app, 0.8)
     texts = [b.text() for b in log_page.findChildren(QPushButton)]
-    assert any(t.startswith("Open as model") for t in texts)
+    assert any(t.startswith("Discover in Mine") for t in texts)
     assert not any("workflow" in t.lower() for t in texts)
     window.action_new_cpn()
     net_page = window.current_page()
@@ -878,11 +878,22 @@ def test_the_summary_writes_itself(app):
     titles = [page.workflow.title(t.node_id) for t in page.summary.tiles]
     assert titles == [page.workflow.title(n.id) for n in page.workflow.order()]   # one per box, in run order
     assert len(titles) == 3
+    # No Directly-follows graph box yet: no map is computed behind the scenes; one click adds the box.
+    assert not page.summary.map_card.isVisibleTo(page) and page.summary.no_map_card.isVisibleTo(page)
+    page.summary.add_map_button.click()
+    _pump(app, 0.3)
+    _wait_run(app, page)
+    names = [page.workflow.spec(n).name for n in page.workflow.order()]
+    assert "Directly-follows graph" in names and len(page.workflow.edges) == 4   # fed by the log
+    page.summary.refresh()
+    _pump(app, 0.2)
     assert page.summary.map_card.isVisibleTo(page) and page.summary.map_view.graph.nodes
+    assert "Directly-follows graph" in page.summary.map_card.title_label.text()
     full = len(page.summary.map_view.graph.nodes)
     page.summary.detail.setValue(10)
     assert len(page.summary.map_view.graph.nodes) < full
-    last = page.summary.tiles[-1]
+    assert len(page.summary.tiles) == 4                                          # the new box has a tile too
+    last = page.summary.tiles[2]
     last.clicked.emit(last.node_id)
     _pump(app, 0.1)
     assert page.body.currentIndex() == 0 and page.summary_switch.index() == 0

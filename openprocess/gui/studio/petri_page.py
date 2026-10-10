@@ -55,6 +55,7 @@ from .widgets import (
     Card, Verdict, button, flow, footprint_table, hbox, label, status_for,
 )
 from . import instances
+from .provenance import add_code
 from .definition_view import attach_definition, show_reference
 from .workers import run_in_background
 
@@ -321,17 +322,21 @@ class PetriNetPage(ConcealsResults, CpnPage):
                                     "its initial marking.")
         self.footprint_card = Card("Footprint", "The ordering relations of the net's "
                                    "behaviour: which transition can directly follow which.")
-        # The card captions explain the idea; hovering shows the maths.
+        # The card captions explain the idea; hovering shows the maths; { } code opens the code.
         for card, key in ((self.soundness_card, "sound"), (self.theorem_card, "short_circuit"),
                           (self.invariants_card, "incidence_matrix"),
                           (self.footprint_card, "footprint")):
             attach_definition(card.caption_label, key)
+        for card, functions in ((self.soundness_card, (check_soundness, check_workflow_net)),
+                                (self.theorem_card, (short_circuit, analyse)),
+                                (self.structure_card, (check_workflow_net,)),
+                                (self.invariants_card, (invariants,)),
+                                (self.properties_card, (analyse,)),
+                                (self.footprint_card, (footprint_of_net,))):
+            add_code(card, *functions)
         self.more_card = Card("More")
-        self.more_card.add(label("Look at every reachable marking, or replay an event log "
-                                 "on this net (token replay, alignments).", "muted",
-                                 wrap=True))
-        self.more_card.add(flow(button("Reachability graph…", self.show_reachability_graph),
-                                button("Conformance with a log…", self.open_as_model)))
+        self.more_card.add(label("Look at every reachable marking of the net.", "muted", wrap=True))
+        self.more_card.add(flow(button("Reachability graph…", self.show_reachability_graph)))
         for card in (self.soundness_card, self.theorem_card, self.structure_card,
                      self.invariants_card, self.properties_card, self.footprint_card,
                      self.more_card):

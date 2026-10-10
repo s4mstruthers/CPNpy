@@ -350,6 +350,20 @@ class WorkflowPage(QWidget):
             self.status.emit(f"Added {spec.name}: drag from a dot on the right of a box to connect it")
         return node
 
+    def add_box_fed_by(self, box_id: str, source_id: str | None):
+        """Add a box and connect it to ``source_id``'s output (the first input
+        that takes it), as dropping a wire would; then it runs."""
+        node = self.add_box_in_view(box_id)
+        if source_id is not None and source_id in self.workflow.nodes:
+            ok, detail = self.workflow.can_connect(source_id, node.id)
+            if ok:
+                self.workflow.connect(source_id, node.id)
+                self.scene.rebuild()
+                self._edited([node.id])
+            else:
+                self.status.emit(detail)
+        return node
+
     def add_files(self, paths: list[str], where: QPointF | None = None) -> list:
         """Files dropped on the canvas (or chosen for it) become input boxes:
         a log an *Open log*, a PNML file an *Open net*, and so on, at ``where``

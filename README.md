@@ -205,11 +205,11 @@ handling (unsound — try Analysis)**.
 2. Look through the tabs: *Overview*, *Variants*, *Cases*, *Dotted chart*,
    *Process map*, *Footprint*. **Filter…** keeps part of the log as a new
    log.
-3. On the *Discover* tab, pick an algorithm: the model and how it was
-   derived update straight away. **Open as model →** adds the result to the sidebar (under **MODELS**, or
-   **UNSAVED** in a folder until you press **Keep** to save it there).
-4. On the model's *Conformance* tab, choose a log and press **Check
-   conformance**.
+3. On the *Discover* tab, pick an algorithm and press **Discover in Mine →**:
+   an analysis opens with the log and the miner connected and run. Click the
+   miner for its result, *How* it was derived, and the *Code* it ran.
+4. **+ Add box ▸ Check fit** on that canvas, wired to the miner and the
+   log, scores fitness, precision and more, every step shown.
 
 **Simulate a coloured net**
 
@@ -384,8 +384,10 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   a log's footprint (α-algorithm, footprint conformance).
 - **Reachability graph…**, or a coverability graph with ω when the net is
   unbounded.
-- **Conformance with a log…** opens the net as a model next to your logs,
-  for token replay and alignments.
+- **Check against a log ›** (Analysis tab) builds an analysis in Mine with
+  this net, a log you pick and *Check fit*, connected and run.
+- Every analysis card has a **{ } code** link that opens the function it is
+  computed by, so nothing here is a black box.
 
 | The counterexample, replayed | The footprint of the net |
 |---|---|
@@ -446,21 +448,24 @@ links to the definitions it builds on; **Help ▸ Definitions** lists them all.
   - Time unit (Auto, or seconds up to years) and a grid step you can type in.
   - Colour and shape by any attribute. The default palette can be changed
     per value: right-click a value in the legend and pick its colour.
-- **Discover:**
+- **Discover** hands the log to an analysis in Mine (**Discover in Mine →**),
+  where the miner is a box with its result, its *How* and its *Code*:
   - α-algorithm, which shows its eight steps;
-  - Inductive Miner and IMf;
-  - Heuristics Miner, as a dependency graph or as a Petri net: which forks
-    are AND and which XOR is learned from the log (a causal net, whose
-    bindings are listed). Like in ProM, such a net fits its log but is not
-    always sound;
-  - **state-based regions**, two-phase: the log becomes a transition system
-    through a state function you choose (the prefix, postfix or both of each
-    event; as a set, multiset or sequence; over the last *k* events or all
-    of them), and its minimal regions become the places. The derivation
-    shows the transition system (pick a trace to light up the states it
-    passes through), the regions, GER and minimal pre- and post-regions of
-    every event, state separation and forward closure, and whether the
-    net's reachability graph is isomorphic to the transition system.
+  - Inductive Miner (with a noise setting for IMf);
+  - Heuristics Miner, as a Petri net: which forks are AND and which XOR is
+    learned from the log (a causal net, whose bindings are listed). Like in
+    ProM, such a net fits its log but is not always sound;
+  - **state-based regions**, two-phase: *Classical states* turns the log
+    into a transition system through a state function you choose (the
+    prefix, postfix or both of each event; as a set, multiset or sequence;
+    over the last *k* events or all of them), and *Regions to net* makes its
+    minimal regions the places. The derivation shows the transition system,
+    the regions, GER and minimal pre- and post-regions of every event, state
+    separation and forward closure, and whether the net's reachability graph
+    is isomorphic to the transition system.
+
+  In Learn, an exercise's log page keeps the miners on the page, since the
+  exercise is the context there.
 - **Transition systems** (File ▸ New Transition System…, or a `ts.txt` file):
   type one as `s0 -a-> s1, s0 -b-> s2` and get the same region analysis and
   synthesis. *Is this a region?* answers yes or no for any set of states
@@ -742,11 +747,12 @@ extra) and *Predict the next activity*. Or start empty.
   notation…* in the sidebar land as boxes on the current analysis (or a new
   one named after the file). In a box's **Settings**, *Choose…* picks the
   file and the list beside it offers only the files the box can read.
-- **Summary** is the dashboard that writes itself: a tile per result, named
-  after the box, in the order the boxes run (a score's first metric, a
-  table's size, a log's cases, a net's places and transitions), and the
-  process map of the first log with a *Detail* slider. Nothing is
-  configured; a tile opens the box on the canvas.
+- **Summary** is the key figure of every box, in one place: a tile per box,
+  in the order the boxes run (a score's first metric, a table's size, a
+  log's cases, a net's places and transitions). Nothing is computed there:
+  a tile is the box's result, as on the canvas, and a tile opens the box.
+  The process map under the tiles is the *Directly-follows graph* box's
+  result; an analysis without that box offers to add it in one click.
 - **Connect** by dragging from the dot on the right of a box: while you drag,
   only the inputs that take that kind of result light up, so a wrong
   connection cannot be made. Click a wire and press Delete to remove it.

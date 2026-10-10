@@ -374,11 +374,13 @@ def test_discover_with_state_based_regions(app):
     from openprocess.gui.studio.regions_view import RegionsPanel
     from openprocess.mining import EventLog, parse_simple_log
 
-    window = _window()
+    from openprocess.gui.studio.log_page import LogPage
+
     log = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"),
                                    "L")
-    window.add_document(LogDocument(log))
-    page = window.current_page()
+    page = LogPage(LogDocument(log))             # Learn's log page: the miners run inline
+    page.resize(1200, 800)
+    page.show()
     page.tabs.set_index(6)                       # Discover
     from PySide6.QtWidgets import QComboBox
     chooser = next(box for box in page.findChildren(QComboBox)
@@ -392,7 +394,7 @@ def test_discover_with_state_based_regions(app):
     representation.setCurrentIndex(representation.findData("sequence"))
     assert wait_for(app, lambda: any(p.result.ts.states[0] == "⟨⟩"
                                      for p in page.findChildren(RegionsPanel)))
-    window.close()
+    page.close()
 
 
 def test_compare_nets_outside_an_exercise(app):

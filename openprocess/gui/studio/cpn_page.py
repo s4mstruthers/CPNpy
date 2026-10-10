@@ -690,6 +690,9 @@ class CpnPage(QWidget):
         card = Card("State space", "Every reachable marking (with its model time) and the "
                     "binding elements between them, explored breadth-first from the initial "
                     "marking — the analysis CPN Tools calls the state space tool.")
+        from ...analysis.state_space import StateSpace
+        from .provenance import add_code
+        add_code(card, StateSpace)
         self.max_nodes = QSpinBox()
         self.max_nodes.setRange(10, 1_000_000)
         self.max_nodes.setValue(20_000)

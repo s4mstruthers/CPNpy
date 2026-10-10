@@ -115,6 +115,15 @@ AUTOSAVE_DELAY = 1000
 
 #: Name of the Bin on this system (macOS says Bin in British English, as here).
 BIN = "Recycle Bin" if sys.platform == "win32" else "Bin"
+def _run_pip(command: list[str]) -> tuple[int, str]:
+    """Run pip (``command``) and give back its exit code and output."""
+    completed = subprocess.run(command, capture_output=True, text=True)
+    return completed.returncode, (completed.stdout or "") + (completed.stderr or "")
+
+
+#: How Install… runs pip (a test puts a stand-in here).
+PIP_RUNNER = _run_pip
+
 #: The Model palette's tools, in the net page's order (see CpnPage.TOOLS).
 PALETTE = [("Select", "⬚", "Select and move things; double-click a place or transition to rename it"),
            ("Place", "○", "Click on the canvas to add a place"),
@@ -544,6 +553,7 @@ class StudioWindow(QMainWindow):
         self.content.addWidget(scroll(self._build_welcome(), horizontal=True))
         #: The hub picture: what flows in and out, and the tools that plug in (index 1).
         self.connections_page = ConnectionsPage()
+        self.connections_page.install_requested.connect(self.install_tool)
         self.content.addWidget(self.connections_page)
         # Above the pages: "a new version is out" (see check_automatically).
         from .updates import UpdateBar
@@ -868,6 +878,43 @@ class StudioWindow(QMainWindow):
             tool = self.palette_group.button(index)
             if tool is not None and not tool.isChecked():
                 tool.setChecked(True)
+
+    def install_tool(self, name: str) -> None:
+        """*Install…* on a Connections card: pip installs the package into this
+        app's Python, in the background; the boxes that need it come alive."""
+        import importlib
+        from .connections import package_for
+        package = package_for(name)
+        command = [sys.executable, "-m", "pip", "install", package]
+        answer = QMessageBox.question(
+            self, "Install a tool", f"Install {package} into this app's Python?\n\nThis runs:\n"
+            f"{' '.join(command)}\n\nThe app stays usable meanwhile.",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Yes)
+        if answer != QMessageBox.Yes:
+            return
+        self.connections_page.installing.add(name)
+        self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
+        self.statusBar().showMessage(f"Installing {package}…")
+
+        def done(result) -> None:
+            code, output = result
+            self.connections_page.installing.discard(name)
+            importlib.invalidate_caches()
+            self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
+            if code == 0:
+                for page in self.pages.values():
+                    if isinstance(page, WorkflowPage) and hasattr(page, "reload_library"):
+                        page.reload_library()
+                self.statusBar().showMessage(f"Installed {package}: its boxes are available (Run ▶ an "
+                                             "analysis that was waiting for it)", 10000)
+            else:
+                tail = "\n".join(output.strip().splitlines()[-20:])
+                QMessageBox.warning(self, "Install a tool", f"pip could not install {package} "
+                                    f"(exit code {code}).\n\n{tail}")
+                self.statusBar().showMessage(f"Could not install {package}", 8000)
+
+        run_in_background(lambda: PIP_RUNNER(command), done,
+                          lambda message: done((1, str(message))))
 
     def show_connections(self) -> None:
         """The Connections view: what flows in and out, and the tools that plug in."""
@@ -1374,8 +1421,9 @@ class StudioWindow(QMainWindow):
     def _make_page(self, document) -> QWidget:
         """Build the page showing ``document`` (and its holder in the stack)."""
         if isinstance(document, LogDocument):
-            page = LogPage(document)
+            page = LogPage(document, discover="handoff")
             page.open_model.connect(self.add_document)
+            page.discover_requested.connect(lambda key, doc=document: self.discover_in_analysis(doc, key))
             page.open_log.connect(lambda log, source=document: self.add_document(
                 log, near=source.path))
             page.edited.connect(lambda doc=document: self._log_edited(doc))
@@ -1422,7 +1470,8 @@ class StudioWindow(QMainWindow):
             if plain:
                 page.open_model.connect(self.add_document)
         else:
-            page = ModelPage(document, self.logs)
+            page = ModelPage(document, self.logs, conformance="handoff")
+            page.check_requested.connect(lambda doc=document: self.check_against_log(doc))
             page.inspector_tabs.changed.connect(
                 lambda i: self.remembered.__setitem__("model_inspector", i))
             page.view_switch.changed.connect(
@@ -2419,12 +2468,72 @@ class StudioWindow(QMainWindow):
         self.add_document(WorkflowDocument(workflow))
         self.statusBar().showMessage(f"Saved {target.name} into the folder; this analysis reads it", 8000)
 
+    def _log_box_for(self, workflow, document, library, position=(0.0, 0.0)):
+        """A box that gives ``document``'s log in ``workflow``: Open log for a
+        file, Typed log for a log written in notation; a log that is neither
+        is written into the folder first.  None (with a message) when it
+        cannot be done."""
+        from ..flow.picker import input_box_for
+        path = document.path if document.path and not document.missing else None
+        if path is None and self.workspace is not None:
+            target = unique_path(self.workspace.folder, safe_file_name(document.name) + ".xes")
+            try:
+                write_xes(document.log, str(target))
+            except OSError as error:
+                self.statusBar().showMessage(f"Could not save the log: {error}", 8000)
+                return None
+            self._created.add(self._key(target))
+            path = str(target)
+        if path is not None:
+            relative = self.workspace.relative(path) if self.workspace is not None and \
+                self.workspace.contains(path) else path
+            return workflow.add(input_box_for(library, "log"), {"file": relative}, position)
+        if document.notation:
+            return workflow.add(input_box_for(library, "typed"),
+                                {"text": document.notation, "name": document.name}, position)
+        self.statusBar().showMessage("Export the log first (Export…): the analysis reads it from a file", 8000)
+        return None
+
+    def discover_in_analysis(self, document, key: str) -> None:
+        """The log page's Discover: a new analysis in Mine with this log and the
+        chosen miner, connected and run, the miner's Result open."""
+        from ...flow.workflow import Workflow
+        library = self.library()
+
+        def spec_id(function: str) -> str | None:
+            return next((s.id for s in library.specs.values() if s.id.endswith("." + function)), None)
+
+        miner = spec_id(key)
+        if miner is None:
+            self.statusBar().showMessage(f"The {key} box is not available", 8000)
+            return
+        workflow = Workflow(self._unique_name(f"Discover {document.name}"), library)
+        log = self._log_box_for(workflow, document, library)
+        if log is None:
+            return
+        node = workflow.add(miner, None, (300.0, 0.0))
+        workflow.connect(log, node)
+        last = node
+        if key == "classical_states":                      # regions: the net is one box further
+            to_net = spec_id("regions_to_net")
+            if to_net is not None:
+                last = workflow.add(to_net, None, (600.0, 0.0))
+                workflow.connect(node, last)
+        self.add_document(WorkflowDocument(workflow))
+        page = self.current_page()
+        if isinstance(page, WorkflowPage):
+            page.select(last.id, 0)
+        self.statusBar().showMessage(f"{workflow.name}: click the miner for its result, how it was derived, "
+                                     "and the code", 10000)
+
     def check_against_log(self, document) -> None:
         """*Check against a log ›* on a Petri net: in Mine, a new analysis with
         Open net (this net's file), Open log (a file you choose) and Check fit,
         connected and run."""
         from ...flow.workflow import Workflow
         from ..flow.picker import input_box_for
+        if not document.path and isinstance(document, ModelDocument) and self.workspace is not None:
+            self.keep_model(document)                  # a discovered model: kept in the folder first
         if not document.path or document.missing:
             self.statusBar().showMessage("Save the net first (it has no file yet): the analysis reads "
                                          "it from its file", 8000)

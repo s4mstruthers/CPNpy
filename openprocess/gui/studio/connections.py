@@ -11,12 +11,14 @@ declared twice: the cards are read from the box library.
 
 from __future__ import annotations
 
+import sys
 from importlib.util import find_spec
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
 from ...flow.library import Library
-from .widgets import Card, PageHeader, flow, hbox, label
+from .widgets import Card, PageHeader, button, flow, hbox, label
 
 #: (title, what it is, the input boxes' function names)
 INPUTS = [
@@ -34,13 +36,22 @@ OUTPUTS = [
     ("Event logs", "XES, for any mining tool", ("save_log",)),
     ("Tables", "CSV, for pandas, R or a spreadsheet", ("save_table",)),
     ("Figures", "SVG or PNG, for a paper", ("save_figure",)),
-    ("Experiment", "a zip with the workflow, its inputs, your boxes, every result and a README "
-                   "(⋯ ▸ Export experiment)", ()),
-    ("Python", "every box is a function: call it from a script or a notebook (⋯ ▸ Record)", ()),
+    ("Experiment", "a zip of everything, from ⋯ ▸ Export experiment", ()),
+    ("Python", "every box is a function: call it from a script or a notebook", ()),
 ]
-INSTALL = {"pm4py": "pip install pm4py", "pandas": "pip install openprocess[science]",
-           "numpy": "pip install openprocess[science]", "scipy": "pip install openprocess[science]",
-           "matplotlib": "pip install openprocess[science]"}
+#: What pip installs for each tool (the package itself, pinned as the app's extras pin it).
+PACKAGES = {"pandas": "pandas>=2.0", "numpy": "numpy>=1.24", "scipy": "scipy>=1.10",
+            "matplotlib": "matplotlib>=3.7", "pm4py": "pm4py"}
+
+
+def package_for(tool: str) -> str:
+    return PACKAGES.get(tool, tool)
+
+
+def can_install() -> bool:
+    """Whether the app can run pip for itself: a Python install with pip, not
+    the downloaded app (whose bundled Python has no pip and is read-only)."""
+    return not getattr(sys, "frozen", False) and find_spec("pip") is not None
 
 
 def _by_function(library: Library) -> dict[str, object]:
@@ -54,15 +65,20 @@ def tools(library: Library) -> list[dict]:
         for need in getattr(spec, "needs", ()) or ():
             found.setdefault(need, []).append(spec.name)
     return [{"name": name, "installed": find_spec(name.split(".")[0]) is not None,
-             "install": INSTALL.get(name, f"pip install {name}"), "boxes": sorted(set(boxes))}
+             "install": f"pip install {package_for(name)}", "boxes": sorted(set(boxes))}
             for name, boxes in sorted(found.items())]
 
 
 class ConnectionsPage(QWidget):
     """The hub picture, rebuilt by :meth:`refresh` from the window's library."""
 
+    #: *Install…* on a tool's card: the tool's name (the window runs pip).
+    install_requested = Signal(str)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.installing: set[str] = set()
+        self.install_buttons: dict[str, object] = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -128,11 +144,26 @@ class ConnectionsPage(QWidget):
         band("OPENPROCESS", "", [middle, own])
 
         tool_cards = []
+        self.install_buttons = {}
         for tool in tools(library):
-            tool_cards.append(card(tool["name"], ("Installed. " if tool["installed"] else "Not installed: ")
-                                   + ("" if tool["installed"] else tool["install"]),
-                                   tool["boxes"], "ready" if tool["installed"] else "not installed",
-                                   "good" if tool["installed"] else "warning"))
+            name = tool["name"]
+            if tool["installed"]:
+                text, status, tone = "Installed.", "ready", "good"
+            elif name in self.installing:
+                text, status, tone = "Installing… (a minute or two; the app stays usable)", "installing", "muted"
+            elif can_install():
+                text, status, tone = f"Not installed. Install… runs {tool['install']} for this app.", \
+                    "not installed", "warning"
+            else:
+                text, status, tone = (f"Not installed. The downloaded app cannot install packages: in a "
+                                      f"Python install, run {tool['install']}."), "not installed", "warning"
+            item = card(name, text, tool["boxes"], status, tone)
+            if not tool["installed"] and can_install() and name not in self.installing:
+                install = button("Install…", lambda _checked=False, n=name: self.install_requested.emit(n),
+                                 kind="primary", tooltip=f"Runs {tool['install']} in the background")
+                self.install_buttons[name] = install
+                item.add(hbox(install, None))
+            tool_cards.append(item)
         band("TOOLS", "Optional packages that boxes need. A box whose package is missing is listed "
              "greyed out until it is installed.", tool_cards or [card("None needed", "Every box runs "
                                                                        "with what is installed.", [])])
@@ -151,4 +182,4 @@ def _tone(tone: str) -> str:
             "muted": style.tokens().text_muted}.get(tone, style.tokens().text_muted)
 
 
-__all__ = ["ConnectionsPage", "tools", "INPUTS", "OUTPUTS"]
+__all__ = ["ConnectionsPage", "tools", "can_install", "package_for", "INPUTS", "OUTPUTS"]

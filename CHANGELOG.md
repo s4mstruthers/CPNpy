@@ -6,6 +6,31 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.5
+
+- **The log page no longer discovers models by itself.** Its *Discover* tab
+  used to run a miner on the spot, with no code to read and no record. Now
+  it hands the log to the canvas: pick a miner and a new analysis opens in
+  Mine with *Open log* and the miner connected and run, the miner's Result
+  open, its *How* and *Code* a click away. (In Learn, an exercise's log page
+  keeps its miners, since the exercise is the context there.)
+- **Every computed figure links to its code.** What a page computes on its
+  own (the log page's process map and footprint, a net's soundness,
+  short-circuited net, structure, invariants, behavioural properties and
+  footprint, a coloured net's state space, a transition system's regions and
+  synthesised net) now has a small *{ } code* link on its card that opens the
+  file, scrolled to the function. Nothing in the app is a black box.
+- **A model page's conformance is a handoff too.** *Check against a log ›*
+  on a discovered model builds the analysis in Mine (the model is kept in
+  the folder first). The Petri net page's *Conformance with a log…* is gone;
+  its Analysis tab has the same button. (In Learn, the exercise's model page
+  keeps its replay, as the exercise asks for it.)
+- **Install a tool from Connections.** A tool that is not installed has
+  *Install…* on its card: after asking, pip installs it into the app's
+  Python in the background, and the boxes that need it come alive. The
+  downloaded app, whose Python cannot install packages, says so and gives the
+  command instead.
+
 ## 0.9.4
 
 Motion: a few short transitions, so the window reads as one flow. Nothing
@@ -29,15 +54,18 @@ moves for its own sake.
 The patterns worth borrowing from the process-mining tools, without their
 chrome.
 
-- **Summary: the dashboard that writes itself.** An analysis has *Canvas |
-  Summary* in its header. The Summary is a tile per result, named after
-  the box, in the order the boxes run: a score's first metric, a table's
-  size, a log's cases, a net's places and transitions. Nothing is
-  configured, so it can never drift from the workflow; a box author gets a
-  tile by returning a Scores. A tile opens the box on the canvas.
-- **The process map in the Summary** draws the first log in the analysis
-  with a *Detail* slider that drops the rarer activities and paths, and a
-  legend: darker = more events, thicker = more often, grey = rare.
+- **Summary: the key figure of every box, in one place.** An analysis has
+  *Canvas | Summary* in its header. The Summary is a tile per box, in the
+  order the boxes run: a score's first metric, a table's size, a log's
+  cases, a net's places and transitions. Nothing is computed there: a tile
+  is the box's result, as on the canvas, so it can never drift from the
+  workflow, and a box author gets a tile by returning a Scores. A tile
+  opens the box.
+- **The process map in the Summary is a box's result too**: the
+  *Directly-follows graph* box's, drawn with a slider that hides the rarer
+  activities and paths of the drawing (the result is unchanged) and a
+  legend. An analysis without that box offers to add it, fed by the first
+  log, in one click.
 - **The Model palette.** In Model, a net page's Select, Place, Transition
   and Arc sit in the sidebar under the models, like a modeller's shape
   palette. The page's own buttons come back when the sidebar is hidden.
