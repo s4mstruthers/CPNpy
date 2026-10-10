@@ -29,7 +29,7 @@ COLUMNS = 3
 #: How many of the folder's files the Input group lists before "… more".
 FILE_LIMIT = 6
 #: The input box for each kind of file in the folder (see workspace.file_kind).
-INPUT_BOXES = {"log": "open_log", "petri": "open_net", "cpn": "open_cpn",
+INPUT_BOXES = {"log": "open_log", "ocel": "open_ocel", "petri": "open_net", "cpn": "open_cpn",
                "ts": "open_transition_system", "typed": "typed_log"}
 
 
@@ -223,7 +223,7 @@ class BoxPicker(QWidget):
         rows.addSpacing(6)
         rows.addWidget(label("IN THIS FOLDER", "sectionLabel"))
         names = [Path(relative).name for relative, _kind in files]
-        icons = {"log": "log", "cpn": "cpn", "ts": "ts", "petri": "model"}
+        icons = {"log": "log", "ocel": "log", "cpn": "cpn", "ts": "ts", "petri": "model"}
         for relative, kind in files:
             name = Path(relative).name
             text = display_name(name)

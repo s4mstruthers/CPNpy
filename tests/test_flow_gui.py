@@ -1113,3 +1113,46 @@ def test_runs_keeps_every_run_and_puts_settings_back(app):
     assert page.history.snapshots[-1].label == f"Inductive Miner: noise 0.4 → {before}"
     page.document.dirty = False
     window.close()
+
+
+def test_an_object_centric_log_flows_through_the_canvas(app, tmp_path):
+    """A .jsonocel dropped on the canvas becomes an Open object-centric log box;
+    the map box draws one colour per object type; the Summary has their tiles;
+    the folder lists the file under LOGS."""
+    import shutil
+
+    from openprocess.gui.flow.picker import input_box_for
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.graph_view import GraphView
+    from openprocess.gui.studio.widgets import Legend
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    shutil.copy(Path(__file__).parent / "data" / "orders.jsonocel", week / "orders.jsonocel")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    assert "orders" in [window.material_section.child(i).text(0) for i in range(window.material_section.childCount())]
+    window.action_new_workflow(None)
+    page = window.current_page()
+    _wait_run(app, page)
+    (ocel,) = page.add_files([str(week / "orders.jsonocel")])
+    assert page.workflow.spec(ocel).name == "Open object-centric log"
+    graph = page.add_box_fed_by(input_box_for(page.library, "ocel") and next(
+        s.id for s in page.library.specs.values() if s.id.endswith(".object_centric_map")), ocel.id)
+    _pump(app, 0.3)
+    _wait_run(app, page)
+    assert page.run.result(graph).status == "done", page.run.result(graph).error
+    page.select(graph.id, 0)
+    _pump(app, 0.3)
+    view = page.panel_host.findChildren(GraphView)[0]
+    assert len(view.graph.nodes) == 5 and len(view.graph.edges) == 4          # 5 activities, 4 typed paths
+    assert page.panel_host.findChildren(Legend)
+    page.summary_switch.set_index(1)
+    _pump(app, 0.3)
+    assert [page.workflow.title(t.node_id) for t in page.summary.tiles] == [
+        "Open object-centric log", "Object-centric map"]
+    assert page.drawings()[graph.id].startswith("<svg")
+    page.document.dirty = False
+    window.close()

@@ -27,7 +27,7 @@ SPACES = (MINE, MODEL, LEARN)
 LABELS = {MINE: "Mine", MODEL: "Model", LEARN: "Learn"}
 
 #: The folder's file kinds (see :func:`~.workspace.file_kind`) each space lists.
-FILE_KINDS = {MINE: ("workflow", "log", "ts"), MODEL: ("petri", "cpn")}
+FILE_KINDS = {MINE: ("workflow", "log", "ocel", "ts"), MODEL: ("petri", "cpn")}
 #: The file kinds a space's main section is made of; the rest are its material.
 MAIN_KINDS = {MINE: ("workflow",), MODEL: ("petri", "cpn")}
 

@@ -8,7 +8,7 @@ places and transitions, a map's activities and paths.
 
 from __future__ import annotations
 
-from .types import DFG, EventLog, Figure, PetriNet, Scores, Table, Text
+from .types import DFG, OCDFG, OCEL, EventLog, Figure, PetriNet, Scores, Table, Text
 
 
 def number(value) -> str:
@@ -41,6 +41,10 @@ def tile_parts(value) -> tuple[str, str] | None:
         return f"{len(value.places)} · {len(value.transitions)}", "places · transitions"
     if isinstance(value, DFG):
         return f"{len(value.activities)} · {len(value.all_edges())}", "activities · paths"
+    if isinstance(value, OCEL):
+        return f"{len(value):,} events", f"{len(value.objects):,} objects of {len(value.object_types)} types"
+    if isinstance(value, OCDFG):
+        return f"{len(value.activities)} · {len(value.object_types)}", "activities · object types"
     if isinstance(value, Text):
         first = str(value).strip().splitlines()[0] if str(value).strip() else ""
         return first[:40], value.name

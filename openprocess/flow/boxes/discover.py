@@ -16,7 +16,7 @@ from ...mining.petrinet import PetriNet
 from ...mining.processtree import ProcessTree, to_petri_net
 from ...mining.transition_system import TransitionSystem, transition_system_from_log
 from ..box import box
-from ..types import Table
+from ..types import OCDFG, OCEL, Table
 
 
 @box(name="α-algorithm", group="Discover")
@@ -108,6 +108,20 @@ def regions_to_net(ts: TransitionSystem) -> PetriNet:
     if result.net is None:
         raise ValueError(" ".join(result.warnings) or "No net could be synthesised.")
     return result.net
+
+
+@box(name="Object-centric map", group="Discover")
+def object_centric_map(ocel: OCEL) -> OCDFG:
+    """The object-centric directly-follows graph: every object followed
+    through its events, so each object type gets its own directly-follows
+    counts, drawn in its own colour on the shared activities. No case id is
+    invented, so nothing converges or diverges that did not."""
+    from ...mining.ocel import object_centric_dfg
+    graph = object_centric_dfg(ocel)
+    for object_type in graph.object_types:
+        flow.note(f"{object_type}: {len(graph.edges[object_type])} paths, "
+                  f"starts at {', '.join(sorted(graph.starts[object_type])) or '–'}")
+    return graph
 
 
 @box(name="Directly-follows graph", group="Discover")

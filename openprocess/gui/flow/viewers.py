@@ -33,7 +33,7 @@ from ...flow.box import BoxSpec, Called, Setting, algorithm_calls, clean_path
 from ...flow.explain import Explanation
 from ...flow.runner import Result
 from ...flow.sweep import Sweep, is_sweep
-from ...flow.types import (AlignmentResult, CPNet, DFG, Dataset, EventLog, Figure, Footprint, PetriNet,
+from ...flow.types import (OCDFG, OCEL, AlignmentResult, CPNet, DFG, Dataset, EventLog, Figure, Footprint, PetriNet,
                            Predictions, Predictor, ProcessTree, Regions, ReplayResult, Scores, SimpleLog,
                            Table, Text, TransitionSystem)
 from .. import theme
@@ -229,6 +229,32 @@ def result_widget(value, page=None, node=None) -> QWidget:
         formula = label(tree_formula(value), wrap=True)
         formula.setTextFormat(Qt.RichText)
         add(formula)
+    elif isinstance(value, OCEL):
+        counts = value.counts_by_type()
+        tiles = hbox(StatTile("Events", f"{len(value):,}"), StatTile("Activities", f"{len(value.activities):,}"),
+                     StatTile("Objects", f"{len(value.objects):,}"),
+                     StatTile("Object types", f"{len(value.object_types)}"), spacing=8)
+        tiles_host = QWidget()
+        tiles_host.setLayout(tiles)
+        add(tiles_host)
+        add(label("An object-centric log: every event names the objects it involves, by type. "
+                  "Flatten on an object type for a classical log, or draw the object-centric map.",
+                  "muted", wrap=True))
+        add(_table(["object type", "objects"], [[t, n] for t, n in counts.items()]))
+        add(_table(["activity", "events"], [[a, n] for a, n in value.activities.most_common()]))
+    elif isinstance(value, OCDFG):
+        from ..studio.graph_builders import ocdfg_specs
+        from ..studio.widgets import Legend, LegendSwatch
+        nodes, edges, colours = ocdfg_specs(value)
+        add(_graph(nodes, edges, layer_gap=64, height=300))
+        legend = Legend()
+        legend.set_items([(LegendSwatch("line", colour, 2.5), f"{object_type}: its own directly-follows "
+                           f"counts") for object_type, colour in colours.items()])
+        add(legend)
+        add(label(value.summary() + ". Each object type is followed through its own events, so no case id "
+                  "is invented.", "muted", wrap=True))
+        rows = [[t, a, b, n] for t in value.object_types for (a, b), n in value.edges[t].most_common()]
+        add(_table(["object type", "from", "to", "objects"], rows))
     elif isinstance(value, DFG):
         nodes, edges = dfg_specs(value)
         add(_graph(nodes, edges, layer_gap=90))
@@ -812,7 +838,7 @@ class SettingsWidget(QWidget):
         and so on (nothing for a box author to declare).  Empty: any kind."""
         kinds = []
         for port in self.spec.outputs:
-            for cls, kind in ((EventLog, "log"), (PetriNet, "petri"), (CPNet, "cpn"),
+            for cls, kind in ((EventLog, "log"), (OCEL, "ocel"), (PetriNet, "petri"), (CPNet, "cpn"),
                               (TransitionSystem, "ts")):
                 if port.type is cls:
                     kinds.append(kind)
@@ -839,6 +865,7 @@ class SettingsWidget(QWidget):
     def _dialog_filter(self) -> str:
         """The Choose… dialog's file types, matching :meth:`_files`."""
         by_kind = {"log": "Event logs (*.xes *.xes.gz *.gz *.csv *.txt)",
+                   "ocel": "Object-centric logs (*.jsonocel *.json)",
                    "petri": "Petri nets (*.pnml)", "cpn": "Coloured Petri nets (*.cpn)",
                    "ts": "Transition systems (*.txt)"}
         kinds = self._kinds() or tuple(by_kind)

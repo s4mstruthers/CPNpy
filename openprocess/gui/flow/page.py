@@ -1033,8 +1033,8 @@ class WorkflowPage(QWidget):
 
     def drawings(self) -> dict[str, str]:
         """SVG per box whose result the canvas can draw: nets, maps, trees (for the report)."""
-        from ...flow.types import DFG, PetriNet, ProcessTree
-        from ..studio.graph_builders import dfg_specs, petri_net_specs
+        from ...flow.types import DFG, OCDFG, PetriNet, ProcessTree
+        from ..studio.graph_builders import dfg_specs, ocdfg_specs, petri_net_specs
         from ..studio.graph_view import GraphView
         out: dict[str, str] = {}
         if self.run is None:
@@ -1054,6 +1054,9 @@ class WorkflowPage(QWidget):
                 view.graph.populate(nodes, edges, positions)
             elif isinstance(value, DFG):
                 nodes, edges = dfg_specs(value, "frequency")
+                view.graph.populate(nodes, edges, layer_gap=64)
+            elif isinstance(value, OCDFG):
+                nodes, edges, _colours = ocdfg_specs(value)
                 view.graph.populate(nodes, edges, layer_gap=64)
             elif isinstance(value, ProcessTree):
                 from ..studio.derivation_view import tree_specs

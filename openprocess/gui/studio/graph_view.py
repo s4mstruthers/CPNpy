@@ -64,6 +64,7 @@ class EdgeSpec:
     dashed: bool = False
     tooltip: str = ""
     arrow: bool = True              # False: a plain line (a tree's "contains")
+    bend: float = 0.0               # sideways offset, so parallel edges (object types) stay apart
 
 
 def _font(size: float = 11.5, bold: bool = False) -> QFont:
@@ -460,7 +461,11 @@ class GraphScene(QGraphicsScene):
             if len(route) < 2:
                 route = [self.nodes[spec.source].pos(), self.nodes[spec.target].pos()]
             item = EdgeItem(spec, self.nodes[spec.source], self.nodes[spec.target], route)
-            if len(route) == 2 and (spec.target, spec.source) in pairs:
+            if spec.bend:
+                item.route = [self.nodes[spec.source].pos(), self.nodes[spec.target].pos()]
+                item.bend = spec.bend
+                item.rebuild()
+            elif len(route) == 2 and (spec.target, spec.source) in pairs:
                 item.bend = 16.0
                 item.rebuild()
             self.addItem(item)

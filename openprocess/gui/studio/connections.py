@@ -23,6 +23,7 @@ from .widgets import Card, PageHeader, button, flow, hbox, label
 #: (title, what it is, the input boxes' function names)
 INPUTS = [
     ("Event logs", "XES (also gzipped), CSV, or a .txt in the course notation", ("open_log",)),
+    ("Object-centric logs", "OCEL 2.0 JSON (.jsonocel), or the older JSON-OCEL", ("open_ocel", "flatten_ocel")),
     ("Petri nets", "PNML files, from any tool", ("open_net",)),
     ("Coloured nets", "CPN Tools .cpn files", ("open_cpn",)),
     ("Transition systems", "ts.txt, typed as s0 -a-> s1", ("open_transition_system",)),

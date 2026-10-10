@@ -25,7 +25,7 @@ from .box import algorithm_calls
 from .figures import number, tile_parts
 from .record import Record, make_record
 from .runner import DONE, Run
-from .types import DFG, EventLog, Figure, Footprint, PetriNet, ProcessTree, Scores, Table, Text
+from .types import DFG, OCDFG, OCEL, EventLog, Figure, Footprint, PetriNet, ProcessTree, Scores, Table, Text
 from .workflow import Workflow
 
 CSS = """
@@ -192,6 +192,14 @@ def _value_html(value) -> str:
         return f"<p class='mono'>{escape(str(value))}</p>"
     if isinstance(value, DFG):
         return f"<p>{len(value.activities)} activities · {len(value.all_edges())} paths</p>"
+    if isinstance(value, OCEL):
+        rows = "".join(f"<tr><td>{escape(t)}</td><td>{n:,}</td></tr>" for t, n in value.counts_by_type().items())
+        return f"<p>{escape(value.summary())}</p><table><tr><th>Object type</th><th>Objects</th></tr>{rows}</table>"
+    if isinstance(value, OCDFG):
+        rows = "".join(f"<tr><td>{escape(t)}</td><td>{escape(a)}</td><td>{escape(b)}</td><td>{n:,}</td></tr>"
+                       for t in value.object_types for (a, b), n in value.edges[t].most_common())
+        return (f"<p>{escape(value.summary())}</p><table><tr><th>Object type</th><th>From</th><th>To</th>"
+                f"<th>Objects</th></tr>{rows}</table>")
     if isinstance(value, Footprint):
         matrix = value.matrix()
         head = "".join(f"<th>{escape(a)}</th>" for a in value.activities)

@@ -2393,6 +2393,9 @@ class StudioWindow(QMainWindow):
                                         if problems else ""), 10000)
             elif lower.endswith(".txt") and file_kind(Path(path)) in ("log", "ts"):
                 self.add_document(self._read_text_file(path))
+            elif file_kind(Path(path)) == "ocel":
+                # An object-centric log has no page of its own: it is a box on an analysis.
+                self.boxes_for_files([path])
             elif lower.endswith(".csv"):
                 if csv_mapping is not None:          # reopening: reuse the saved mapping
                     mapping = ColumnMapping(**csv_mapping)
@@ -3211,7 +3214,7 @@ class StudioWindow(QMainWindow):
 
     def _file_row(self, file, text: str) -> QTreeWidgetItem:
         """A file of the folder that is not open: lighter, opens with a click."""
-        kind = {"log": "log", "cpn": "cpn", "ts": "ts", "workflow": "workflow"}.get(file.kind, "model")
+        kind = {"log": "log", "ocel": "log", "cpn": "cpn", "ts": "ts", "workflow": "workflow"}.get(file.kind, "model")
         key = self._key(file.path)
         if file.in_cloud:
             text += "  ☁"

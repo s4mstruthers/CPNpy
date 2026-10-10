@@ -6,6 +6,19 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.5
+
+- **Object-centric event logs.** *Open object-centric log* reads OCEL 2.0
+  JSON (`.jsonocel`) and the older JSON-OCEL: events that each involve
+  several objects, by type, with no case id invented. *Flatten on an object
+  type* makes a classical log with one case per object of a type, for the
+  miners and checks that need one, and says what it copied. *Object-centric
+  map* draws the object-centric directly-follows graph: the activities
+  once, one set of arrows per object type in its own colour, with a
+  legend and the counts per type. A `.jsonocel` in the folder is listed
+  under LOGS, drops on the canvas, and appears in the Summary and the
+  report like any other result.
+
 ## 0.10.4
 
 - **A command palette.** ⌘K (Ctrl+K), or *View ▸ Command Palette…*: type a

@@ -29,7 +29,7 @@ tools (and, until version 0.7, went by the name CPNpy):
 | | What you can do | Instead of |
 |---|---|---|
 | **Petri nets & WF-nets** | Draw nets the way the lectures do. Get a soundness verdict with a counterexample for every violation, and replay it in the token game. Also: behavioural properties, P- and T-invariants, the footprint matrix, the reachability graph, PNML import and export. | WoPeD, ProM, pen and paper |
-| **Process mining** | Import XES or CSV logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner, state-based regions). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
+| **Process mining** | Import XES or CSV logs, OCEL 2.0 object-centric logs, or type textbook logs like `[<a,b,c>^3, <a,c>^2]`. Filter them, explore variants, the dotted chart and the process map. Discover models (α-algorithm, Inductive Miner, Heuristics Miner, state-based regions). Check conformance (token replay, alignments, precision…) and compare logs. | ProM, Disco |
 | **Coloured Petri nets** | Open, edit and save CPN Tools models (`.cpn`), hierarchical ones included. Step through or simulate them, compute the state space, and export a simulation as an event log to mine. | CPN Tools / CPN IDE |
 | **Workflows** | Boxes on a canvas: a log, a miner, a fitness check, a comparison, a sweep over a setting, a prediction pipeline. Click a box to see its result, *how* it got there (the α-algorithm's eight steps, the replay per variant), its code and its settings. Change a setting and only what follows runs again. Saved as a `.cpnflow` file with everything needed to get the same numbers back. Your own algorithm is one Python function in a `boxes/` folder. | RapidProM |
 | **Learn** | A mode of its own for worksheets, built on the app: answer in boxes on the sheet (sets, markings, matrices, cuts and trees, alignments, a net in the editor or a workflow on the canvas beside it) and press **Check**. Most answers are checked automatically, often against answers worked out from the given log or net. Packs are plain Markdown, can be exams with a clock and points, and a past exam imports as a skeleton pack. Demo exercises included. | Answer sheets, a notes app and guesswork |
@@ -741,8 +741,9 @@ extra) and *Predict the next activity*. Or start empty.
   one click adds the box that reads the file, already set. Type to search
   them all: "alpha" finds the α-algorithm, "boarding" the log; Enter adds the
   first match.
-- **Files flow into the canvas.** Drop a log, a PNML file, a .cpn or a
-  ts.txt on the canvas and it becomes its input box at that spot; an input
+- **Files flow into the canvas.** Drop a log, an OCEL 2.0 object-centric log
+  (`.jsonocel`), a PNML file, a .cpn or a ts.txt on the canvas and it becomes
+  its input box at that spot; an input
   box names its file ("INPUT · boarding.xes"). *Open log…* and *Log from
   notation…* in the sidebar land as boxes on the current analysis (or a new
   one named after the file). In a box's **Settings**, *Choose…* picks the
