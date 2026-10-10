@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml>
+  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">
+    <name><text>m2</text></name>
+    <page id="page1">
+      <place id="i"><name><text>i</text></name><initialMarking><text>1</text></initialMarking><graphics><position x="0.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p1"><name><text>p1</text></name><graphics><position x="240.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p2"><name><text>p2</text></name><graphics><position x="480.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="p3"><name><text>p3</text></name><graphics><position x="720.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="o"><name><text>o</text></name><graphics><position x="960.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <transition id="a"><name><text>a</text></name><graphics><position x="120.0" y="90.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="b"><name><text>b</text></name><graphics><position x="360.0" y="90.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="c"><name><text>c</text></name><graphics><position x="600.0" y="90.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="d"><name><text>d</text></name><graphics><position x="840.0" y="90.0"/><dimension x="40" y="40"/></graphics></transition>
+      <arc id="arc1" source="i" target="a"></arc>
+      <arc id="arc2" source="a" target="p1"></arc>
+      <arc id="arc3" source="p1" target="b"></arc>
+      <arc id="arc4" source="b" target="p2"></arc>
+      <arc id="arc5" source="p2" target="c"></arc>
+      <arc id="arc6" source="c" target="p3"></arc>
+      <arc id="arc7" source="p3" target="d"></arc>
+      <arc id="arc8" source="d" target="o"></arc>
+    </page>
+    <finalmarkings><marking>
+      <place idref="o"><text>1</text></place>
+    </marking></finalmarkings>
+  </net>
+</pnml>

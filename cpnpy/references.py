@@ -261,3 +261,20 @@ def markdown() -> str:
 
 if __name__ == "__main__":
     print(markdown(), end="")
+
+
+def topics_for_module(module: str) -> list[Topic]:
+    """The topics implemented in ``module`` (``cpnpy.mining.discovery.alpha``),
+    for showing an algorithm's sources next to its code."""
+    found = []
+    for _section, topics in TOPICS:
+        for topic in topics:
+            names = [m.strip() for m in topic.module.split(",") if m.strip()]
+            if any(module == m or module.startswith(m + ".") for m in names):
+                found.append(topic)
+    return found
+
+
+def reference(key: str) -> Reference | None:
+    """The work with ``key``, or None."""
+    return next((r for r in REFERENCES if r.key == key), None)

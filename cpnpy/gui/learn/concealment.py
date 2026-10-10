@@ -1,6 +1,6 @@
 """Hiding analysis results while you do an exercise.
 
-Inside an exercise (see :mod:`.exercise_mode`) the answers the app would
+Inside an exercise (see :mod:`.mode`) the answers the app would
 normally show straight away -- soundness, properties, invariants, the
 footprint, discovered models, conformance figures, regions -- are hidden.
 Each result card shows *Hidden in this exercise · Reveal* instead; clicking
@@ -10,7 +10,7 @@ One :class:`Concealment` belongs to the open exercise.  Pages that show
 results mix in :class:`ConcealsResults` and register their cards with
 :meth:`ConcealsResults.conceal_card`; the exercise view hands its
 concealment to the pages of the exercise's materials.  Pages outside
-exercise mode have none, and show everything.
+Learn have none, and show everything.
 """
 
 from __future__ import annotations
@@ -40,16 +40,22 @@ class Concealment(QObject):
         super().__init__(parent)
         self.revealed: set[str] = set()
         self.everything = False
+        #: An exam: nothing can be revealed.
+        self.locked = False
 
     def hidden(self, key: str) -> bool:
         return not self.everything and key not in self.revealed
 
     def reveal(self, key: str) -> None:
+        if self.locked:
+            return
         if self.hidden(key):
             self.revealed.add(key)
             self.changed.emit()
 
     def reveal_all(self) -> None:
+        if self.locked:
+            return
         if not self.everything:
             self.everything = True
             self.changed.emit()

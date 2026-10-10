@@ -30,6 +30,16 @@ A multiset (not a set) because the same sequence can occur many times, and
 frequency matters for filtering and for the quality measures.  In Python a
 multiset is a :class:`collections.Counter`; we call it :data:`SimpleLog`.
 
+Large logs
+----------
+A log read with ``read_xes(path, columnar=True)`` (the default above a
+size threshold) keeps its events in a :class:`~.columns.ColumnStore`, one
+array per attribute, and ``traces`` is a :class:`~.columns.LazyTraces`
+that builds each ``Trace`` on first access.  The API is the same; the
+sequences, the event count and the variants come straight from the
+arrays, so discovery on a million events does not create a million
+objects.
+
 Classifiers
 -----------
 Which attribute(s) turn an event into an *activity label* is a choice, called
@@ -205,11 +215,24 @@ class EventLog:
 
     @property
     def event_count(self) -> int:
-        return sum(len(trace) for trace in self.traces)
+        lazy = getattr(self.traces, "event_count", None)
+        return lazy if lazy is not None else sum(len(trace) for trace in self.traces)
+
+    @property
+    def columnar(self) -> bool:
+        """Are the events kept in columns (a large log, read lazily)?"""
+        return hasattr(self.traces, "store") and not getattr(self.traces, "modified", True)
+
+    @classmethod
+    def from_columns(cls, store, **fields) -> "EventLog":
+        from .columns import LazyTraces
+        return cls(traces=LazyTraces(store), **fields)
 
     # -- classifiers ------------------------------------------------------
     def has_lifecycle_pairs(self) -> bool:
         """Does the log record both *start* and *complete* events?"""
+        if self.columnar:
+            return self.traces.store.has_lifecycle_pairs()
         seen: set[str] = set()
         for trace in self.traces:
             for event in trace:
@@ -244,6 +267,10 @@ class EventLog:
     def sequences(self, classifier: Classifier | None = None) -> list[tuple[str, ...]]:
         """Activity sequences for every trace, in log order."""
         classifier = classifier or self.default_classifier()
+        if self.columnar:
+            fast = self.traces.sequences(classifier.keys, classifier.lifecycles)
+            if fast is not None:
+                return fast
         return [self.sequence(trace, classifier) for trace in self.traces]
 
     def simple_log(self, classifier: Classifier | None = None) -> SimpleLog:

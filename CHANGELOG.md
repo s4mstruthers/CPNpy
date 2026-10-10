@@ -6,6 +6,76 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.6.0
+
+- **Workflows.** A new kind of file, `.cpnflow`: boxes on a canvas, wired
+  together. *File ▸ New Workflow* opens one that already runs (a log, a
+  miner, a fitness check; or three miners compared; or a setting swept over
+  a range; or the prediction pipeline). Click a box to see its **Result**,
+  **How** it got there (the α-algorithm's eight steps, the Inductive Miner's
+  cuts, the replay per variant), its **Code** (the box's own lines and the
+  algorithm it calls, with the published source it follows) and its
+  **Settings**; every tab
+  opens in a window of its own. Change a setting and only the boxes after
+  it run again. Drag from the dot on the right of a box to connect it: only
+  the inputs that fit light up. Workflows live in the folder like logs and
+  nets, and are saved as you go. Your own box is a Python function in the
+  folder's `boxes/` subfolder; the app asks once before running them.
+- **Workflows, from Python.** The new `cpnpy.flow` framework: every
+  algorithm is a *box* (a Python function with type hints), an analysis is
+  a *workflow* of boxes you can run, save as a `.cpnflow` file and re-run
+  headless with `cpnpy run`. The file records the fingerprints of its
+  inputs and box code, every seed, and the installed packages, and
+  `cpnpy run --check` fails when a result no longer matches the record.
+  Forty-seven boxes come with it (the discovery algorithms, conformance,
+  filters, comparing, saving, simulating plain and coloured nets, sweeps,
+  a prediction pipeline, and pandas, NumPy, SciPy and matplotlib examples
+  behind `pip install cpnpy[science]`), and your own box is one function in
+  a `boxes/` folder. See `docs/workflows.md`.
+- **Groups and composite boxes.** Select boxes on the canvas and ⌘G makes
+  one box of them, with the connections that reach outside; double-click
+  opens the group's own canvas, ⇧⌘G ungroups. The side panel shows a group
+  as Python, and *Save as a box* writes it to the folder's `boxes/`, where
+  it is listed under *Yours*. In Python, a `@workflow` function with typed
+  parameters is itself a box.
+- **From a page to a workflow in one click.** *As a workflow* on a log's
+  Discover tab and on a model page, and *Use in a workflow* on the net
+  canvas, open a workflow with that file as its source.
+- **Export experiment.** A button on the Workflows page (and
+  `cpnpy run --export`) writes a zip with the workflow file and its record,
+  the input files, your boxes, every result as a file (CSV, PNML, SVG,
+  XES), a `requirements.lock` and a README that says what was run:
+  supplementary material for a paper.
+- **The Workflows page's panels** can be dragged, hidden (*View ▸ Show Box
+  List*, *Show Box Panel*) and reset (*View ▸ Reset Workflow Layout*); the
+  layout is remembered. The Result tab shows the discovery derivation the
+  Discover tab shows.
+- **Learn.** Exercises are now *CPNpy Learn*, a mode of its own on top of
+  the app, under the new **Learn** menu. Twelve new kinds of answer box:
+  a marking, a set of markings, the net as (P, T, F, m₀), a transition
+  system, a matrix (incidence, M, M′), the Inductive Miner's cut, sublog and
+  process tree, a replay table (p, c, m, r), an alignment, a ranking of
+  models, a prediction of what a box will give, and a **workflow to build**
+  on a canvas beside the sheet. What you type is read back as you type it,
+  and Check says which cells, parts or items are off. Forty more computed
+  answers (`cpnpy exercises computes` lists them), so authors write fewer
+  answers by hand.
+- **Points, exams and variants.** Every answer box can be worth points, a
+  partly right answer earns a part, and the overview shows the score. A pack
+  with `exam: yes` has a clock, no hints or answers, nothing to reveal, and
+  locks the answers when the time is up; *⋯ ▸ Export Marks…* and
+  `cpnpy exercises marks` give the marks as CSV. A pack can give every
+  student their own variant of a log (`seed: student`).
+- **A past exam becomes a pack.** *Learn ▸ Make a Pack from an Exam…* (or
+  `cpnpy exercises import`) reads the exam's text and writes a skeleton pack,
+  one exercise per question with an answer block per part and the points
+  carried over, with a `TODO` wherever the author has to finish it.
+- **Three more demo exercises**: markings and matrices, the Inductive Miner's
+  cuts and trees, and replay, alignments and a workflow.
+- **Public datasets by name**: `cpnpy datasets` lists the BPI Challenge,
+  Sepsis, Road Traffic Fine and Hospital Billing logs with their DOIs,
+  fetches them into a shared cache and checks their fingerprints.
+
 ## 0.5.5
 
 - **Fixed:** the box that opens to name a new place or transition could end

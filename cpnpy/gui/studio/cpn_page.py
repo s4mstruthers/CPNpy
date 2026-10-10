@@ -170,6 +170,8 @@ class CpnPage(QWidget):
     dirty_changed = Signal(bool)
     #: Any edit at all (the window's autosave timer restarts on each one).
     edited = Signal()
+    #: "Use in a workflow": the window puts this net on a workflow canvas.
+    workflow_requested = Signal()
     #: A simulation run was exported as an event log.
     log_generated = Signal(object)
     #: The Snap to grid box was ticked or unticked (one setting for every editor).
@@ -206,6 +208,9 @@ class CpnPage(QWidget):
         self.header.actions.addWidget(self.save_button)
         self.header.actions.addWidget(button("Save As…", self.export))
         self.header.actions.addWidget(button("Export image…", self._export_image))
+        self.header.actions.addWidget(button("Use in a workflow  ⧉", self.workflow_requested.emit,
+                                             tooltip="Put this net on a workflow canvas, with a log and a "
+                                                     "Check fit box (or a Simulate box for a coloured net)"))
         root.addWidget(self.header)
 
         splitter = QSplitter()
@@ -1850,36 +1855,4 @@ def state_space_specs(nodes: list, arcs: list) -> tuple[list[NodeSpec], list[Edg
     return specs, edges
 
 
-def simulation_to_log(net: CPNet, records, case_variable: str, unit: str = "minutes",
-                      start: datetime | None = None):
-    """Turn a simulator's firing history into an event log.
-
-    One event per firing that binds ``case_variable``: the activity is the
-    transition name, the case is the variable's value, and the timestamp is
-    ``start`` plus the model time in ``unit``\\ s.  Firings at the same model
-    time keep their firing order.
-    """
-    from ...mining.log import KEY_NAME, KEY_TIME, Event, EventLog, Trace
-    start = start or datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
-    seconds = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400}[unit]
-    traces: dict[str, Trace] = {}
-    for record in records:
-        values = dict(record.binding.assignments)
-        if case_variable not in values:
-            continue
-        case = format_value(values[case_variable])
-        transition = net.find_transition(record.binding.transition_id)
-        activity = transition.name if transition else record.binding.transition_id
-        trace = traces.get(case)
-        if trace is None:
-            trace = traces[case] = Trace({KEY_NAME: case})
-        event = Event({KEY_NAME: activity,
-                       KEY_TIME: start + timedelta(seconds=float(record.time) * seconds),
-                       "lifecycle:transition": "complete"})
-        for name, value in record.binding.assignments:
-            if name != case_variable:
-                event.attributes[f"cpn:{name}"] = format_value(value)
-        trace.events.append(event)
-    log = EventLog(attributes={KEY_NAME: f"{net.name} simulation"})
-    log.traces.extend(traces.values())
-    return log
+from ...sim.export import simulation_to_log  # noqa: E402 - the export lives with the engine now

@@ -1,6 +1,6 @@
 """Notes: scratch paper that floats over whatever page is open.
 
-Exercise mode has its own Notes pane (see :mod:`.exercise_mode`); this is the
+Learn has its own Notes pane (see :mod:`cpnpy.gui.learn.mode`); this is the
 same idea for the rest of the app::
 
     +--------------------------------------------------------------+

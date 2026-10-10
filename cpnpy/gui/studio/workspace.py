@@ -39,6 +39,7 @@ KINDS = {
     ".csv": "log",
     ".pnml": "petri",
     ".cpn": "cpn",
+    ".cpnflow": "workflow",
 }
 
 #: Text files the app opens, by the end of their name: a log in textbook
@@ -426,7 +427,7 @@ class Workspace:
 # ---------------------------------------------------------------------------
 # An exercise is a folder with a question file; the details live with the
 # rest of the exercise code (no Qt there, so the command line can use it).
-from ...teaching.pack import (  # noqa: E402,F401 - re-exported
+from ...learn.pack import (  # noqa: E402,F401 - re-exported
     ANSWER_FILES, MY_ANSWER, MY_ANSWERS, QUESTION_FILES, ExerciseFiles, _question_file,
     exercise_files,
 )

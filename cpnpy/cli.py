@@ -17,7 +17,12 @@ Commands
 ``mine``        process mining from the command line:
                 ``stats``, ``filter``, ``discover``, ``conform``,
                 ``soundness``, ``invariants``
-``exercises``   ``check``: check an exercise pack before sharing it
+``exercises``   ``check``, ``marks``, ``import``, ``computes``: exercise packs (CPNpy Learn)
+``run``         run a ``.cpnflow`` workflow headless; ``--check`` re-runs and
+                compares with the record, ``--sweep`` varies a setting,
+                ``--lock`` writes the requirements the record names
+``boxes``       list the boxes (CPNpy's own, a folder's ``boxes/``, packages)
+``datasets``    the public logs known by name: ``list``, ``fetch``, ``where``
 """
 
 from __future__ import annotations
@@ -330,8 +335,8 @@ def command_mine_invariants(arguments: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 def command_exercises_check(arguments: argparse.Namespace) -> int:
     """List a pack's exercises and answer boxes; report mistakes in them."""
-    from .teaching.checks import Context, TaskError, model_answer_text, validate
-    from .teaching.pack import load_pack
+    from .learn.checks import Context, TaskError, model_answer_text, validate
+    from .learn.pack import load_pack
     pack = load_pack(arguments.folder)
     if not pack.exercises:
         print(f"No exercises in {arguments.folder} (an exercise is a folder with a "
@@ -360,6 +365,208 @@ def command_exercises_check(arguments: argparse.Namespace) -> int:
         problems += len(found)
     print(f"\n{problems} problem(s) found." if problems else "\nNo problems found.")
     return 1 if problems else 0
+
+
+def command_exercises_marks(arguments: argparse.Namespace) -> int:
+    """The points a pack's answers earn, per exercise and per answer box."""
+    from .learn.exam import marks, marks_csv
+    from .learn.pack import load_pack
+    pack = load_pack(arguments.folder)
+    if not pack.exercises:
+        print(f"No exercises in {arguments.folder}.", file=sys.stderr)
+        return 1
+    if arguments.csv:
+        print(marks_csv(pack), end="")
+        return 0
+    student = pack.student()
+    print(f"{pack.title}" + (f" — {student}" if student else ""))
+    total = earned = 0.0
+    for row in marks(pack):
+        where = (row["chapter"] + " › " if row["chapter"] else "") + row["exercise"]
+        print(f"  {where:<56} {row['earned']:>6g} / {row['points']:<6g}  "
+              f"({row['answered']} of {row['of']} answered)")
+        if arguments.blocks:
+            for block_id, block in row["blocks"].items():
+                print(f"      {block_id:<10} {block['status'] or '—':<10} "
+                      f"{block['earned']:>6g} / {block['points']:g}")
+        total += row["points"]
+        earned += row["earned"]
+    print(f"  {'TOTAL':<56} {earned:>6g} / {total:<6g}")
+    return 0
+
+
+def command_exercises_import(arguments: argparse.Namespace) -> int:
+    """A past exam's text into a skeleton pack, one exercise per question."""
+    from .learn.importer import todo_list, write_pack
+    source = Path(arguments.exam)
+    try:
+        text = source.read_text(encoding="utf-8", errors="replace")
+        written = write_pack(text, arguments.target, arguments.title or source.stem)
+    except (OSError, ValueError) as error:
+        print(f"Could not make a pack from {source}: {error}", file=sys.stderr)
+        return 1
+    for path in written:
+        print(f"  wrote {path}")
+    todos = todo_list(arguments.target)
+    print(f"\n{len(todos)} TODO(s) left for you to finish; then run: cpnpy exercises check "
+          f"\"{arguments.target}\"")
+    for todo in todos:
+        print("  " + todo)
+    return 0
+
+
+def command_exercises_computes(arguments: argparse.Namespace) -> int:
+    """Every ``compute:`` an answer block may use, with what it works out."""
+    from .learn.computed import describe_all
+    groups = {"log": "Of the log", "net": "Of the net (net.pnml, or of: file.pnml)",
+              "ts": "Of the transition system (ts.txt)", "box": "Of a box or a workflow",
+              "": "Other"}
+    rows = describe_all()
+    for key, heading in groups.items():
+        found = [(name, text) for name, of, text in rows if of == key]
+        if not found:
+            continue
+        print(heading)
+        for name, text in found:
+            print(f"  {name:<28} {text}")
+        print()
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Workflows
+# ---------------------------------------------------------------------------
+def command_run(arguments: argparse.Namespace) -> int:
+    """Run a workflow file without the app, and say what every box gave."""
+    from .flow import Runner, Sweep, check, differences, library_for, load, save
+    from .flow.record import requirements_lock
+    path = Path(arguments.workflow)
+    folder = path.parent
+    library = library_for(folder)
+    workflow, record = load(path, library)
+    if arguments.lock:
+        target = folder / "requirements.lock"
+        target.write_text(requirements_lock(record), encoding="utf-8")
+        print(f"Wrote {target}")
+        return 0
+    for spec in arguments.sweep or []:
+        name, _, values = spec.partition("=")
+        node_id, _, setting = name.rpartition(".")
+        targets = [workflow.nodes[node_id]] if node_id in workflow.nodes else \
+            [n for n in workflow.nodes.values() if workflow.spec(n).setting(setting) is not None]
+        if not targets:
+            print(f"cpnpy: no box has a setting {setting!r}", file=sys.stderr)
+            return 2
+        for node in targets:
+            node.settings[setting] = Sweep.parse(values)
+    for line in differences(record, workflow, folder):
+        print(f"note: {line}")
+    problems = workflow.validate()
+    for line in problems:
+        print(f"cpnpy: {line}", file=sys.stderr)
+    if problems:
+        return 2
+    run = Runner(library, folder=folder).run(workflow)      # file settings are relative to the folder
+    for node in workflow.order():
+        result = run.result(node)
+        value = run.value(node)
+        line = f"{workflow.title(node):28} {result.status:8}"
+        if result.status == "done":
+            line += f" {result.duration * 1000:7.1f} ms  {_brief(value)}"
+        elif result.error:
+            line += f"  {result.error}"
+        elif result.message:
+            line += f"  {result.message}"
+        print(line)
+        if arguments.verbose and result.explanation.notes:
+            for note in result.explanation.notes:
+                print(f"{'':28}   · {note}")
+    if len(run.variants) > 1:
+        print(f"{len(run.variants)} sweep variants")
+    if arguments.output:
+        _write_outputs(workflow, run, Path(arguments.output))
+    if arguments.export:
+        from .flow.record import export_experiment
+        print(f"Wrote {export_experiment(workflow, run, arguments.export, folder, library)}")
+    if arguments.check:
+        report = check(workflow, record, run)
+        if report:
+            for line in report:
+                print(f"DIFFERS: {line}")
+            return 1
+        print("Every recorded result was reproduced.")
+    elif arguments.save:
+        save(workflow, path, run, folder)
+        print(f"Recorded the results in {path.name}")
+    return 0 if run.ok else 1
+
+
+def _brief(value) -> str:
+    from .flow.types import Figure, Scores, Table
+    if isinstance(value, Scores):
+        return ", ".join(f"{k} {v:.3f}" if isinstance(v, float) else f"{k} {v}" for k, v in value.metrics.items())
+    if isinstance(value, Table):
+        return f"table {len(value.rows)} × {len(value.columns)}"
+    if isinstance(value, Figure):
+        return "figure"
+    summary = getattr(value, "summary", None)
+    if callable(summary):
+        return summary()
+    if hasattr(value, "event_count"):
+        return f"{len(value)} cases, {value.event_count} events"
+    return type(value).__name__ if value is not None else ""
+
+
+def _write_outputs(workflow, run, folder: Path) -> None:
+    from .flow.types import Figure, Scores, Table
+    folder.mkdir(parents=True, exist_ok=True)
+    for node in workflow.order():
+        value = run.value(node)
+        stem = f"{node.id} {workflow.title(node)}".replace("/", "-")
+        if isinstance(value, Table):
+            value.to_csv(folder / f"{stem}.csv")
+        elif isinstance(value, Scores):
+            Table.from_scores([value]).to_csv(folder / f"{stem}.csv")
+        elif isinstance(value, Figure):
+            value.save(folder / f"{stem}.svg" if value.svg else folder / f"{stem}.png")
+        elif value.__class__.__name__ == "PetriNet":
+            from .mining.pnml import write_pnml
+            write_pnml(value, folder / f"{stem}.pnml")
+    print(f"Wrote the results into {folder}")
+
+
+def command_boxes(arguments: argparse.Namespace) -> int:
+    from .flow import library_for
+    library = library_for(arguments.folder)
+    for group, specs in library.by_group().items():
+        print(f"{group}")
+        for spec in specs:
+            print("  " + spec.describe().replace("\n", "\n  ") if arguments.verbose else
+                  f"  {spec.name:28} {spec.function.__name__:24} "
+                  f"{'(' + spec.unavailable_reason + ')' if not spec.available else ''}")
+    for broken in library.broken:
+        print(f"broken: {broken.file}: {broken.reason}")
+    return 0
+
+
+def command_datasets(arguments: argparse.Namespace) -> int:
+    from .flow import datasets
+    if arguments.datasets_command == "list":
+        for name in datasets.names():
+            entry = datasets.info(name)
+            mark = "cached" if (datasets.cache_dir() / entry.file).is_file() else "not fetched"
+            print(f"{entry.name:42} {entry.size:>7}  {mark}\n    {entry.description}\n    {entry.page}")
+        return 0
+    if arguments.datasets_command == "where":
+        print(datasets.cache_dir())
+        return 0
+    try:
+        path = datasets.fetch(arguments.name)
+    except datasets.DatasetMissing as error:
+        print(f"cpnpy: {error}", file=sys.stderr)
+        return 1
+    print(f"{arguments.name}: {path}\nsha256 {datasets.sha256_file(path)}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -413,6 +620,49 @@ def build_parser() -> argparse.ArgumentParser:
     exercise_check.add_argument("--answers", action="store_true",
                                 help="also print the right answers the app works out")
     exercise_check.set_defaults(handler=command_exercises_check)
+    exercise_marks = exercise_commands.add_parser(
+        "marks", help="the points a pack's answers earn, per exercise (and per box)")
+    exercise_marks.add_argument("folder", help="the pack folder")
+    exercise_marks.add_argument("--csv", action="store_true", help="as CSV, one row per answer box")
+    exercise_marks.add_argument("--blocks", action="store_true", help="also every answer box")
+    exercise_marks.set_defaults(handler=command_exercises_marks)
+    exercise_import = exercise_commands.add_parser(
+        "import", help="a past exam's text (numbered questions, lettered parts) into a skeleton pack")
+    exercise_import.add_argument("exam", help="the exam as a text or Markdown file")
+    exercise_import.add_argument("target", help="the pack folder to write")
+    exercise_import.add_argument("--title", default=None, help="the pack's title (default: the file's name)")
+    exercise_import.set_defaults(handler=command_exercises_import)
+    exercise_computes = exercise_commands.add_parser(
+        "computes", help="list every compute: an answer block may use")
+    exercise_computes.set_defaults(handler=command_exercises_computes)
+
+    run = subparsers.add_parser("run", help="run a .cpnflow workflow without the app")
+    run.add_argument("workflow", help="the .cpnflow file")
+    run.add_argument("--check", action="store_true",
+                     help="re-run and fail if any result differs from the recorded one")
+    run.add_argument("--save", action="store_true", help="record the results in the file")
+    run.add_argument("--sweep", action="append", metavar="SETTING=VALUES",
+                     help="vary a setting, e.g. noise=0..0.5 step 0.1 or n3.seed=1,2,3")
+    run.add_argument("--lock", action="store_true",
+                     help="write requirements.lock from the record's environment")
+    run.add_argument("-o", "--output", metavar="FOLDER", help="write every result as a file")
+    run.add_argument("--export", metavar="FILE.zip",
+                     help="zip the workflow, its inputs, boxes and results, with a README")
+    run.add_argument("-v", "--verbose", action="store_true", help="also print the boxes' notes")
+    run.set_defaults(handler=command_run)
+
+    boxes = subparsers.add_parser("boxes", help="list the boxes")
+    boxes.add_argument("folder", nargs="?", help="a folder whose boxes/ to include")
+    boxes.add_argument("-v", "--verbose", action="store_true", help="inputs, outputs and settings")
+    boxes.set_defaults(handler=command_boxes)
+
+    datasets = subparsers.add_parser("datasets", help="the public logs known by name")
+    dataset_commands = datasets.add_subparsers(dest="datasets_command", required=True)
+    dataset_commands.add_parser("list", help="every dataset, and whether it is cached")
+    fetch = dataset_commands.add_parser("fetch", help="fetch one into the cache and print its hash")
+    fetch.add_argument("name")
+    dataset_commands.add_parser("where", help="print the cache folder")
+    datasets.set_defaults(handler=command_datasets)
 
     mine = subparsers.add_parser("mine", help="process mining on event logs")
     mining = mine.add_subparsers(dest="mining_command", required=True)

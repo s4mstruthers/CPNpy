@@ -138,6 +138,8 @@ def discover_dfg(log: EventLog | SimpleLog, classifier: Classifier | None = None
         return dfg_from_simple_log(log)
 
     classifier = classifier or log.default_classifier()
+    if log.columnar:
+        return _dfg_from_columns(log, classifier)
     dfg = DFG()
     durations: dict[tuple[str, str], list[float]] = defaultdict(list)
     for trace in log.traces:
@@ -154,5 +156,32 @@ def discover_dfg(log: EventLog | SimpleLog, classifier: Classifier | None = None
             dfg.edges[(a, b)] += 1
             if first.timestamp is not None and second.timestamp is not None:
                 durations[(a, b)].append((second.timestamp - first.timestamp).total_seconds())
+    dfg.durations = dict(durations)
+    return dfg
+
+
+def _dfg_from_columns(log: EventLog, classifier: Classifier) -> DFG:
+    """The same counts and durations, from a columnar log's arrays."""
+    from .columns import NO_TIME
+    store = log.traces.store
+    dfg = DFG()
+    durations: dict[tuple[str, str], list[float]] = defaultdict(list)
+    sequences = store.sequences(classifier.keys, classifier.lifecycles)
+    wanted = None if classifier.lifecycles is None else {v.lower() for v in classifier.lifecycles}
+    lifecycle, micros, offsets = store.lifecycle, store.micros, store.offsets
+    for case, labels in enumerate(sequences):
+        dfg.trace_count += 1
+        if not labels:
+            dfg.empty_traces += 1
+            continue
+        dfg.activities.update(labels)
+        dfg.start[labels[0]] += 1
+        dfg.end[labels[-1]] += 1
+        kept = [i for i in range(offsets[case], offsets[case + 1])
+                if wanted is None or lifecycle.codes[i] < 0 or lifecycle.values[lifecycle.codes[i]].lower() in wanted]
+        for (a, b), (i, j) in zip(zip(labels, labels[1:]), zip(kept, kept[1:])):
+            dfg.edges[(a, b)] += 1
+            if micros[i] != NO_TIME and micros[j] != NO_TIME:
+                durations[(a, b)].append((micros[j] - micros[i]) / 1_000_000)
     dfg.durations = dict(durations)
     return dfg

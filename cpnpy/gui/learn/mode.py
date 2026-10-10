@@ -1,7 +1,9 @@
-"""Exercise mode: a quiet place to work through an exercise pack.
+"""CPNpy Learn: the window for working through an exercise pack.
 
-Opening an exercise (or a pack of them) swaps the whole window for this
-view, the way a log and a net each have a page of their own::
+Learn sits on top of the app (its pages, its canvases, its workflows) and
+uses :mod:`cpnpy.learn` to read worksheets and check answers.  Opening an
+exercise (or a pack of them) swaps the whole window for this view, the way
+a log and a net each have a page of their own::
 
     +--------------------------------------------------------------------------+
     | ‹ Overview   Demo exercises · 2 Soundness      ● ● ◐ ○   ‹  2 / 4  ›  Exit |
@@ -18,7 +20,7 @@ view, the way a log and a net each have a page of their own::
     +-------------------------------+------------------------------------------+
 
 * **The worksheet** (left) is ``question.md`` top to bottom, with an answer
-  box wherever the author put one (see :mod:`cpnpy.teaching.sheet` and
+  box wherever the author put one (see :mod:`cpnpy.learn.sheet` and
   :mod:`.answer_boxes`).  Answers are saved as you type, in the exercise's
   folder, and checked on request.
 * **The materials** (right) are what the exercise gives: the log, the
@@ -30,7 +32,12 @@ view, the way a log and a net each have a page of their own::
   working things out: markings, firing sequences, sets.  It is kept with the
   exercise, in ``my notes.md``.
 * **The top bar** goes back to the pack's overview, steps through the
-  exercises, and shows how far you are (one dot per exercise).
+  exercises, and shows how far you are (one dot per exercise).  In an
+  **exam** (``exam: yes`` in ``pack.md``) it shows the clock; there are no
+  hints, no answers and nothing to reveal, and when the time is up the
+  answers are locked.  ⋯ exports the marks.
+* **A workflow block** adds a *Workflow* tab beside the sheet: the full
+  Workflows page on ``my workflow.cpnflow``, saved as you build.
 
 Nothing here touches the sidebar's documents: *Exit* returns to the window
 exactly as it was.
@@ -40,27 +47,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtCore import QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
-    QPlainTextEdit, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QSizePolicy, QSplitter, QStackedWidget,
-    QToolButton, QVBoxLayout, QWidget,
+    QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu, QMessageBox, QPlainTextEdit,
+    QSizePolicy, QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
-from ...teaching.checks import CORRECT, INCORRECT, PARTIAL, Context, Result, TaskError
-from ...teaching.checks import check as check_answer
-from ...teaching.checks import footprint_of, model_answer_text
-from ...teaching.pack import Exercise, Pack, load_pack
+from ...learn.checks import CORRECT, INCORRECT, PARTIAL, Context, Result, TaskError
+from ...learn.checks import check as check_answer
+from ...learn.checks import expected, footprint_of, model_answer_text
+from ...learn.exam import ExamState, marks_csv
+from ...learn.pack import Exercise, Pack, load_pack
 from .answer_boxes import TaskCard, debounce, make_editor
 from .concealment import Concealment
-from .markdown_view import MarkdownLabel
-from .widgets import SegmentedControl, button, hbox, label, scroll
-from .workers import run_in_background
+from ..studio.markdown_view import MarkdownLabel
+from ..studio.widgets import SegmentedControl, button, hbox, label, scroll
+from ..studio.workers import run_in_background
 
 #: How long after the last keystroke an answer is saved (milliseconds).
 SAVE_DELAY = 400
 #: How long after the last edit your net is saved.
 NET_SAVE_DELAY = 800
+#: How long after the last edit your workflow is saved.
+WORKFLOW_SAVE_DELAY = 1200
 
 
 def _tool(text: str, tooltip: str, slot, name: str = "exerciseBarButton") -> QToolButton:
@@ -76,7 +86,7 @@ def _tool(text: str, tooltip: str, slot, name: str = "exerciseBarButton") -> QTo
 # ---------------------------------------------------------------------------
 # The mode: top bar, overview, one exercise at a time
 # ---------------------------------------------------------------------------
-class ExerciseMode(QWidget):
+class LearnMode(QWidget):
     """The whole window while doing exercises (see the module docstring)."""
 
     exit_requested = Signal()
@@ -90,6 +100,11 @@ class ExerciseMode(QWidget):
         self.pack: Pack | None = None
         self.index: int | None = None
         self.view: ExerciseView | None = None
+        #: The exam's clock (None outside an exam).
+        self.exam: ExamState | None = None
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._clock.timeout.connect(self._tick)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -113,6 +128,10 @@ class ExerciseMode(QWidget):
         self.where = label("", "exerciseWhere")
         self.where.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         layout.addWidget(self.where, 1)
+        #: The exam's clock: how long is left (hidden outside an exam).
+        self.clock = label("", "examClock")
+        self.clock.setHidden(True)
+        layout.addWidget(self.clock)
         self.dots_host = QWidget()
         self.dots = QHBoxLayout(self.dots_host)
         self.dots.setContentsMargins(0, 0, 0, 0)
@@ -145,15 +164,22 @@ class ExerciseMode(QWidget):
         menu = self.more_menu
         menu.clear()
         view = self.view if self.stack.currentWidget() is self.view else None
+        in_exam = self.pack is not None and self.pack.is_exam
         if view is not None:
-            reveal = menu.addAction("Reveal Every Hidden Result", view.concealment.reveal_all)
-            reveal.setEnabled(view.concealment.anything_hidden)
-            menu.addAction("Start This Exercise Again…", self.reset_exercise)
+            if not in_exam:
+                reveal = menu.addAction("Reveal Every Hidden Result", view.concealment.reveal_all)
+                reveal.setEnabled(view.concealment.anything_hidden)
+            again = menu.addAction("Start This Exercise Again…", self.reset_exercise)
+            again.setEnabled(not self.closed)
             menu.addAction(_reveal_label(), lambda: _reveal(view.exercise.folder))
             menu.addSeparator()
         elif self.pack is not None:
             menu.addAction(_reveal_label(), lambda: _reveal(self.pack.root))
             menu.addSeparator()
+        if self.pack is not None:
+            menu.addAction("Export Marks…", self.export_marks)
+            if self.pack.wants_name:
+                menu.addAction("Change Your Name…", lambda: self.ask_name(force=True))
         menu.addAction("Writing Exercise Packs", lambda: open_help("exercise-packs"))
 
     def _update_bar(self) -> None:
@@ -167,6 +193,7 @@ class ExerciseMode(QWidget):
             self.notes_button.setChecked(self.view.notes_visible)
         if self.pack is None:
             return
+        self._tick()
         if in_exercise:
             exercise = self.pack.exercises[self.index]
             chapter = self.pack.chapter(exercise)
@@ -200,6 +227,70 @@ class ExerciseMode(QWidget):
             dot.setFixedSize(12, 12)
             self.dots.addWidget(dot)
 
+    # -- the exam's clock and the student's name ----------------------------------------------
+    @property
+    def closed(self) -> bool:
+        """Is the exam over (its answers can be read, not changed)?"""
+        return self.exam is not None and self.exam.closed()
+
+    def _tick(self) -> None:
+        if self.exam is None:
+            self.clock.setHidden(True)
+            self._clock.stop()
+            return
+        self.clock.setText(self.exam.clock_text())
+        self.clock.setProperty("state", "over" if self.closed else
+                               "soon" if (self.exam.remaining() is not None and
+                                          self.exam.remaining().total_seconds() < 300) else "")
+        self.clock.style().unpolish(self.clock)
+        self.clock.style().polish(self.clock)
+        self.clock.setHidden(False)
+        if self.closed:
+            self._clock.stop()
+            if self.view is not None and not self.view.locked:
+                self.view.lock()
+                self.status.emit("Time is up: your answers are kept as they are")
+        elif self.exam.deadline is not None and not self._clock.isActive():
+            self._clock.start()
+
+    def ask_name(self, force: bool = False) -> None:
+        """A pack with variants needs the student's name (kept as my name.txt)."""
+        if self.pack is None or (self.pack.student() and not force):
+            return
+        name, ok = QInputDialog.getText(
+            self, "Your name", "This pack gives every student their own variant.\n"
+            "Your name decides yours, so type it as on the course list:",
+            text=self.pack.student() or "")
+        if ok and name.strip():
+            try:
+                self.pack.set_student(name)
+            except OSError as error:
+                self.status.emit(f"Could not keep your name: {error}")
+            if self.view is not None:
+                index = self.index
+                self.close_view()
+                self.index = None
+                self.open_index(index)
+
+    def export_marks(self) -> None:
+        """The pack's marks (points per exercise and per answer box) as CSV."""
+        if self.pack is None:
+            return
+        if self.view is not None:
+            self.view.flush()
+        from ..studio.widgets import suggested_path
+        path, _ = QFileDialog.getSaveFileName(self, "Export marks",
+                                              suggested_path(f"{self.pack.title} marks.csv"),
+                                              "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            Path(path).write_text(marks_csv(self.pack), encoding="utf-8")
+        except OSError as error:
+            QMessageBox.warning(self, "Export marks", f"Could not write {path}:\n\n{error}")
+            return
+        self.status.emit(f"Exported the marks to {Path(path).name}")
+
     # -- opening ---------------------------------------------------------------------------
     def open_pack(self, root: str | Path, start: str | Path | None = None) -> bool:
         """Show the pack at ``root``: its overview, or ``start`` (an exercise in it)."""
@@ -207,7 +298,17 @@ class ExerciseMode(QWidget):
         self.pack = load_pack(root)
         if not self.pack.exercises:
             self.pack = None
+            self.exam = None
             return False
+        self.exam = None
+        if self.pack.is_exam:
+            self.exam = ExamState.load(self.pack)
+            try:
+                self.exam.start()
+            except OSError as error:
+                self.status.emit(f"Could not note when the exam started: {error}")
+        if self.pack.wants_name:
+            self.ask_name()
         self._build_home()
         index = self.pack.index(start) if start is not None else None
         if index is None and len(self.pack.exercises) == 1:
@@ -228,11 +329,12 @@ class ExerciseMode(QWidget):
         self.close_view()
         self.index = index
         # Read it again: the author may have changed the files meanwhile.
-        exercise = Exercise(self.pack.exercises[index].files)
+        exercise = Exercise(self.pack.exercises[index].files, self.pack.settings)
         self.pack.exercises[index] = exercise
         self.view = ExerciseView(exercise, self.pack.chapter(exercise),
                                  has_next=index < len(self.pack.exercises) - 1,
-                                 notes=self.notes_open)
+                                 notes=self.notes_open, exam=self.pack.is_exam,
+                                 locked=self.closed)
         self.view.notes_closed.connect(lambda: self.set_notes(False))
         self.view.status.connect(self.status.emit)
         self.view.progress_changed.connect(self._update_bar)
@@ -303,7 +405,14 @@ class ExerciseMode(QWidget):
             column.addWidget(MarkdownLabel(pack.intro, pack.root))
         summaries = [e.summary() for e in pack.exercises]
         done = sum(s.state == "done" for s in summaries)
-        column.addWidget(label(f"{done} of {len(summaries)} exercises done", "muted"))
+        progress = f"{done} of {len(summaries)} exercises done"
+        points = sum(s.points for s in summaries)
+        if points and (pack.is_exam or any(t.points != 1 for e in pack.exercises
+                                           for t in e.sheet.tasks)):
+            progress += f"  ·  {sum(s.earned for s in summaries):g} of {points:g} points"
+        if pack.is_exam:
+            progress += "  ·  an exam: no hints, no answers, and the clock in the top bar"
+        column.addWidget(label(progress, "muted", wrap=True))
         upcoming = next((i for i, s in enumerate(summaries) if s.state != "done"), 0)
         start = button("Continue" if any(s.tried for s in summaries) else "Start",
                        lambda: self.open_index(upcoming), kind="primary")
@@ -383,12 +492,20 @@ class ExerciseView(QWidget):
     notes_closed = Signal()
 
     def __init__(self, exercise: Exercise, chapter: str = "", has_next: bool = False,
-                 notes: bool = False, parent=None) -> None:
+                 notes: bool = False, parent=None, exam: bool = False,
+                 locked: bool = False) -> None:
         super().__init__(parent)
         self.setObjectName("exerciseView")
         self.exercise = exercise
         self.context = Context(exercise)
         self.concealment = Concealment(self)
+        #: An exam: no hints, no answers, nothing revealed.
+        self.exam = exam
+        self.concealment.locked = exam
+        #: The exam is over: answers can be read, not changed.
+        self.locked = False
+        self.workflow_page = None
+        self._workflow_timer = None
         self.progress = exercise.load_progress()
         self.cards: dict[str, TaskCard] = {}
         #: Material tabs: (name, page); and the net page of each net task.
@@ -432,6 +549,20 @@ class ExerciseView(QWidget):
             layout.addWidget(worksheet)
         for card in self.cards.values():
             self._restore(card)
+        if locked:
+            self.lock()
+
+    def lock(self) -> None:
+        """Time is up: every answer box is read-only."""
+        self.locked = True
+        for card in self.cards.values():
+            card.lock()
+        for page in self.net_pages.values():
+            if hasattr(page, "mode_switch"):
+                page.mode_switch.set_index(1)
+                page.mode_switch.buttons[0].hide()
+        if self.workflow_page is not None:
+            self.workflow_page.setEnabled(False)
 
     # -- notes ---------------------------------------------------------------------------------
     def _build_notes(self) -> QWidget:
@@ -501,6 +632,12 @@ class ExerciseView(QWidget):
             if page is not None:
                 self.net_pages[task.id] = page
                 self.materials.append((name, page))
+        workflow_tasks = [t for t in self.exercise.sheet.tasks if t.type == "workflow"]
+        if workflow_tasks:
+            page = self._workflow_page(workflow_tasks[0])
+            if page is not None:
+                self.workflow_page = page
+                self.materials.append(("Workflow", page))
         self.material_area = QWidget()
         self.material_area.setObjectName("materials")
         column = QVBoxLayout(self.material_area)
@@ -543,8 +680,8 @@ class ExerciseView(QWidget):
         from ...mining.csv_import import guess_mapping, read_csv, sniff
         from ...mining.log import EventLog, parse_simple_log
         from ...mining.xes import read_xes
-        from .documents import LogDocument
-        from .log_page import LogPage
+        from ..studio.documents import LogDocument
+        from ..studio.log_page import LogPage
         try:
             lower = path.name.lower()
             if lower.endswith(".txt"):
@@ -570,8 +707,8 @@ class ExerciseView(QWidget):
 
     def _ts_page(self, path: Path):
         from ...mining.transition_system import parse_transition_system
-        from .documents import TransitionSystemDocument
-        from .regions_view import TransitionSystemPage
+        from ..studio.documents import TransitionSystemDocument
+        from ..studio.regions_view import TransitionSystemPage
         try:
             ts = parse_transition_system(path.read_text(encoding="utf-8", errors="replace"),
                                          "Transition system")
@@ -589,8 +726,8 @@ class ExerciseView(QWidget):
     def _net_page(self, start: Path | None, target: Path | None, editable: bool, task=None):
         from ...mining.pnml import read_pnml
         from ...model.plain import from_petri_net, new_plain_net
-        from .documents import CpnDocument
-        from .petri_page import PetriNetPage
+        from ..studio.documents import CpnDocument
+        from ..studio.petri_page import PetriNetPage
         source = target if target is not None and target.exists() else start
         try:
             if source is not None:
@@ -616,9 +753,69 @@ class ExerciseView(QWidget):
             page.mode_switch.buttons[0].hide()
         return page
 
+    def _workflow_page(self, task):
+        """The workflow you build, on the canvas (my workflow.cpnflow), started
+        from the block's ``start:`` file or from the exercise's log."""
+        from ...flow import Workflow, load
+        from ..flow.page import WorkflowPage
+        from ..studio.documents import WorkflowDocument
+        target = self.exercise.workflow_path
+        library = self.context.library
+        try:
+            if target.exists():
+                workflow, _record = load(target, library)
+            else:
+                start = self.exercise.files.file(task.get("start") or "")
+                if start is not None and start.suffix.lower() == ".cpnflow":
+                    workflow, _record = load(start, library)
+                else:
+                    workflow = Workflow("my workflow", library)
+                    log = self.exercise.files.log
+                    if log is not None:
+                        if log.suffix.lower() == ".txt":
+                            workflow.add("typed_log", {"text": log.read_text(
+                                encoding="utf-8", errors="replace").strip(), "name": "L"},
+                                (0.0, 150.0))
+                        else:
+                            workflow.add("open_log", {"file": log.name}, (0.0, 150.0))
+                workflow.name = target.stem
+        except Exception as error:  # noqa: BLE001
+            self.status.emit(f"Could not open the workflow: {error}")
+            return None
+        document = WorkflowDocument(workflow, path=str(target) if target.exists() else None)
+        page = WorkflowPage(document, library, self.exercise.folder)
+        page.keep_button.hide()
+        page.status.connect(self.status.emit)
+        page.edited.connect(lambda t=task: self._workflow_edited(t))
+        page.saved.connect(lambda t=task: self._workflow_saved(t))
+        QTimer.singleShot(0, lambda: page.run_from(None))
+        return page
+
+    def _workflow_edited(self, task) -> None:
+        if self._workflow_timer is None:
+            self._workflow_timer = debounce(self, WORKFLOW_SAVE_DELAY, self._save_workflow)
+        self._workflow_timer.start()
+        card = self.cards.get(task.id)
+        if card is not None and card.status in (CORRECT, PARTIAL, INCORRECT):
+            card.editor.changed.emit()             # the old verdict no longer applies
+
+    def _workflow_saved(self, task) -> None:
+        card = self.cards.get(task.id)
+        if card is not None:
+            self._answer_changed(task)
+
+    def _save_workflow(self) -> None:
+        page = self.workflow_page
+        if page is None:
+            return
+        try:
+            page.write_to(str(self.exercise.workflow_path), quiet=True)
+        except OSError as error:
+            self.status.emit(f"Could not save your workflow: {error}")
+
     def _open_model(self, document) -> None:
         """A model discovered from the log (or synthesised): one more tab."""
-        from .model_page import ModelPage
+        from ..studio.model_page import ModelPage
         logs = [self.log_document] if getattr(self, "log_document", None) else []
         page = ModelPage(document, lambda: logs)
         page.header.hide()
@@ -706,18 +903,43 @@ class ExerciseView(QWidget):
         self._update_summary()
         return area
 
+    def _shape(self, task):
+        """What a grid editor is built from: a matrix's rows and columns, a
+        replay's traces, a ranking's candidates (None: nothing needed)."""
+        from ...learn import notation
+        if task.type == "matrix":
+            rows = [r.strip() for r in (task.get("rows") or "").split(",") if r.strip()]
+            columns = [c.strip() for c in (task.get("columns") or "").split(",") if c.strip()]
+            if rows and columns:
+                return rows, columns
+            right = expected(self.context, task)
+            matrix = notation.matrix(right) if isinstance(right, str) else right
+            return list(matrix.rows), list(matrix.columns)
+        if task.type == "replay":
+            if task.get("trace"):
+                from ...learn import answers
+                return [tuple(answers.trace(task.get("trace")))]
+            return sorted(self.context.simple_log(task.get("log")))
+        if task.type == "ranking":
+            return [n.strip() for n in (task.get("over") or "").split(",") if n.strip()]
+        return None
+
     def _card(self, task, net_name: str) -> TaskCard | None:
-        activities = None
-        if task.type == "footprint":
-            try:
+        activities, shape = None, None
+        try:
+            if task.type == "footprint":
                 activities = footprint_of(self.context, task).activities
-            except Exception as error:  # noqa: BLE001
-                return self._broken(task, error)
-        editor = make_editor(task, activities, net_name)
-        card = TaskCard(task, editor, self.exercise.folder)
+            shape = self._shape(task)
+        except Exception as error:  # noqa: BLE001
+            return self._broken(task, error)
+        editor = make_editor(task, activities, net_name, shape)
+        card = TaskCard(task, editor, self.exercise.folder, exam=self.exam)
         if task.type == "net":
             page = self.net_pages.get(task.id)
             editor.go_to_net.connect(lambda p=page: p is not None and self.show_material(p))
+        if task.type == "workflow":
+            editor.go_to_workflow.connect(
+                lambda: self.workflow_page is not None and self.show_material(self.workflow_page))
         if task.type == "trace" and self.given_net_page is not None:
             editor.row.addWidget(button("Play in net", lambda t=task, e=editor:
                                         self.play_trace(e.value()),
@@ -774,21 +996,26 @@ class ExerciseView(QWidget):
     # -- answers and checking ---------------------------------------------------------------------
     def _restore(self, card: TaskCard) -> None:
         saved = self.progress.get(card.task.id, {})
-        if card.task.type != "net" and "answer" in saved:
+        if card.task.type not in ("net", "workflow") and "answer" in saved:
             card.editor.set_value(saved["answer"])
         status = saved.get("status")
         if status:
             card.set_status(status)
+            card.share = float(saved.get("share", 0) or 0)
 
     def _answer_changed(self, task) -> None:
         card = self.cards[task.id]
         entry = dict(self.progress.get(task.id, {}))
-        if task.type != "net":
+        if task.type not in ("net", "workflow"):
             entry["answer"] = card.editor.value()
         if card.status:
             entry["status"] = card.status
         else:
             entry.pop("status", None)
+        if card.status == PARTIAL and card.share:
+            entry["share"] = round(card.share, 4)
+        else:
+            entry.pop("share", None)
         self.progress[task.id] = entry
         self._save_timer.start()
         self._update_summary()
@@ -808,10 +1035,18 @@ class ExerciseView(QWidget):
         tasks = self.exercise.sheet.tasks
         done = sum(1 for t in tasks if (self.cards.get(t.id) and self.cards[t.id].status
                                         in (CORRECT, "done")))
-        self.summary_label.setText(f"{done} of {len(tasks)} answers done" if tasks else "")
+        text = f"{done} of {len(tasks)} answers done" if tasks else ""
+        if tasks and (self.exam or any(t.points != 1 for t in tasks)):
+            summary = self.exercise.summary(self.progress)
+            text += f"  ·  {summary.earned:g} of {summary.points:g} points"
+        self.summary_label.setText(text)
 
     def check(self, task) -> None:
         card = self.cards[task.id]
+        if self.locked:
+            return
+        if task.type == "workflow" and self.workflow_page is not None:
+            self.flush()                               # the checker reads the saved file
         if task.type == "net":
             page = self.net_pages.get(task.id)
             if page is None:
@@ -840,16 +1075,16 @@ class ExerciseView(QWidget):
             if task.id in self.cards:
                 card.show_result(Result("unknown", f"The check failed: {message}"))
 
-        if task.type in ("net", "trace", "set", "footprint", "yesno", "number"):
-            run_in_background(compute, done, failed)
-        else:
+        if task.type in ("choice", "text", "open"):
             done(compute())
+        else:
+            run_in_background(compute, done, failed)
 
     def _comparison_detail(self, task, result) -> QWidget | None:
         comparison = getattr(result, "comparison", None)
         if comparison is None or comparison.equivalent:
             return None
-        from .net_comparison import NetComparisonView
+        from ..studio.net_comparison import NetComparisonView
         page = self.net_pages.get(task.id)
         return NetComparisonView(comparison, "yours", "the model answer",
                                  replay=(lambda trace, _f, p=page: self._replay(p, trace))
@@ -861,7 +1096,7 @@ class ExerciseView(QWidget):
 
     # -- the token game -----------------------------------------------------------------------------
     def play_trace(self, text: str) -> None:
-        from ...teaching import answers
+        from ...learn import answers
         if self.given_net_page is None:
             return
         try:
@@ -903,6 +1138,9 @@ class ExerciseView(QWidget):
             if timer.isActive():
                 timer.stop()
                 timer.timeout.emit()
+        if self._workflow_timer is not None and self._workflow_timer.isActive():
+            self._workflow_timer.stop()
+            self._save_workflow()
 
     def discard(self) -> None:
         """Starting again: nothing pending may be written afterwards."""
@@ -910,9 +1148,13 @@ class ExerciseView(QWidget):
         self._notes_timer.stop()
         for timer in self._net_timers.values():
             timer.stop()
+        if self._workflow_timer is not None:
+            self._workflow_timer.stop()
 
     def shutdown(self) -> None:
         for _, page in self.materials:
+            if hasattr(page, "stop"):
+                page.stop()
             if hasattr(page, "shutdown"):
                 page.shutdown()
 
@@ -932,8 +1174,8 @@ def _reveal(path: Path) -> None:
 
 def open_help(name: str, parent=None) -> None:
     """One of the guides in ``docs/`` (exercise-packs, references) in a window."""
-    from .definition_view import show_guide
+    from ..studio.definition_view import show_guide
     show_guide(name, parent)
 
 
-__all__ = ["ExerciseMode", "ExerciseView"]
+__all__ = ["LearnMode", "ExerciseView"]

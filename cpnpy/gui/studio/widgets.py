@@ -164,7 +164,7 @@ class Card(QFrame):
         if hidden == self.concealed:
             return
         if hidden and not hasattr(self, "reveal_row"):
-            from .concealment import RESULTS
+            from ..learn.concealment import RESULTS
             what = RESULTS.get(self._conceal_key, "this result")
             self.reveal_row = QFrame()
             self.reveal_row.setObjectName("revealRow")
@@ -185,6 +185,8 @@ class Card(QFrame):
         self.concealed = hidden
         if hasattr(self, "reveal_row"):
             self.reveal_row.setVisible(hidden)
+            # In an exam nothing is revealed: the button goes, the notice stays.
+            self.reveal_button.setVisible(not getattr(concealment, "locked", False))
         for index in range(self.fixed_count, self.body.count()):
             _set_visible(self.body.itemAt(index), not hidden)
 

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml>
+  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">
+    <name><text>Complaints</text></name>
+    <page id="page1">
+      <place id="i"><name><text>i</text></name><initialMarking><text>1</text></initialMarking><graphics><position x="0.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="c1"><name><text>c1</text></name><graphics><position x="240.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="c2"><name><text>c2</text></name><graphics><position x="480.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <place id="o"><name><text>o</text></name><graphics><position x="720.0" y="90.0"/><dimension x="40" y="40"/></graphics></place>
+      <transition id="register"><name><text>register</text></name><graphics><position x="120.0" y="90.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="send letter"><name><text>send letter</text></name><graphics><position x="360.0" y="0.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="call customer"><name><text>call customer</text></name><graphics><position x="360.0" y="180.0"/><dimension x="40" y="40"/></graphics></transition>
+      <transition id="archive"><name><text>archive</text></name><graphics><position x="600.0" y="90.0"/><dimension x="40" y="40"/></graphics></transition>
+      <arc id="arc1" source="i" target="register"></arc>
+      <arc id="arc2" source="register" target="c1"></arc>
+      <arc id="arc3" source="c1" target="send letter"></arc>
+      <arc id="arc4" source="c1" target="call customer"></arc>
+      <arc id="arc5" source="send letter" target="c2"></arc>
+      <arc id="arc6" source="call customer" target="c2"></arc>
+      <arc id="arc7" source="c2" target="archive"></arc>
+      <arc id="arc8" source="archive" target="o"></arc>
+    </page>
+    <finalmarkings><marking>
+      <place idref="o"><text>1</text></place>
+    </marking></finalmarkings>
+  </net>
+</pnml>

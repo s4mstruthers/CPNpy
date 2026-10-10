@@ -46,7 +46,7 @@ from ...mining.petrinet import Marking
 from ...mining.pnml import write_pnml
 from ...model.net import Arc, Place, Transition
 from ...model.plain import to_petri_net, token_count, tokens_text, weight_of
-from .concealment import ConcealsResults
+from ..learn.concealment import ConcealsResults
 from .cpn_page import CpnPage
 from .documents import ModelDocument
 from .workspace import atomic_write

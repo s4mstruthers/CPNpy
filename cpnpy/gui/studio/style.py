@@ -311,6 +311,26 @@ def stylesheet() -> str:
     QToolButton#footprintCell[wrong="true"] {{ border: 2px solid {STATUS["critical"]};
         background: {qc(STATUS["critical"], 0.08).name(QColor.HexArgb)}; }}
     #footprintHeading {{ color: {t.text_secondary}; font-weight: 600; padding: 0 4px; }}
+    QLineEdit#gridCell {{ background: {t.surface_alt}; border: 1px solid {t.border};
+        border-radius: 6px; font-size: 14px; padding: 2px 4px; }}
+    QLineEdit#gridCell:focus {{ border: 1.5px solid {t.accent}; }}
+    QLineEdit#gridCell[wrong="true"] {{ border: 2px solid {STATUS["critical"]};
+        background: {qc(STATUS["critical"], 0.08).name(QColor.HexArgb)}; }}
+    #tupleName {{ color: {t.text_secondary}; font-weight: 600; font-size: 14px; min-width: 34px; }}
+    #tupleMark {{ font-weight: 700; font-size: 14px; }}
+    #tupleMark[state="good"] {{ color: {STATUS["good"]}; }}
+    #tupleMark[state="warning"] {{ color: {STATUS["warning"]}; }}
+    #tupleMark[state="critical"] {{ color: {STATUS["critical"]}; }}
+    QListWidget#rankingList {{ background: {t.surface_alt}; border: 1px solid {t.border};
+        border-radius: 8px; font-size: 14px; padding: 4px; }}
+    QListWidget#rankingList::item {{ padding: 5px 8px; border-radius: 6px; }}
+    QListWidget#rankingList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
+    #examClock {{ color: {t.text_secondary}; font-weight: 600; font-variant-numeric: tabular-nums;
+        padding: 2px 10px; border-radius: 9px; background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
+    #examClock[state="soon"] {{ color: {t.text};
+        background: {qc(STATUS["warning"], 0.3).name(QColor.HexArgb)}; }}
+    #examClock[state="over"] {{ color: {STATUS["critical"]};
+        background: {qc(STATUS["critical"], 0.12).name(QColor.HexArgb)}; }}
     #exerciseRow {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 10px; }}
     #exerciseRow:hover {{ border-color: {t.accent}; }}
     #exerciseRow QLabel {{ background: transparent; }}
@@ -441,6 +461,12 @@ def stylesheet() -> str:
         border-bottom: 1px solid {t.border}; padding: 6px 8px; font-weight: 600;
         font-size: 11px; }}
     QTableCornerButton::section {{ background: {t.surface}; border: none; }}
+    /* The Workflows page's box list: rows like the sidebar's, group names as captions. */
+    #boxList {{ background: transparent; }}
+    #boxList::item {{ padding: 4px 6px; border-radius: 6px; margin: 0 2px; }}
+    #boxList::item:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
+    #boxList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
+    #boxList::item:has-children {{ padding-top: 10px; background: transparent; }}
     /* A list on its own in a dialog (Compare logs, the Filter dialog's
        activities) gets a rounded frame, like a text field. */
     QDialog QListWidget, QDialog QListView {{ border: 1px solid {t.border};
@@ -457,6 +483,10 @@ def stylesheet() -> str:
         background: none; border: none; height: 0; width: 0; }}
 
     QSplitter::handle {{ background: {t.border}; }}
+    /* The Workflows page: gaps between cards, lit under the mouse so they read as handles. */
+    WorkflowPage QSplitter::handle {{ background: transparent; }}
+    WorkflowPage QSplitter::handle:hover {{ background: {qc(t.accent, 0.35).name(QColor.HexArgb)};
+        margin: 6px 5px; border-radius: 2px; }}
     QGraphicsView {{ background: {t.canvas}; border: none; }}
     QStatusBar {{ background: {t.page}; color: {t.text_muted}; border-top: 1px solid {t.border}; }}
     /* Pop-up menus: rounded like the cards (see widgets.round_menus, which
