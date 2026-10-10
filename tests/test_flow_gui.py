@@ -358,6 +358,7 @@ def test_a_failed_box_says_what_went_wrong_in_its_own_words(app, tmp_path, monke
     assert "Traceback" in page.panel_host.findChild(QPlainTextEdit).toPlainText()
     assert _error_message("ValueError: the noise must be 0..1") == ("ValueError", "the noise must be 0..1")
     assert _error_message("Not a box error") == ("", "Not a box error")
-    assert _linkified(f"put it in {tmp_path}.") == f'<a href="file://{tmp_path}">{tmp_path}</a>.'
-    assert _linkified("see https://doi.org/10.1/x, then") == '<a href="https://doi.org/10.1/x">https://doi.org/10.1/x</a>, then'
+    assert _linkified(f"put it in {tmp_path}.") == f'put it in <a href="file://{tmp_path}">{tmp_path}</a>.'
+    assert _linkified("see https://doi.org/10.1/x, then") == 'see <a href="https://doi.org/10.1/x">https://doi.org/10.1/x</a>, then'
+    page.document.dirty = False                   # closing would otherwise ask to save
     window.close()
