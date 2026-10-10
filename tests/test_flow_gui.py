@@ -325,3 +325,40 @@ def test_quick_actions_make_workflows(app):
     for document in window.documents:
         document.dirty = False
     window.close()
+
+
+def test_a_failed_box_says_what_went_wrong_in_its_own_words(app, tmp_path, monkeypatch):
+    """Open dataset without the file in the cache: the message and its links
+    come first, the traceback under Details."""
+    from PySide6.QtWidgets import QLabel, QPlainTextEdit
+
+    from openprocess.flow import datasets
+    from openprocess.gui.flow.page import _error_message, _linkified
+
+    from PySide6.QtCore import QPointF
+
+    from openprocess.gui.studio.app import StudioWindow
+
+    monkeypatch.setattr(datasets, "cache_dir", lambda: tmp_path)
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow()                                    # empty
+    page = window.current_page()
+    node = page.scene.add_node("open_dataset", QPointF(0, 300))
+    _wait_run(app, page)
+    result = page.run.result(node)
+    assert result.status == "failed" and "not in the cache" in result.error
+    page.select(node.id, 0)
+    _pump(app, 0.1)
+    labels = page.panel_host.findChildren(QLabel)
+    texts = [w.text() for w in labels]
+    assert any("not in the cache" in t and 'href="https://doi.org' in t for t in texts)
+    assert "DatasetMissing" in texts
+    assert "Traceback" in page.panel_host.findChild(QPlainTextEdit).toPlainText()
+    assert _error_message("ValueError: the noise must be 0..1") == ("ValueError", "the noise must be 0..1")
+    assert _error_message("Not a box error") == ("", "Not a box error")
+    assert _linkified(f"put it in {tmp_path}.") == f'put it in <a href="file://{tmp_path}">{tmp_path}</a>.'
+    assert _linkified("see https://doi.org/10.1/x, then") == 'see <a href="https://doi.org/10.1/x">https://doi.org/10.1/x</a>, then'
+    page.document.dirty = False                   # closing would otherwise ask to save
+    window.close()

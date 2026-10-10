@@ -671,10 +671,22 @@ class WorkflowPage(QWidget):
             if result is None:
                 return label("Runs first; the result shows here.", "muted", wrap=True)
             if result.status == FAILED:
+                # The box's own words first (a missing file, a dataset to fetch
+                # by hand, a setting out of range), with any address or folder
+                # in them clickable; the traceback is for whoever fixes the box.
+                kind, text = _error_message(result.error)
+                message = label(_linkified(text), "failedMessage", wrap=True, selectable=True)
+                message.setTextFormat(Qt.RichText)
+                message.setOpenExternalLinks(True)
+                parts = [label("WHAT WENT WRONG", "sectionLabel"), message]
+                if kind:
+                    parts.append(label(kind, "muted"))
+                if result.traceback:
+                    parts += [label("DETAILS", "sectionLabel"), _error_box(result.traceback)]
+                parts.append(label("The rest of the workflow keeps working. Fix the setting or the file, and "
+                                   "it runs again on its own.", "muted", wrap=True))
                 host = QWidget()
-                host.setLayout(vbox(label("WHAT WENT WRONG", "sectionLabel"), _error_box(result.traceback or result.error),
-                                    label("The rest of the workflow keeps working. Fix the setting or the file, and "
-                                          "it runs again on its own.", "muted", wrap=True)))
+                host.setLayout(vbox(*parts))
                 return host
             if result.status == BLOCKED:
                 host = QWidget()
@@ -963,10 +975,43 @@ def _delete_layout(layout) -> None:
             _delete_layout(item.layout())
 
 
+def _error_message(error: str) -> tuple[str, str]:
+    """``"DatasetMissing: Sepsis cases is not in the cache…"`` → the kind of error
+    (shown small) and what it says; an error without a message keeps its kind
+    as the message."""
+    error = (error or "The box failed without saying why.").strip()
+    kind, separator, text = error.partition(": ")
+    if separator and text.strip() and " " not in kind:
+        return kind.rsplit(".", 1)[-1], text.strip()      # the class, not its module path
+    return "", error
+
+
+def _linkified(text: str) -> str:
+    """The text as rich text, with web addresses and folder paths as links."""
+    from html import escape
+    from urllib.parse import quote
+
+    def link(match) -> str:
+        address = match.group(0)
+        trailing = ""
+        while address and address[-1] in ".,;:)”\"'":
+            trailing = address[-1] + trailing
+            address = address[:-1]
+        shown = escape(address)
+        if address.startswith("http"):
+            return f'<a href="{escape(address)}">{shown}</a>{escape(trailing)}'
+        folder = Path(address)
+        target = folder if folder.is_dir() else folder.parent
+        if target.is_dir():
+            return f'<a href="file://{quote(str(target))}">{shown}</a>{escape(trailing)}'
+        return shown + escape(trailing)
+    return re.sub(r"https?://\S+|(?<![\w/])(?:/|[A-Za-z]:\\)[^\s“”\"']+", link, escape(text)).replace("\n", "<br>")
+
+
 def _error_box(text: str) -> QPlainTextEdit:
     box = QPlainTextEdit(text)
     box.setReadOnly(True)
     box.setFont(theme.mono_font(10))
-    box.setMaximumHeight(220)
+    box.setMaximumHeight(160)
     box.setStyleSheet(f"color: {style.STATUS['critical']};")
     return box
