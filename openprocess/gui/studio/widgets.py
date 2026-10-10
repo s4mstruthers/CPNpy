@@ -552,6 +552,7 @@ class PageHeader(QWidget):
             self.badge.setCursor(Qt.PointingHandCursor)
             self.badge.setFocusPolicy(Qt.NoFocus)
             self._title_row.insertWidget(1, self.badge, 0, Qt.AlignVCenter)
+            self._badge_slot = None
         from . import style
         colours = {"good": (style.STATUS["good"], "#ffffff"),
                    "warning": (style.STATUS["warning"], "#1d1d1f"),
@@ -562,10 +563,9 @@ class PageHeader(QWidget):
         self.badge.setText(text)
         self.badge.setToolTip(tooltip)
         self.badge.setVisible(bool(text))
-        try:
-            self.badge.clicked.disconnect()
-        except (RuntimeError, TypeError):
-            pass
+        if self._badge_slot is not None:
+            self.badge.clicked.disconnect(self._badge_slot)
+        self._badge_slot = slot
         if slot is not None:
             self.badge.clicked.connect(slot)
 

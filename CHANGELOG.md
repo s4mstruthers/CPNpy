@@ -6,6 +6,25 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.4
+
+- **A command palette.** ⌘K (Ctrl+K), or *View ▸ Command Palette…*: type a
+  few letters and the open analyses, models and logs, the folder's files,
+  every box (added to the current analysis), the three spaces, Connections
+  and every menu action are found at once; Enter runs the best match, ↑ ↓
+  pick another. Nothing new on the window; everything in it a few
+  keystrokes away.
+
+## 0.10.3
+
+- **Runs: every finished run, kept.** An analysis has *Canvas | Summary |
+  Runs*. Each finished run is a snapshot with the time, what changed before
+  it ("Inductive Miner: noise 0 → 0.2", "+ Check fit", "Run again, same
+  results") and every box's key figure. Pick A and B and the boxes line up
+  side by side, those whose result differs marked. *Use A's settings* puts
+  that run's settings back on the canvas and runs. The last twenty travel
+  with the workflow file.
+
 ## 0.10.2
 
 - **Export report.** ⋯ ▸ *Export report…* on an analysis writes one HTML

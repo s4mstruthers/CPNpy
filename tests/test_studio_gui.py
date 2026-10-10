@@ -2505,3 +2505,55 @@ def test_every_computed_card_links_to_its_code(app):
     for document in window.documents:
         document.dirty = False
     window.close()
+
+
+def test_the_command_palette_finds_and_runs_anything(app, tmp_path):
+    """⌘K: documents, the folder's files, boxes, spaces and menu actions, all
+    by typing; Enter runs the best match."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.command_palette import match
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    (week / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(None)
+    page = window.current_page()
+    entries = window.palette_entries()
+    kinds = {e.kind for e in entries}
+    assert {"Analysis", "File", "Box", "Space", "Action"} <= kinds
+    assert [e.title for e in match(entries, "alpha")][0] == "α-algorithm"
+    assert any(e.title == "orders" and e.kind == "File" for e in match(entries, "orders"))
+    assert match(entries, "cite openprocess")[0].kind == "Action"
+    assert match(entries, "zzzz") == []
+    # Typing and Enter: a box lands on the current analysis.
+    window.show_command_palette()
+    palette = window.command_palette
+    assert palette.isVisible()
+    QTest.keyClicks(palette.search, "alpha")
+    assert palette.matches[0].title == "α-algorithm"
+    QTest.keyClick(palette.search, Qt.Key_Return)
+    _pump(app, 0.2)
+    assert not palette.isVisible()
+    assert [page.workflow.spec(n).name for n in page.workflow.order()] == ["α-algorithm"]
+    # A space, by name.
+    window.show_command_palette()
+    QTest.keyClicks(window.command_palette.search, "model")
+    QTest.keyClick(window.command_palette.search, Qt.Key_Return)
+    _pump(app, 0.2)
+    assert window.space == "model"
+    # A file: it opens.
+    window.show_command_palette()
+    QTest.keyClicks(window.command_palette.search, "orders")
+    QTest.keyClick(window.command_palette.search, Qt.Key_Return)
+    _pump(app, 0.3)
+    assert any(d.name == "orders" or (d.path or "").endswith("orders.log.txt") for d in window.documents)
+    for document in window.documents:
+        document.dirty = False
+    window.close()

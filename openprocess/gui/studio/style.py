@@ -348,6 +348,11 @@ def stylesheet() -> str:
     #revealRow QLabel {{ background: transparent; }}
     #revealTitle {{ font-weight: 600; }}
 
+    /* The command palette's list. */
+    QListWidget#paletteList {{ background: transparent; border: none; outline: none; font-size: 13px; }}
+    QListWidget#paletteList::item {{ padding: 5px 8px; border-radius: 6px; }}
+    QListWidget#paletteList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
+
     /* The reproducibility badge beside an analysis's title. */
     QPushButton#reproBadge {{ border: none; border-radius: 9px; padding: 2px 9px; font-size: 11px;
         font-weight: 600; }}

@@ -323,7 +323,7 @@ def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
     _wait_run(app, page)
     header = [b.text() for b in page.header.findChildren(QPushButton)
               if b.isVisible() and b.objectName() != "reproBadge"]
-    assert header == ["Canvas", "Summary", "+ Add box", "Run ▶", "⋯"]
+    assert header == ["Canvas", "Summary", "Runs", "+ Add box", "Run ▶", "⋯"]
     assert [a.text() for a in page.more_menu.actions() if a.text()] == [
         "Re-run", "Record…", "Export experiment…", "Export report…", "Save"]
     assert not page.panel.isVisible() and not hasattr(page, "box_tree")
@@ -1077,5 +1077,39 @@ def test_export_report_writes_one_page_with_the_drawings(app, tmp_path, monkeypa
     miner = page.workflow.order()[1]
     assert miner.id in page.drawings()                       # the net was drawn
     assert opened == [str(target)]
+    page.document.dirty = False
+    window.close()
+
+
+def test_runs_keeps_every_run_and_puts_settings_back(app):
+    """Canvas | Summary | Runs: each finished run is a snapshot with what
+    changed; A and B compare box by box; Use A's settings goes back."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    assert [s.label for s in page.history.snapshots] == ["First run"]
+    miner = page.workflow.order()[1]
+    before = page.workflow.nodes[miner.id].settings["noise"]        # the template's IMf noise
+    page.workflow.set(miner.id, noise=0.4)
+    page.run_from([miner.id])
+    _wait_run(app, page)
+    assert [s.label for s in page.history.snapshots] == ["First run", f"Inductive Miner: noise {before} → 0.4"]
+    page.summary_switch.set_index(2)
+    _pump(app, 0.3)
+    assert page.body.currentIndex() == 2 and page.runs.table.rowCount() == 2
+    assert page.runs.a is page.history.snapshots[0] and page.runs.b is page.history.snapshots[1]
+    rows = [page.runs.diff.item(r, 0).text() for r in range(page.runs.diff.rowCount())]
+    assert rows == [page.workflow.title(n.id) for n in page.workflow.order()]
+    assert f"noise {before} → 0.4" in page.runs.diff.item(1, 3).text()
+    page.runs.use_a.click()                                   # back to the first run's noise
+    assert page.workflow.nodes[miner.id].settings["noise"] == before and page.body.currentIndex() == 0
+    _wait_run(app, page)
+    assert page.history.snapshots[-1].label == f"Inductive Miner: noise 0.4 → {before}"
     page.document.dirty = False
     window.close()
