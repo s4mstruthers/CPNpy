@@ -617,3 +617,117 @@ def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
     assert page.workflow.nodes[node.id].settings["file"] == Path("logs/orders.log.txt")
     page.document.dirty = False
     page.close()
+
+
+def test_files_flow_into_the_canvas(app, tmp_path, monkeypatch):
+    """The folder's files are one click away in the picker's Input group, a
+    file dropped on the canvas becomes its input box, the box names its file,
+    and Mine's footer puts a log or a typed log on the current analysis."""
+    from PySide6.QtCore import QPointF
+
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import WorkflowDocument
+
+    week = tmp_path / "Week 2"
+    (week / "logs").mkdir(parents=True)
+    (week / "logs" / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    (week / "net.pnml").write_text(
+        (Path(__file__).resolve().parents[1] / "examples" / "petri" / "order_handling_sound.pnml").read_text(),
+        encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere.log.txt"
+    elsewhere.write_text("[<x,y>]", encoding="utf-8")
+    (week / "notes.txt").write_text("not a log", encoding="utf-8")
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(None)
+    page = window.current_page()
+    _wait_run(app, page)
+
+    # The picker's Input group lists the folder's files; one click adds the box that reads it.
+    page.add_box_menu()
+    picker = page._picker
+    assert [b.text() for b in picker.file_buttons] == ["orders", "net"]     # by path: logs/… first
+    picker.search.setText("orders")
+    assert [b.text() for b in picker.file_buttons] == ["orders"]
+    picker.file_buttons[0].click()
+    _wait_run(app, page)
+    node = _node(page, "open_log")
+    assert node.settings["file"] == Path("logs/orders.log.txt")
+    assert page.scene.boxes[node.id].eyebrow() == "INPUT · orders.log.txt"
+    assert page.run.result(node).status == "done"
+    assert page.selected == node.id and page.tab == 0                 # its Result, not Settings
+
+    # A drop on the canvas: the matching box for each file, at that spot; a file from
+    # outside the folder keeps its full path; a stray file is refused with a message.
+    statuses = []
+    page.status.connect(statuses.append)
+    nodes = page.add_files([str(week / "net.pnml"), str(elsewhere), str(week / "notes.txt")], QPointF(300, 200))
+    _wait_run(app, page)
+    assert [page.workflow.spec(n).name for n in nodes] == ["Open net", "Open log"]
+    assert nodes[0].settings["file"] == Path("net.pnml") and nodes[1].settings["file"] == elsewhere
+    assert page.scene.boxes[nodes[0].id].eyebrow() == "INPUT · net.pnml"
+    assert all(page.run.result(n).status == "done" for n in nodes), [page.run.result(n).error for n in nodes]
+    assert any("notes.txt" in s for s in statuses)
+
+    # Mine's footer: Open log… lands on the current analysis as a box …
+    monkeypatch.setattr(studio_app.QFileDialog, "getOpenFileNames",
+                        staticmethod(lambda *a, **k: ([str(week / "logs" / "orders.log.txt")], "")))
+    before = len(page.workflow.nodes)
+    window.action_open_log_box()
+    assert len(page.workflow.nodes) == before + 1 and window.current_page() is page
+    # … and with no analysis open, on a new one named after the file.
+    window.content.setCurrentIndex(0)
+    window.tree.setCurrentItem(None)
+    window.action_open_log_box()
+    new_page = window.current_page()
+    assert new_page is not page and new_page.workflow.name == "orders"
+    assert [new_page.workflow.spec(n).name for n in new_page.workflow.order()] == ["Open log"]
+    # Log from notation…: a Typed log box with the text.
+    monkeypatch.setattr(studio_app.NotationDialog, "exec", lambda self: studio_app.QDialog.Accepted)
+    monkeypatch.setattr(studio_app.NotationDialog, "text", lambda self: "[<p,q>^2]")
+    window.action_notation_box()
+    typed = _node(new_page, "typed_log")
+    assert typed.settings["text"] == "[<p,q>^2]"
+    _wait_run(app, new_page)
+    assert page.scene.boxes[node.id].eyebrow() == "INPUT · orders.log.txt"
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def test_a_page_opened_from_a_box_has_a_way_back(app):
+    """Open as log from a box's result: the log page shows "‹ Back to …", which
+    returns to the analysis (switching the space if need be)."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    log_node = page.workflow.order()[0]
+    page.open_as_log(page.run.result(log_node).value)
+    _pump(app, 0.2)
+    log_page = window.current_page()
+    document = window.documents[-1]
+    assert isinstance(document, LogDocument) and document.opened_from is page.document
+    assert log_page.header.back is not None and log_page.header.back.text() == f"‹ Back to {page.workflow.name}"
+    log_page.header.back.click()
+    assert window.current_page() is page and window.space == "mine"
+    # A discovered net opens in Model; its Back link crosses the spaces.
+    miner = page.workflow.order()[1]
+    page.open_as_model(page.run.result(miner).value)
+    _pump(app, 0.2)
+    assert window.space == "model" and window.current_page().header.back is not None
+    window.current_page().header.back.click()
+    assert window.space == "mine" and window.current_page() is page
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()

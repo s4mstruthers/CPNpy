@@ -6,6 +6,27 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.1
+
+Files flow into the canvas, so the analysis says what feeds it and the
+sidebar is not the only way to a file.
+
+- **An input box names its file.** *Open log* reading boarding.xes shows
+  "INPUT · boarding.xes" on the canvas.
+- **The folder's files are in + Add box.** Under *Input*, the folder's logs,
+  nets and transition systems are listed by name; one click adds the box
+  that reads the file, already set. Typing in the search finds them too.
+- **Drop a file on the canvas** and it becomes its input box at that spot: a
+  log an *Open log*, a PNML file an *Open net*, a .cpn an *Open coloured
+  net*, a ts.txt an *Open transition system*. A file from outside the folder
+  is kept by its full path.
+- **Mine's *Open log…* and *Log from notation…* land as boxes** on the
+  current analysis, or on a new one named after the file, instead of opening
+  a page of their own. (File ▸ Open… still opens pages.)
+- **A page opened from a box has a way back.** *Open as log ›*, *Open as
+  model* and *Open as coloured net* now put "‹ Back to <analysis>" above the
+  page's title; it returns to the analysis, switching the space if need be.
+
 ## 0.9.0
 
 Three spaces: **Mine**, **Model** and **Learn**, switched at the top of the

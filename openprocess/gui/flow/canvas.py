@@ -24,6 +24,7 @@ page runs the boxes and shows the results.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
@@ -124,6 +125,15 @@ class BoxItem(QGraphicsObject):
         self.highlight, self.dimmed = inputs, dimmed
         self.update()
 
+    def eyebrow(self) -> str:
+        """The small line over the title: the group, and the file a box reads
+        ("INPUT · boarding.xes"), so the canvas says what feeds it."""
+        text = ("Yours · " if self.spec.custom else "") + self.spec.group.upper()
+        for setting in self.spec.settings:
+            if setting.kind == "path" and self.node.settings.get(setting.name) not in (None, ""):
+                return f"{text} · {Path(str(self.node.settings[setting.name])).name}"
+        return text
+
     # -- Qt --------------------------------------------------------------------------------
     def itemChange(self, change, value):  # noqa: N802
         if change == QGraphicsItem.ItemPositionChange and not self.locked:
@@ -177,8 +187,8 @@ class BoxItem(QGraphicsObject):
         # Eyebrow: the group (and "Yours" for a custom box).
         painter.setPen(QColor(t.text_muted))
         painter.setFont(_font(8.5, True))
-        eyebrow = ("Yours · " if self.spec.custom else "") + self.spec.group.upper()
-        painter.drawText(QPointF(12, 16), eyebrow)
+        painter.drawText(QPointF(12, 16), QFontMetricsF(painter.font()).elidedText(
+            self.eyebrow(), Qt.ElideMiddle, NODE_W - 36))
         # Status dot.
         colour = STATUS_COLOUR.get(self.status, "muted")
         dot = QColor({"good": style.STATUS["good"], "accent": t.accent, "critical": style.STATUS["critical"],
@@ -823,13 +833,38 @@ class WorkflowScene(QGraphicsScene):
 
 
 class WorkflowView(GraphView):
-    """The canvas view: panning, zooming and the floating zoom bar, from GraphView."""
+    """The canvas view: panning, zooming and the floating zoom bar, from
+    GraphView; files dropped on it become input boxes (:attr:`files_dropped`)."""
 
     drawing_name = "The workflow"
+    #: Local files were dropped: their paths, and where (scene coordinates).
+    files_dropped = Signal(list, QPointF)
 
     def __init__(self, scene: WorkflowScene, parent=None) -> None:
         super().__init__(scene, parent)
         self.setDragMode(self.DragMode.RubberBandDrag)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        if not paths:
+            super().dropEvent(event)
+            return
+        event.acceptProposedAction()
+        self.files_dropped.emit(paths, self.mapToScene(event.position().toPoint()))
 
     def fit(self) -> None:
         self.auto_fit = True

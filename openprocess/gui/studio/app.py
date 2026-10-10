@@ -732,8 +732,10 @@ class StudioWindow(QMainWindow):
         self.footers[MINE].setObjectName("sidebarFooter")
         self.footers[MINE].setLayout(vbox(
             button("＋  New analysis", lambda: self.action_new_workflow(None)),
-            button("＋  Open log…", self.action_open),
-            button("✎  Log from notation…", self.action_notation),
+            button("＋  Open log…", self.action_open_log_box,
+                   tooltip="An Open log box on the current analysis (or a new one)"),
+            button("✎  Log from notation…", self.action_notation_box,
+                   tooltip="A Typed log box on the current analysis (or a new one)"),
             button("⇄  Compare logs…", lambda: self.action_compare()),
             spacing=0))
         self.footers[MODEL] = QWidget()
@@ -1054,8 +1056,8 @@ class StudioWindow(QMainWindow):
              "log, a miner, a check, a comparison. Every result shows how it got there, with "
              "the code and the paper behind it.",
              [("New analysis", lambda: self.action_new_workflow(TEMPLATES[0][1])),
-              ("Open event log…", self.action_open),
-              ("Log from notation…", self.action_notation)]),
+              ("Open event log…", self.action_open_log_box),
+              ("Log from notation…", self.action_notation_box)]),
             ("Model", "Petri nets and coloured nets. Draw places, transitions and arcs, play "
              "the token game, simulate, analyse the state space, and mine the simulated "
              "behaviour.",
@@ -1360,6 +1362,11 @@ class StudioWindow(QMainWindow):
             page.header.title_double_clicked.connect(
                 lambda doc=document: self.rename_document(doc))
             page.header.title.set_hint("Double-click to rename")
+        source = getattr(document, "opened_from", None)
+        if source is not None and hasattr(page, "header"):
+            # Opened from a box's result: a way back to that analysis.
+            page.header.set_back(f"‹ Back to {source.name}",
+                                 lambda _checked=False, s=source: self.back_to(s))
         self.pages[document.id] = page
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
@@ -1373,6 +1380,13 @@ class StudioWindow(QMainWindow):
         self.holders[document.id] = holder
         self.content.addWidget(holder)
         return page
+
+    def back_to(self, source) -> None:
+        """A page's Back link: the analysis it was opened from, if it is still open."""
+        if source in self.documents:
+            self._select_document(source)
+        else:
+            self.statusBar().showMessage(f"{source.name} is no longer open", 6000)
 
     def _snap_changed(self, on: bool) -> None:
         """Snap to grid was ticked in one editor: the same everywhere, and next time."""
@@ -2022,6 +2036,46 @@ class StudioWindow(QMainWindow):
         dialog = NotationDialog(self)
         if dialog.exec() == QDialog.Accepted:
             self.add_document(LogDocument(dialog.log(), notation=dialog.text()))
+
+    # -- Mine: files and typed logs land as boxes -----------------------------------------
+    def analysis_for(self, name: str) -> WorkflowPage:
+        """The current analysis, or a new one called ``name`` when none is open."""
+        page = self.current_page()
+        if isinstance(page, WorkflowPage) and not self.in_learn:
+            return page
+        from ...flow.workflow import Workflow
+        workflow = Workflow(self._unique_name(name or "Untitled"), self.library())
+        self.add_document(WorkflowDocument(workflow))
+        return self.current_page()
+
+    def action_open_log_box(self) -> None:
+        """Mine's *Open log…*: the log as an Open log box on the current analysis."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open log", dialog_folder(),
+            "Event logs (*.xes *.xes.gz *.gz *.csv *.txt);;All files (*)")
+        if paths:
+            self.boxes_for_files(paths)
+
+    def boxes_for_files(self, paths: list[str]) -> list:
+        """Input boxes for ``paths`` on the current analysis (or a new one named
+        after the first file).  Returns the nodes."""
+        from .workspace import file_stem
+        page = self.analysis_for(file_stem(Path(paths[0]).name))
+        nodes = page.add_files(paths)
+        self._select_document(page.document)
+        return nodes
+
+    def action_notation_box(self) -> None:
+        """Mine's *Log from notation…*: a Typed log box with the text."""
+        from ..flow.picker import input_box_for
+        dialog = NotationDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        log = dialog.log()
+        page = self.analysis_for(log.name)
+        page.add_box_in_view(input_box_for(self.library(), "typed"),
+                             {"text": dialog.text(), "name": log.name})
+        self._select_document(page.document)
 
     def open_files(self, paths: list[str], folder: str | None = None) -> None:
         """Open files the user chose (Open…, Open Recent, a drop, the command line).

@@ -348,6 +348,11 @@ def stylesheet() -> str:
     #revealRow QLabel {{ background: transparent; }}
     #revealTitle {{ font-weight: 600; }}
 
+    /* A page's way back to the analysis it was opened from. */
+    QPushButton#backLink {{ background: transparent; border: none; padding: 0 0 2px 0;
+        color: {t.accent}; font-size: 12px; font-weight: 500; text-align: left; }}
+    QPushButton#backLink:hover {{ text-decoration: underline; }}
+
     /* ---- the space bar: Mine / Model / Learn at the top of the window ---- */
     QToolBar#spaceBar {{ background: {t.sidebar}; border: none; border-bottom: 1px solid {t.border};
         padding: 4px 10px; spacing: 8px; }}

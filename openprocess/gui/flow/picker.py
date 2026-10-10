@@ -21,10 +21,44 @@ from ...flow.library import GROUP_ORDER, Library
 from .. import theme
 from ..studio import style
 from ..studio.widgets import hbox, label, vbox
+from ..studio.workspace import display_name, file_kind
 
 #: The groups shown before *Show all*: what most workflows are made of.
 CORE_GROUPS = GROUP_ORDER[:6]
 COLUMNS = 3
+#: How many of the folder's files the Input group lists before "… more".
+FILE_LIMIT = 6
+#: The input box for each kind of file in the folder (see workspace.file_kind).
+INPUT_BOXES = {"log": "open_log", "petri": "open_net", "cpn": "open_cpn",
+               "ts": "open_transition_system", "typed": "typed_log"}
+
+
+def input_box_for(library: Library, kind: str | None) -> str | None:
+    """The id of the box that reads files of ``kind`` (None: no such box)."""
+    function = INPUT_BOXES.get(kind)
+    if function is None:
+        return None
+    for spec in library.specs.values():
+        if spec.id.endswith("." + function) or spec.id == function:
+            return spec.id
+    return None
+
+
+def folder_files(folder: str | Path | None, limit: int = 200) -> list[tuple[str, str]]:
+    """(relative path, kind) of the folder's logs, nets and transition systems."""
+    if folder is None or not Path(folder).is_dir():
+        return []
+    found = []
+    for path in sorted(Path(folder).rglob("*")):
+        if len(found) >= limit:
+            break
+        if not path.is_file() or path.name.startswith(".") or any(
+                part.startswith(".") for part in path.relative_to(folder).parts[:-1]):
+            continue
+        kind = file_kind(path)
+        if kind in INPUT_BOXES:
+            found.append((path.relative_to(folder).as_posix(), kind))
+    return found
 #: Room around the card for its shadow, inside the see-through popup window.
 SHADOW_MARGIN = 24
 
@@ -37,8 +71,11 @@ class BoxPicker(QWidget):
     menus rather than a square box with a hard edge."""
 
     chosen = Signal(str)
+    #: One of the folder's files was picked: the input box's id and the file, relative to the folder.
+    file_chosen = Signal(str, str)
 
-    def __init__(self, library: Library, parent: QWidget | None = None) -> None:
+    def __init__(self, library: Library, parent: QWidget | None = None,
+                 folder: str | Path | None = None) -> None:
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.card = QFrame()
@@ -49,7 +86,9 @@ class BoxPicker(QWidget):
         shadow.setColor(QColor(0, 0, 0, 110 if theme.is_dark() else 50))
         self.card.setGraphicsEffect(shadow)
         self.library = library
+        self.folder = folder
         self.show_all = False
+        self.file_buttons: list[QPushButton] = []
         self.search = QLineEdit()
         self.search.setObjectName("boxSearch")
         self.search.setPlaceholderText("Search boxes, e.g. alpha, filter, fitness")
@@ -115,7 +154,7 @@ class BoxPicker(QWidget):
                 widget.hide()               # gone now, not at the next event loop turn: no ghosts under the new rows
                 widget.setParent(None)
                 widget.deleteLater()
-        self.buttons = []
+        self.buttons, self.file_buttons = [], []
         t = style.tokens()
         groups = self.shown_groups()
         for index, (group, specs) in enumerate(groups.items()):
@@ -137,9 +176,23 @@ class BoxPicker(QWidget):
                 choice.clicked.connect(lambda _checked=False, box_id=spec.id: self._choose(box_id))
                 rows.addWidget(choice)
                 self.buttons.append(choice)
+            if group == "Input":
+                self._add_files(rows)
             rows.addStretch(1)
             self.grid.addWidget(column, index // COLUMNS, index % COLUMNS, Qt.AlignTop)
-        if not groups:
+        files, _more = self.shown_files()
+        if "Input" not in groups and files:
+            # A search that matches files but no box: still a column for them.
+            column = QWidget()
+            column.setObjectName("plain")
+            rows = QVBoxLayout(column)
+            rows.setContentsMargins(0, 0, 0, 0)
+            rows.setSpacing(2)
+            rows.addWidget(label("INPUT", "sectionLabel"))
+            self._add_files(rows)
+            rows.addStretch(1)
+            self.grid.addWidget(column, len(groups) // COLUMNS, len(groups) % COLUMNS, Qt.AlignTop)
+        elif not groups:
             self.grid.addWidget(label("No box matches. Try another word, or clear the search.", "muted", wrap=True),
                                 0, 0, 1, COLUMNS)
         for broken in self.library.broken if (self.show_all or self.search.text().strip()) else []:
@@ -149,6 +202,46 @@ class BoxPicker(QWidget):
             self.grid.addWidget(note, self.grid.rowCount(), 0, 1, COLUMNS)
         self._refresh_footer()
         self.adjustSize()
+
+    def shown_files(self) -> tuple[list[tuple[str, str]], int]:
+        """The folder's files to list under Input (those with an input box),
+        and how many more there are.  A search looks through all of them."""
+        wanted = self.search.text().strip().lower()
+        files = [(relative, kind) for relative, kind in folder_files(self.folder)
+                 if input_box_for(self.library, kind) is not None
+                 and all(word in relative.lower() for word in wanted.split())]
+        limit = 12 if wanted else FILE_LIMIT
+        return files[:limit], max(0, len(files) - limit)
+
+    def _add_files(self, rows: QVBoxLayout) -> None:
+        """Under the Input boxes: the folder's files, one click each."""
+        files, more = self.shown_files()
+        if not files:
+            return
+        rows.addSpacing(6)
+        rows.addWidget(label("IN THIS FOLDER", "sectionLabel"))
+        names = [Path(relative).name for relative, _kind in files]
+        for relative, kind in files:
+            name = Path(relative).name
+            text = display_name(name)
+            if names.count(name) > 1 and "/" in relative:
+                text += f"  ({Path(relative).parent})"
+            choice = QPushButton(text)
+            choice.setObjectName("boxChoice")
+            choice.setCursor(Qt.PointingHandCursor)
+            choice.setToolTip(f"{relative}\nAdds an input box that reads this file")
+            choice.clicked.connect(lambda _checked=False, r=relative, k=kind: self._choose_file(k, r))
+            rows.addWidget(choice)
+            self.file_buttons.append(choice)
+        if more:
+            rows.addWidget(label(f"… {more} more: Choose… in the box's Settings", "muted"))
+
+    def _choose_file(self, kind: str, relative: str) -> None:
+        box_id = input_box_for(self.library, kind)
+        if box_id is None:
+            return
+        self.close()
+        self.file_chosen.emit(box_id, relative)
 
     def _refresh_footer(self) -> None:
         searching = bool(self.search.text().strip())
@@ -192,4 +285,4 @@ def _plain(group: str) -> str:
     return "your own boxes" if group == "Yours" else group
 
 
-__all__ = ["BoxPicker", "CORE_GROUPS"]
+__all__ = ["BoxPicker", "CORE_GROUPS", "folder_files", "input_box_for"]

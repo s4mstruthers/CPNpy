@@ -28,6 +28,8 @@ class LogDocument:
     #: The text the log was written in, for a log typed in the course's
     #: notation or read from a ``….log.txt`` file (None for XES and CSV logs).
     notation: str | None = None
+    #: The document (a workflow) this one was opened from, for the way back; not saved.
+    opened_from: object | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.classifier: Classifier = self.log.default_classifier()
@@ -80,6 +82,8 @@ class ModelDocument:
     id: int = field(default_factory=lambda: next(_ids))
     #: Its file was deleted or moved away while it was open.
     missing: bool = False
+    #: The document (a workflow) this one was opened from, for the way back; not saved.
+    opened_from: object | None = field(default=None, repr=False)
 
     @property
     def name(self) -> str:
@@ -99,6 +103,8 @@ class CpnDocument:
     autosave: bool = False
     #: Its file was deleted or moved away while it was open.
     missing: bool = False
+    #: The document (a workflow) this one was opened from, for the way back; not saved.
+    opened_from: object | None = field(default=None, repr=False)
 
     @property
     def name(self) -> str:
@@ -146,6 +152,8 @@ class TransitionSystemDocument:
     id: int = field(default_factory=lambda: next(_ids))
     #: Its file was deleted or moved away while it was open.
     missing: bool = False
+    #: The document (a workflow) this one was opened from, for the way back; not saved.
+    opened_from: object | None = field(default=None, repr=False)
 
     @property
     def name(self) -> str:
