@@ -145,9 +145,17 @@ class NodeItem(QGraphicsObject):
         scene = self.scene()
         if isinstance(scene, GraphScene) and event.button() == Qt.LeftButton:
             scene.node_clicked.emit(self.spec.id)
-            event.accept()
-            return
+            if not (self.flags() & QGraphicsItem.ItemIsMovable):
+                event.accept()
+                return
         super().mousePressEvent(event)
+
+    def itemChange(self, change, value):  # noqa: N802
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            scene = self.scene()
+            if isinstance(scene, GraphScene):
+                scene.node_dragged(self)
+        return super().itemChange(change, value)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         t = style.tokens()
@@ -398,18 +406,24 @@ class EdgeItem(QGraphicsPathItem):
 # ---------------------------------------------------------------------------
 class GraphScene(QGraphicsScene):
     node_clicked = Signal(str)
+    #: A node was dragged (the scene is movable): its id and new position.
+    node_moved = Signal(str, float, float)
 
     def __init__(self) -> None:
         super().__init__()
         self.nodes: dict[str, NodeItem] = {}
         self.edges: list[EdgeItem] = []
+        #: Nodes can be dragged to tidy the drawing (nothing else changes).
+        self.movable = False
 
     def populate(self, nodes: list[NodeSpec], edges: list[EdgeSpec],
                  positions: dict[str, tuple[float, float]] | None = None,
-                 layer_gap: float = 70.0) -> None:
-        """Replace the scene contents.  Lays out unless ``positions`` is given."""
+                 layer_gap: float = 70.0, movable: bool = False) -> None:
+        """Replace the scene contents.  Lays out unless ``positions`` is given.
+        ``movable``: the nodes can be dragged (see :attr:`node_moved`)."""
         self.clear()
         self.nodes, self.edges = {}, []
+        self.movable = movable
         sizes = {n.id: node_size(n) for n in nodes}
         # Make room between columns for the widest edge label, so labels
         # never sit on top of the nodes they connect (capped for sanity).
@@ -432,6 +446,10 @@ class GraphScene(QGraphicsScene):
             item = NodeItem(spec)
             x, y = positions[spec.id]
             item.setPos(x, y)
+            if movable:
+                item.setFlag(QGraphicsItem.ItemIsMovable, True)
+                item.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+                item.setCursor(Qt.OpenHandCursor)
             self.addItem(item)
             self.nodes[spec.id] = item
         pairs = {(e.source, e.target) for e in edges if e.source != e.target}
@@ -449,6 +467,19 @@ class GraphScene(QGraphicsScene):
             self.edges.append(item)
         rect = self.itemsBoundingRect().adjusted(-40, -40, 40, 40)
         self.setSceneRect(rect)
+
+    def node_dragged(self, item: NodeItem) -> None:
+        """A node moved: its edges follow (as straight lines now) and listeners hear."""
+        for edge in self.edges:
+            if edge.source_item is item or edge.target_item is item:
+                edge.route = [edge.source_item.pos(), edge.target_item.pos()]
+                edge.prepareGeometryChange()
+                edge.rebuild()
+        self.node_moved.emit(item.spec.id, item.pos().x(), item.pos().y())
+
+    def positions(self) -> dict[str, tuple[float, float]]:
+        """Every node's position, by id (to keep a tidied layout)."""
+        return {node_id: (item.pos().x(), item.pos().y()) for node_id, item in self.nodes.items()}
 
     def update_node(self, spec: NodeSpec) -> None:
         """Change a node's appearance in place (token game, overlays)."""

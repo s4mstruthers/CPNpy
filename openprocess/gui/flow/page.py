@@ -95,8 +95,8 @@ class WorkflowPage(QWidget):
     edited = Signal()
     #: A result should open as a page of its own (a LogDocument, ModelDocument, CpnDocument).
     open_document = Signal(object)
-    #: "Edit a copy" of a net: open it on the net canvas.
-    edit_requested = Signal(object)
+    #: "Open a copy in Model" of a net: the net, and where it came from ("from Inductive Miner in …").
+    edit_requested = Signal(object, str)
     keep_requested = Signal()
     #: The user allowed the folder's custom boxes to run.
     custom_allowed_changed = Signal()
@@ -755,9 +755,9 @@ class WorkflowPage(QWidget):
                 column.setContentsMargins(0, 0, 0, 0)
                 for port in spec.outputs:
                     column.addWidget(label(port.name.upper(), "sectionLabel"))
-                    column.addWidget(result_widget(result.values.get(port.name), self))
+                    column.addWidget(result_widget(result.values.get(port.name), self, node))
                 return host
-            widget = result_widget(result.value, self)
+            widget = result_widget(result.value, self, node)
             if self.run and len(self.run.variants) > 1 and self.run.result(node, 1) is not None:
                 host = QWidget()
                 host.setLayout(vbox(label(f"The first of {len(self.run.variants)} sweep values; the collecting "
@@ -805,7 +805,13 @@ class WorkflowPage(QWidget):
         self._open_elsewhere(CpnDocument(net))
 
     def edit_copy(self, net: PetriNet) -> None:
-        self.edit_requested.emit(net)
+        """*Open a copy in Model ›*: the window opens a copy on the net canvas."""
+        where = self.workflow.title(self.selected) if self.selected in self.workflow.nodes else "a box"
+        self.edit_requested.emit(net, f"from {where} in {self.workflow.name}")
+
+    def layout_tidied(self) -> None:
+        """The user dragged a result's places or transitions: kept with the workflow."""
+        self._mark_edited()
 
     def save_figure(self, figure: Figure) -> None:
         from ..studio.widgets import suggested_path

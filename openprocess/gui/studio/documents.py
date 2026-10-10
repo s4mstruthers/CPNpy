@@ -99,6 +99,8 @@ class CpnDocument:
     id: int = field(default_factory=lambda: next(_ids))
     #: Edited since it was opened or last saved.
     dirty: bool = False
+    #: For a copy: where it came from ("from Inductive Miner in Discover and check").
+    origin: str = ""
     #: Edits are saved by themselves (a file in the open folder): no "edited" mark.
     autosave: bool = False
     #: Its file was deleted or moved away while it was open.

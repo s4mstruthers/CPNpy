@@ -731,3 +731,126 @@ def test_a_page_opened_from_a_box_has_a_way_back(app):
     for document in list(window.documents):
         document.dirty = False
     window.close()
+
+
+def test_a_result_net_can_be_tidied_but_not_changed(app):
+    """Dragging a place in a box's Result moves it (edges follow), the layout
+    is kept with the box and shown again; the net is untouched."""
+    from PySide6.QtWidgets import QGraphicsItem
+
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.graph_view import GraphView
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    miner = page.workflow.order()[1]
+    net = page.run.result(miner).value
+    page.select(miner.id, 0)
+    _pump(app, 0.2)
+    view = next(v for v in page.panel_host.findChildren(GraphView))
+    graph = view.graph
+    place_id, item = next(iter(graph.nodes.items()))
+    assert item.flags() & QGraphicsItem.ItemIsMovable
+    edge = next(e for e in graph.edges if e.source_item is item or e.target_item is item)
+    before_edge = edge.path().pointAtPercent(0.5)
+    page.document.dirty = False
+    item.setPos(item.pos().x() + 90, item.pos().y() - 40)
+    _pump(app, 0.1)
+    assert edge.path().pointAtPercent(0.5) != before_edge                  # the edge followed
+    assert miner.layout[place_id] == (item.pos().x(), item.pos().y())      # kept with the box
+    assert set(miner.layout) == set(graph.nodes)
+    assert page.document.dirty                                             # an edit, to save
+    assert len(net.places) == len(graph.nodes) - len(net.transitions)      # the net is the same
+    # Shown again, the drawing is as tidied.
+    page.select(miner.id, 1)
+    page.select(miner.id, 0)
+    _pump(app, 0.2)
+    again = next(v for v in page.panel_host.findChildren(GraphView)).graph
+    assert again.nodes[place_id].pos() == item.pos()
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_handoffs_between_mine_and_model(app, tmp_path, monkeypatch):
+    """Open a copy in Model: a "(copy)" in Model that says where it is from;
+    Mine a simulated log: a file in the folder and an analysis in Mine reading
+    it; Check against a log: an analysis with the net, the log and Check fit."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import CpnDocument, WorkflowDocument
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    (week / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    miner = page.workflow.order()[1]
+    page.select(miner.id)
+    net = page.run.result(miner).value
+    places_before = len(net.places)
+
+    # Open a copy in Model.
+    page.edit_copy(net)
+    _pump(app, 0.2)
+    copy = window.documents[-1]
+    assert isinstance(copy, CpnDocument) and copy.name.endswith("(copy)") and window.space == "model"
+    assert copy.origin == f"from {page.workflow.title(miner.id)} in {page.workflow.name}"
+    back = window.current_page().header.back
+    assert back.text() == f"‹ A copy, {copy.origin}"
+    assert Path(copy.path).name == f"{copy.name}.pnml"                       # saved in the folder
+    assert len(net.places) == places_before                                  # the original is untouched
+    model_page = window.current_page()
+
+    # Check against a log: an analysis in Mine with the three boxes, connected.
+    monkeypatch.setattr(studio_app.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(week / "orders.log.txt"), "")))
+    model_page.check_log_button.click()
+    _pump(app, 0.2)
+    check = window.current_page()
+    assert window.space == "mine" and isinstance(check.document, WorkflowDocument)
+    assert check.workflow.name == f"{copy.name} vs orders"
+    names = [check.workflow.spec(n).name for n in check.workflow.order()]
+    assert names == ["Open net", "Open log", "Check fit"] or names == ["Open log", "Open net", "Check fit"]
+    assert len(check.workflow.edges) == 2
+    _wait_run(app, check)
+    fit = next(n for n in check.workflow.nodes.values() if check.workflow.spec(n).name == "Check fit")
+    assert check.run.result(fit).status == "done", check.run.result(fit).error
+
+    # Mine a simulated log: the play-out becomes a file in the folder and an analysis reading it.
+    monkeypatch.setattr(studio_app.QInputDialog, "getInt", staticmethod(lambda *a, **k: (20, True)))
+    model_page.export_log_button.click()
+    assert _wait_for_documents(app, window, lambda docs: any(
+        isinstance(d, WorkflowDocument) and d.workflow.name.startswith("Play-out") for d in docs))
+    mined = window.current_page()
+    assert window.space == "mine" and mined.workflow.name.startswith("Play-out")
+    log_box = mined.workflow.order()[0]
+    assert mined.workflow.spec(log_box).name == "Open log"
+    assert (week / Path(str(log_box.settings["file"]))).exists()
+    _wait_run(app, mined)
+    assert mined.run.result(log_box).status == "done"
+    back.click()                                                              # the copy's way back
+    assert window.current_page() is page and window.space == "mine"
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def _wait_for_documents(app, window, condition, seconds: float = 8.0) -> bool:
+    end = time.time() + seconds
+    while time.time() < end:
+        app.processEvents()
+        if condition(window.documents):
+            return True
+        time.sleep(0.02)
+    return condition(window.documents)

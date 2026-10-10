@@ -543,3 +543,17 @@ def test_a_typed_path_setting_is_cleaned_up(tmp_path):
     assert setting.coerce(spaced) == spaced
     assert clean_path("~/logs/a.xes") == str(Path.home() / "logs" / "a.xes")
     assert "Choose…" in setting.help and "folder" in setting.help
+
+
+def test_a_tidied_layout_is_kept_with_the_box(tmp_path):
+    """Node.layout (where the user dragged a result's places and transitions)
+    survives a save and a load; a box without one has none."""
+    wf = Workflow("Tidy")
+    log = wf.add(typed_log)
+    miner = wf.add(alpha_miner)
+    wf.connect(log, miner)
+    miner.layout = {"p_start": (0.0, 10.0), "t_a": (120.0, 10.5)}
+    again = Workflow.from_dict(wf.to_dict(), wf.library)
+    assert again.nodes[miner.id].layout == {"p_start": (0.0, 10.0), "t_a": (120.0, 10.5)}
+    assert again.nodes[log.id].layout == {}
+    assert "layout" not in next(b for b in wf.to_dict()["boxes"] if b["id"] == log.id)

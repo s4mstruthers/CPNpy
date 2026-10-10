@@ -172,7 +172,7 @@ class ModelPage(ConcealsResults, QWidget):
         self.speed.setValue(4)
         self.speed.setFixedWidth(110)
         self.speed.setToolTip("Speed: firings per second")
-        self.generate_button = _tool("Generate event log…", "Play the model out many times and "
+        self.generate_button = _tool("Mine a simulated log ›", "Play the model out many times and "
                                      "add the resulting event log to the sidebar")
         self.sim_hint = label("", "muted", wrap=True)
         self.simulate_widgets = [self.play_button, self.speed, self.speed_label_widget(),

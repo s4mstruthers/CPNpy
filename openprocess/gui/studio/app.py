@@ -1319,7 +1319,7 @@ class StudioWindow(QMainWindow):
             page = WorkflowPage(document, self.library(),
                                 self.workspace.folder if self.workspace is not None else None)
             page.open_document.connect(lambda doc, source=document: self.add_document(doc, near=source.path))
-            page.edit_requested.connect(self.edit_petri_net)
+            page.edit_requested.connect(lambda net, origin, doc=document: self.edit_petri_net(net, origin, doc))
             page.keep_requested.connect(lambda doc=document: self.keep_workflow(doc))
             page.edited.connect(lambda doc=document: (self._refresh_item(doc), self._schedule_autosave(doc)))
             if self.workspace is not None:
@@ -1332,8 +1332,9 @@ class StudioWindow(QMainWindow):
         elif isinstance(document, CpnDocument):
             plain = getattr(document.net, "plain", False)
             page = PetriNetPage(document) if plain else CpnPage(document)
-            page.log_generated.connect(lambda log, source=document: self.add_document(
-                LogDocument(log), near=source.path))
+            page.log_generated.connect(lambda log, source=document: self.mine_log(log, source))
+            if plain:
+                page.check_requested.connect(lambda doc=document: self.check_against_log(doc))
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
             page.edited.connect(lambda doc=document: self._schedule_autosave(doc))
             page.snap_changed.connect(self._snap_changed)
@@ -1351,10 +1352,9 @@ class StudioWindow(QMainWindow):
                 lambda i: self.remembered.__setitem__("model_inspector", i))
             page.view_switch.changed.connect(
                 lambda i: self.remembered.__setitem__("model_view", i))
-            page.log_generated.connect(lambda log, source=document: self.add_document(
-                LogDocument(log), near=source.path or (source.source_log.path
-                                                       if source.source_log else None)))
-            page.edit_requested.connect(self.edit_petri_net)
+            page.log_generated.connect(lambda log, source=document: self.mine_log(log, source))
+            page.edit_requested.connect(lambda net, doc=document: self.edit_petri_net(
+                net, f"from {doc.name}", doc))
             page.keep_requested.connect(lambda doc=document: self.keep_model(doc))
         page.status.connect(lambda message: self.statusBar().showMessage(message, 8000))
         page.saved.connect(lambda doc=document: self._document_saved(doc))
@@ -1364,9 +1364,10 @@ class StudioWindow(QMainWindow):
             page.header.title.set_hint("Double-click to rename")
         source = getattr(document, "opened_from", None)
         if source is not None and hasattr(page, "header"):
-            # Opened from a box's result: a way back to that analysis.
-            page.header.set_back(f"‹ Back to {source.name}",
-                                 lambda _checked=False, s=source: self.back_to(s))
+            # Opened from a box's result (or a copy of one): a way back to that analysis.
+            origin = getattr(document, "origin", "") if isinstance(document, CpnDocument) else ""
+            text = f"‹ A copy, {origin}" if origin else f"‹ Back to {source.name}"
+            page.header.set_back(text, lambda _checked=False, s=source: self.back_to(s))
         self.pages[document.id] = page
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
@@ -2302,12 +2303,79 @@ class StudioWindow(QMainWindow):
         from ...model.plain import from_petri_net
         self.add_document(CpnDocument(from_petri_net(net)))
 
-    def edit_petri_net(self, net) -> None:
-        """Open a (discovered or imported) Petri net in the editor, as a copy."""
+    def edit_petri_net(self, net, origin: str = "", source=None) -> None:
+        """*Open a copy in Model*: a discovered or imported Petri net on the net
+        canvas, as a copy named "… (copy)".  The original (a box's result, a
+        model page) is never changed.  ``origin`` says where it came from
+        ("from Inductive Miner in Discover and check") and ``source`` is the
+        document to go back to."""
         from ...model.plain import from_petri_net
         editable = from_petri_net(net)
-        editable.name = f"{net.name} (edited)"
-        self.add_document(CpnDocument(editable))
+        editable.name = f"{net.name} (copy)"
+        document = CpnDocument(editable, origin=origin)
+        document.opened_from = source
+        self.add_document(document)
+        self.statusBar().showMessage(f"A copy of {net.name}: change it here; the original stays as it is",
+                                     8000)
+
+    def mine_log(self, log, source) -> None:
+        """*Mine a simulated log ›*: the log becomes a file in the folder, next
+        to the model it came from, and opens in Mine as a new analysis with an
+        Open log box reading it.  Without a folder it opens as a log page."""
+        from ...flow.workflow import Workflow
+        from ..flow.picker import input_box_for
+        if self.workspace is None:
+            self.add_document(LogDocument(log), near=getattr(source, "path", None))
+            return
+        near = getattr(source, "path", None)
+        folder = Path(near).resolve().parent if near and self.workspace.contains(near) else self.workspace.folder
+        target = unique_path(folder, safe_file_name(log.name) + ".xes")
+        try:
+            write_xes(log, str(target))
+        except OSError as error:
+            QMessageBox.warning(self, "Mine the simulated log", f"Could not save the log:\n\n{error}")
+            return
+        self._created.add(self._key(target))
+        library = self.library()
+        workflow = Workflow(self._unique_name(log.name), library)
+        workflow.add(input_box_for(library, "log"), {"file": self.workspace.relative(target)}, (0.0, 0.0))
+        self.add_document(WorkflowDocument(workflow))
+        self.statusBar().showMessage(f"Saved {target.name} into the folder; this analysis reads it", 8000)
+
+    def check_against_log(self, document) -> None:
+        """*Check against a log ›* on a Petri net: in Mine, a new analysis with
+        Open net (this net's file), Open log (a file you choose) and Check fit,
+        connected and run."""
+        from ...flow.workflow import Workflow
+        from ..flow.picker import input_box_for
+        if not document.path or document.missing:
+            self.statusBar().showMessage("Save the net first (it has no file yet): the analysis reads "
+                                         "it from its file", 8000)
+            return
+        start = str(self.workspace.folder) if self.workspace is not None else dialog_folder()
+        path, _ = QFileDialog.getOpenFileName(self, "Check against a log", start,
+                                              "Event logs (*.xes *.xes.gz *.gz *.csv *.txt);;All files (*)")
+        if not path:
+            return
+        library = self.library()
+        check = next((s.id for s in library.specs.values() if s.id.endswith(".check_fit")), None)
+        if check is None:
+            self.statusBar().showMessage("The Check fit box is not available", 8000)
+            return
+
+        def file_setting(p: str) -> str:
+            return self.workspace.relative(p) if self.workspace is not None and self.workspace.contains(p) else p
+
+        workflow = Workflow(self._unique_name(f"{document.name} vs {file_stem(Path(path).name)}"), library)
+        net = workflow.add(input_box_for(library, file_kind(Path(document.path)) or "petri"),
+                           {"file": file_setting(document.path)}, (0.0, 0.0))
+        log = workflow.add(input_box_for(library, "log"), {"file": file_setting(path)}, (0.0, 140.0))
+        fit = workflow.add(check, None, (300.0, 70.0))
+        workflow.connect(net, fit)
+        workflow.connect(log, fit)
+        self.add_document(WorkflowDocument(workflow))
+        self.statusBar().showMessage(f"{document.name} against {Path(path).name}: click Check fit for the "
+                                     "scores and how they were computed", 10000)
 
     def library(self):
         """The boxes available in this window (the folder's boxes/ included)."""

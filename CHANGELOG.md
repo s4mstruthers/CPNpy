@@ -6,6 +6,30 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.2
+
+The handoffs between Mine and Model: four, each one button, each moving the
+whole window and leaving a way back.
+
+- **Open a copy in Model ›** on a discovered net's Result. It was "Edit a
+  copy"; the word *copy* stays everywhere: the model is named "… (copy)",
+  its header says "‹ A copy, from Inductive Miner in Discover and check" (a
+  link back to the analysis), and the result in the workflow is never
+  changed.
+- **A discovered net can be tidied in Mine, but not changed.** On a box's
+  Result, drag places and transitions to make the drawing easier to read;
+  the edges follow and the layout is saved with the workflow. Nothing can be
+  added, removed or renamed there: that is what the copy in Model is for.
+- **Mine a simulated log ›** on a Petri net, a coloured net or a model page
+  (it was "Export as event log…" / "Generate event log…"). The log is saved
+  in the folder next to the model and opens in Mine as a new analysis with
+  an *Open log* box reading it. Without a folder it opens as a log page, as
+  before.
+- **Check against a log ›** on a Petri net's Analysis tab. Pick a log and
+  Mine opens a new analysis with *Open net* (this net's file), *Open log*
+  and *Check fit*, connected and run.
+- *Open net*'s Choose… and file list already offer the folder's models.
+
 ## 0.9.1
 
 Files flow into the canvas, so the analysis says what feeds it and the

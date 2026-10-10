@@ -597,10 +597,10 @@ class CpnPage(QWidget):
         self.history_list.setMaximumHeight(240)
         self.history_list.itemDoubleClicked.connect(self._rewind_to_item)
         history.add(self.history_list)
-        self.export_log_button = button("Export as event log…", self._export_log,
-                                        tooltip="Turn the firings so far into an event log "
-                                                "and open it for mining (dotted chart, "
-                                                "discovery, …)")
+        self.export_log_button = button("Mine the simulated log ›", self._export_log,
+                                        tooltip="Turn the firings so far into an event log, save "
+                                                "it in the folder and open it in Mine (dotted chart, "
+                                                "discovery, conformance, …)")
         history.add(hbox(None, self.export_log_button))
         layout.addWidget(history)
         layout.addStretch(1)
