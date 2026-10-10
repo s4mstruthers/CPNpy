@@ -18,7 +18,7 @@ import pytest
 
 import cpnpy.flow as flow
 from cpnpy.flow import (Box, BoxError, Runner, Sweep, Workflow, WorkflowError, box, check, differences,
-                        load, save, standard_library, to_python, workflow)
+                        load, save, to_python, workflow)
 from cpnpy.flow.boxes.check import check_fit, soundness, token_replay
 from cpnpy.flow.boxes.compare import compare
 from cpnpy.flow.boxes.discover import alpha_miner, classical_states, heuristics_miner, inductive_miner, regions_to_net
