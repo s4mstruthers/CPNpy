@@ -1032,8 +1032,14 @@ class CpnPage(QWidget):
             self._edited()
             self.reveal_element(element_id)
 
-        centre, min_width = item.name_anchor()
-        self.view.edit_text(centre, element.name, done, min_width)
+        def anchor():
+            # Looked up afresh each time: the node may be redrawn (a new
+            # item) or moved while the box is open, or deleted.
+            current = self.scene.place_items.get(element_id) or \
+                self.scene.transition_items.get(element_id)
+            return current.name_anchor() if current is not None else None
+
+        self.view.edit_text(anchor, element.name, done)
 
     # =====================================================================
     # Simulation
