@@ -1,4 +1,4 @@
-"""The answer boxes of a worksheet (see :mod:`cpnpy.teaching.sheet`).
+"""The answer boxes of a worksheet (see :mod:`cpnpy.learn.sheet`).
 
 Every answer block of ``question.md`` becomes a :class:`TaskCard`: the box to
 answer in (an *editor*, one per type), a **Check** button, and *Hint* and
@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QRadioButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
-from ...teaching import answers
-from ...teaching.checks import CORRECT, INCORRECT, PARTIAL, UNKNOWN
+from ...learn import answers
+from ...learn.checks import CORRECT, INCORRECT, PARTIAL, UNKNOWN
 from .markdown_view import MarkdownLabel
 from .widgets import button, hbox, label
 

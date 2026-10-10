@@ -18,7 +18,7 @@ view, the way a log and a net each have a page of their own::
     +-------------------------------+------------------------------------------+
 
 * **The worksheet** (left) is ``question.md`` top to bottom, with an answer
-  box wherever the author put one (see :mod:`cpnpy.teaching.sheet` and
+  box wherever the author put one (see :mod:`cpnpy.learn.sheet` and
   :mod:`.answer_boxes`).  Answers are saved as you type, in the exercise's
   folder, and checked on request.
 * **The materials** (right) are what the exercise gives: the log, the
@@ -47,10 +47,10 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
-from ...teaching.checks import CORRECT, INCORRECT, PARTIAL, Context, Result, TaskError
-from ...teaching.checks import check as check_answer
-from ...teaching.checks import footprint_of, model_answer_text
-from ...teaching.pack import Exercise, Pack, load_pack
+from ...learn.checks import CORRECT, INCORRECT, PARTIAL, Context, Result, TaskError
+from ...learn.checks import check as check_answer
+from ...learn.checks import footprint_of, model_answer_text
+from ...learn.pack import Exercise, Pack, load_pack
 from .answer_boxes import TaskCard, debounce, make_editor
 from .concealment import Concealment
 from .markdown_view import MarkdownLabel
@@ -861,7 +861,7 @@ class ExerciseView(QWidget):
 
     # -- the token game -----------------------------------------------------------------------------
     def play_trace(self, text: str) -> None:
-        from ...teaching import answers
+        from ...learn import answers
         if self.given_net_page is None:
             return
         try:

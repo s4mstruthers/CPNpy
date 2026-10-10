@@ -335,8 +335,8 @@ def command_mine_invariants(arguments: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 def command_exercises_check(arguments: argparse.Namespace) -> int:
     """List a pack's exercises and answer boxes; report mistakes in them."""
-    from .teaching.checks import Context, TaskError, model_answer_text, validate
-    from .teaching.pack import load_pack
+    from .learn.checks import Context, TaskError, model_answer_text, validate
+    from .learn.pack import load_pack
     pack = load_pack(arguments.folder)
     if not pack.exercises:
         print(f"No exercises in {arguments.folder} (an exercise is a folder with a "
