@@ -150,6 +150,28 @@ def reveal_label() -> str:
 
 
 
+def report_unexpected_errors() -> None:
+    """An error nobody caught shows a dialog with the traceback instead of
+    vanishing into a terminal the app may not have (in the bundle, it has none)."""
+    import sys
+    import traceback
+    previous = sys.excepthook
+
+    def hook(kind, value, trace) -> None:
+        previous(kind, value, trace)
+        text = "".join(traceback.format_exception(kind, value, trace))
+        try:
+            box = QMessageBox(QMessageBox.Critical, "Something went wrong",
+                              f"{kind.__name__}: {value}")
+            box.setInformativeText("OpenProcess keeps running. If it happens again, please report "
+                                   "it with the details below at https://github.com/s4mstruthers/openprocess/issues.")
+            box.setDetailedText(text)
+            box.exec()
+        except Exception:  # noqa: BLE001 - never fail inside the error reporter
+            pass
+    sys.excepthook = hook
+
+
 def app_icon() -> QIcon:
     """The OpenProcess logo (Dock, window and About box)."""
     return QIcon(str(Path(__file__).resolve().parents[1] / "resources" / "openprocess-icon.png"))
@@ -2415,16 +2437,23 @@ class StudioWindow(QMainWindow):
             self._show_update_dialog(release)      # asked for: the dialog with the notes
         else:
             # At launch: a bar at the top that does not stop anyone working.
-            self.update_bar.offer(release, self._can_install(release))
+            self.update_bar.offer(release, self._can_install(release), self._update_way(release)[1])
+
+    def _update_way(self, release):
+        """How this copy was installed, and how ``release`` can be put over it
+        (see :func:`updates.update_way`; None: only the release page helps)."""
+        from . import updates
+        install = updates.how_installed()
+        return install, updates.update_way(install, release)
 
     def _can_install(self, release) -> bool:
-        from . import updates
-        return updates.installed_app() is not None and release.download_for() is not None
+        return self._update_way(release)[1] is not None
 
     def _show_update_dialog(self, release) -> None:
         """What's new in ``release`` (and the versions before it), and what to do."""
         from . import updates
-        dialog = updates.UpdateDialog(release, self._can_install(release), self)
+        install, way = self._update_way(release)
+        dialog = updates.UpdateDialog(release, self._can_install(release), self, install, way)
         dialog.exec()
         self._update_action(release, {dialog.SKIP: "skip", dialog.PAGE: "page",
                                       dialog.INSTALL: "install"}.get(dialog.outcome))
@@ -2439,10 +2468,51 @@ class StudioWindow(QMainWindow):
                                          "about the next version", 6000)
         elif action == "page":
             QDesktopServices.openUrl(QUrl(release.page))
-        elif not self._can_install(release):       # "How to Update" (run from source)
+        elif not self._can_install(release):       # "How to Update": the dialog says how
             self._show_update_dialog(release)
         else:
-            self._install_update(release)
+            install, way = self._update_way(release)
+            if way == "app":
+                self._install_update(release)
+            else:
+                self._run_update(release, install, way)
+
+    def _run_update(self, release, install, way: str) -> None:
+        """A pip install or a checkout: run the update commands in the background,
+        then offer to restart into the new version."""
+        from PySide6.QtWidgets import QProgressDialog
+        from . import updates
+        progress = QProgressDialog(f"Updating to OpenProcess {release.version}…", None, 0, 0, self)
+        progress.setWindowTitle("Software Update")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.show()
+
+        def failed(message: str) -> None:
+            progress.close()
+            QMessageBox.warning(self, "Software Update", "The update did not go through.\n\n"
+                                f"{message}\n\nYou can also get it from {release.page}")
+
+        def done(output: str) -> None:
+            progress.close()
+            self._after_update(release, output)
+
+        run_in_background(lambda: updates.run_update(install, release, way), done, failed)
+
+    def _after_update(self, release, output: str) -> None:
+        from . import updates
+        box = QMessageBox(self)
+        box.setWindowTitle("Software Update")
+        box.setText(f"OpenProcess {release.version} is installed.")
+        box.setInformativeText("OpenProcess starts again to use it. Your open files come back.")
+        box.setDetailedText(output)
+        restart = box.addButton("Restart Now", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is restart and self.close():
+            updates.run_detached(updates.restart_command())
+            QApplication.quit()
 
     def _install_update(self, release) -> None:
         """Download and unpack the update in the background, then restart into it."""
@@ -4005,6 +4075,7 @@ def main(argv: list[str] | None = None) -> int:
     application = QApplication.instance() or QApplication(argv)
     application.setApplicationName(APPLICATION_NAME)
     application.setWindowIcon(app_icon())
+    report_unexpected_errors()
     application.setStyle("Fusion")
     application.setFont(theme.ui_font(13))
     application.setStyleSheet(style.stylesheet())

@@ -45,6 +45,29 @@ def self_test(model_path: str | None = None) -> int:
         return 1
     print(f"update check: {certificates} trusted certificates", flush=True)
 
+    # Workflows: the standard boxes are imported by name, so a bundle can miss
+    # them (0.7.0 did); the Code tab needs the sources.  Build and run the
+    # ready-made workflow, and read a box's code, as the app would.
+    from openprocess.flow import Runner, standard_library
+    from openprocess.flow.box import algorithm_calls
+    from openprocess.gui.flow.templates import TEMPLATES
+    library = standard_library()
+    if len(library) < 40:
+        print(f"workflows: only {len(library)} boxes in the app", flush=True)
+        return 1
+    workflow = TEMPLATES[0][1](library, None)
+    run = Runner(library).run(workflow)
+    failed = [n.id for n in workflow.nodes.values() if run.status(n) != "done"]
+    if failed:
+        print(f"workflows: boxes did not run: {failed}", flush=True)
+        return 1
+    alpha = library.get("openprocess.flow.boxes.discover.alpha_miner")
+    if "def alpha_miner" not in alpha.source or not algorithm_calls(alpha):
+        print("workflows: the Code tab has no source in the app", flush=True)
+        return 1
+    print(f"workflows: {len(library)} boxes, the ready-made workflow runs, the code is there",
+          flush=True)
+
     if model_path:
         import time
 

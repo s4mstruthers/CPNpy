@@ -374,10 +374,15 @@ class Called:
 
     @property
     def where(self) -> str:
-        """The file as shown: ``openprocess/mining/discovery/alpha.py:86``."""
+        """The file as shown: ``openprocess/mining/discovery/alpha.py:86`` for the
+        package's own code (whatever the folder it was cloned into is called),
+        else the file's name."""
         path = Path(self.file)
-        parts = path.parts
-        shown = "/".join(parts[parts.index("openprocess"):]) if "openprocess" in parts else path.name
+        root = Path(__file__).resolve().parents[2]          # the folder holding the package
+        try:
+            shown = path.resolve().relative_to(root).as_posix()
+        except ValueError:
+            shown = path.name
         return shown + (f":{self.line}" if self.line else "")
 
 
