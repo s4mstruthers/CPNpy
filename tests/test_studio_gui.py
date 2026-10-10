@@ -759,7 +759,10 @@ def test_hover_arrow_draws_arcs(app):
     _pump(app, 0.05)
     p1 = next(i for i in scene.place_items.values() if i.place.name == "p1")
 
-    # Hover just right of p1: the arrow appears on that side.
+    # Hover just right of p1: the arrow appears on that side.  (First a move
+    # elsewhere: Qt sends no move event when the cursor is already there.)
+    QTest.mouseMove(port, view.mapFromScene(p1.pos() + QPointF(-200, -200)))
+    _pump(app, 0.02)
     QTest.mouseMove(port, view.mapFromScene(p1.pos() + QPointF(30, 0)))
     _pump(app, 0.05)
     handle = scene._handle
@@ -828,6 +831,8 @@ def test_dragging_the_arrow_to_empty_space_adds_the_other_node(app):
     net_page = page.net.pages[0]
 
     def drag_from(node, end: QPointF) -> None:
+        QTest.mouseMove(port, view.mapFromScene(node.pos() + QPointF(-200, -200)))   # a real move next
+        _pump(app, 0.02)
         QTest.mouseMove(port, view.mapFromScene(node.pos() + QPointF(node.rect().width() / 2
                                                                      + 12, 0)))
         _pump(app, 0.05)

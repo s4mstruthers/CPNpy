@@ -348,6 +348,10 @@ def stylesheet() -> str:
     #revealRow QLabel {{ background: transparent; }}
     #revealTitle {{ font-weight: 600; }}
 
+    /* The reproducibility badge beside an analysis's title. */
+    QPushButton#reproBadge {{ border: none; border-radius: 9px; padding: 2px 9px; font-size: 11px;
+        font-weight: 600; }}
+
     /* The Summary's tiles and the Model palette. */
     #summaryValue {{ font-size: 22px; font-weight: 600; }}
     QPushButton#paletteTool {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 7px;

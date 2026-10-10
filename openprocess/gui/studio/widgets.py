@@ -528,14 +528,46 @@ class PageHeader(QWidget):
         text.setSpacing(2)
         self.title = ElidedLabel(title, "pageTitle")
         self.subtitle = ElidedLabel(subtitle, "pageSubtitle")
-        text.addWidget(self.title)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(10)
+        title_row.addWidget(self.title)
+        title_row.addStretch(1)
+        text.addLayout(title_row)
         text.addWidget(self.subtitle)
         self._text = text
+        self._title_row = title_row
         self.back: QPushButton | None = None
+        self.badge: QPushButton | None = None
         layout.addLayout(text, 1)
         self.actions = QHBoxLayout()
         self.actions.setSpacing(8)
         layout.addLayout(self.actions)
+
+    def set_badge(self, text: str, tone: str = "muted", tooltip: str = "", slot=None) -> None:
+        """A small chip beside the title ("Recorded · this run reproduces it").
+        ``tone``: good, warning, critical or muted.  Empty text hides it."""
+        if self.badge is None:
+            self.badge = QPushButton()
+            self.badge.setObjectName("reproBadge")
+            self.badge.setCursor(Qt.PointingHandCursor)
+            self.badge.setFocusPolicy(Qt.NoFocus)
+            self._title_row.insertWidget(1, self.badge, 0, Qt.AlignVCenter)
+        from . import style
+        colours = {"good": (style.STATUS["good"], "#ffffff"),
+                   "warning": (style.STATUS["warning"], "#1d1d1f"),
+                   "critical": (style.STATUS["critical"], "#ffffff"),
+                   "muted": (style.qc(style.tokens().text, 0.10).name(QColor.HexArgb), style.tokens().text_secondary)}
+        background, ink = colours.get(tone, colours["muted"])
+        self.badge.setStyleSheet(f"QPushButton#reproBadge {{ background: {background}; color: {ink}; }}")
+        self.badge.setText(text)
+        self.badge.setToolTip(tooltip)
+        self.badge.setVisible(bool(text))
+        try:
+            self.badge.clicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        if slot is not None:
+            self.badge.clicked.connect(slot)
 
     def set_back(self, text: str, slot) -> None:
         """A link above the title, back to where this page was opened from

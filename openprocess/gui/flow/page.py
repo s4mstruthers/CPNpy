@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...flow import record as records
+from ...flow import reproducibility
 from ...flow.library import Library
 from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING, Cache, Result, Run, Runner
 from ...flow.types import EventLog, Figure, PetriNet, Scores, Table
@@ -93,6 +94,8 @@ def brief(value) -> str:
 class WorkflowPage(QWidget):
     status = Signal(str)
     saved = Signal()
+    #: A run finished (not stopped): the record wants updating (the window autosaves in a folder).
+    ran = Signal()
     #: Something changed that should be saved (the window autosaves in a folder).
     edited = Signal()
     #: A result should open as a page of its own (a LogDocument, ModelDocument, CpnDocument).
@@ -141,6 +144,8 @@ class WorkflowPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.header = PageHeader(self.workflow.name, self._subtitle())
+        #: Reproducibility, as last computed (a run finishing, a save): see refresh_title.
+        self._repro = reproducibility.status(self.workflow, getattr(document, "record", None), None, self.folder)
         # Canvas: the boxes and wires.  Summary: every result's figure, and the process map.
         self.summary_switch = SegmentedControl(["Canvas", "Summary"], compact=True)
         self.summary_switch.setToolTip("Canvas: the boxes and wires.\nSummary: every result's key "
@@ -297,6 +302,18 @@ class WorkflowPage(QWidget):
 
     def refresh_title(self) -> None:
         self.header.set_text(self.workflow.name, self._subtitle())
+        status = self._repro
+        self.header.set_badge(status.headline, status.tone,
+                              "\n".join([status.headline] + ["· " + d for d in status.details]
+                                        + ["", "Click for the record."]),
+                              self.show_record)
+
+    def refresh_reproducibility(self) -> None:
+        """Compare the record with the inputs on disk and the latest run (a run
+        finished, the analysis was saved)."""
+        self._repro = reproducibility.status(self.workflow, getattr(self.document, "record", None),
+                                             self.run, self.folder)
+        self.refresh_title()
 
     # -- adding boxes: the picker ---------------------------------------------------------------
     def picker(self) -> BoxPicker:
@@ -508,8 +525,10 @@ class WorkflowPage(QWidget):
                 self.status.emit(outcome.summary())
         else:
             self.status.emit(f"The run stopped: {outcome}")
-        self.refresh_title()
+        self.refresh_reproducibility()
         self._render_panel()
+        if isinstance(outcome, Run) and not outcome.stopped and not self._has_queue:
+            self.ran.emit()
         if self.body.currentIndex() == 1:
             self.summary.refresh()
         if self._has_queue or (isinstance(outcome, Run) and outcome.stopped):
@@ -920,7 +939,11 @@ class WorkflowPage(QWidget):
         file_text.setReadOnly(True)
         file_text.setFont(theme.mono_font(11))
         from PySide6.QtWidgets import QApplication
+        status = self._repro
+        repro = label(f"<b>{status.headline}.</b> " + " ".join(status.details), "muted", wrap=True)
+        repro.setTextFormat(Qt.RichText)
         dialog.setLayout(vbox(
+            label("REPRODUCIBILITY", "sectionLabel"), repro,
             label("Everything needed to run this experiment again and get the same numbers. The Python and the "
                   "canvas are two views of the same workflow.", "muted", wrap=True),
             label("AS PYTHON", "sectionLabel"), code, label("THE WORKFLOW FILE", "sectionLabel"), file_text,
@@ -937,7 +960,7 @@ class WorkflowPage(QWidget):
         self.document.record = records.save(self.workflow, target, self.run, self.folder or target.parent)
         self.document.path = str(target)
         self.document.dirty = False
-        self.refresh_title()
+        self.refresh_reproducibility()
         if not quiet:
             self.status.emit(f"Saved {target.name}")
         self.saved.emit()

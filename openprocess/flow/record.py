@@ -318,9 +318,20 @@ def export_experiment(workflow: Workflow, run: Run | None, target: str | Path,
             verdict = " → " + _describe(result.value)
         lines.append(f"- **{workflow.title(node)}** (`{spec.id}`): {settings}; {fed}{verdict}")
     lines += ["", "## Inputs", ""] + [f"- `{i['file']}` sha256 `{i['sha256']}`" for i in record.inputs] +         ["", "## Your boxes", ""] + [f"- `{b['file']}` sha256 `{b['sha256']}`" for b in record.custom_boxes]
+    from .. import citation
+    from .box import algorithm_calls
+    entries = [citation.app_entry()]
+    for node in workflow.order():
+        for called in algorithm_calls(workflow.spec(node)):
+            for item in citation.entries_for_module(called.module):
+                if all(item.key != e.key for e in entries):
+                    entries.append(item)
+    lines += ["", "## How to cite", "", citation.app_text(), "",
+              "`CITATIONS.bib` has this entry and the papers the algorithms follow, as BibTeX."]
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zipped:
         zipped.writestr(f"{name}.cpnflow", json.dumps(data, indent=2, ensure_ascii=False, default=str))
         zipped.writestr("requirements.lock", requirements_lock(record))
+        zipped.writestr("CITATIONS.bib", "\n\n".join(e.bibtex() for e in entries) + "\n")
         zipped.writestr("README.md", "\n".join(lines) + "\n")
         for item in record.inputs:
             path = _resolve(item["file"], folder)

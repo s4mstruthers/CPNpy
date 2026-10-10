@@ -123,6 +123,16 @@ class Cache:
         self.entries.clear()
 
 
+def _file_signature(value) -> str:
+    """``size:mtime_ns`` of a file setting's file, or ``missing``."""
+    from pathlib import Path
+    try:
+        stat = Path(value).stat()
+    except OSError:
+        return "missing"
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+
 def settings_key(settings: dict[str, Any]) -> str:
     return json.dumps({k: (str(v) if not isinstance(v, (int, float, bool, str, type(None), list, dict)) else v)
                        for k, v in sorted(settings.items())}, sort_keys=True, default=str)
@@ -267,6 +277,12 @@ class Runner:
                 result.status = IDLE
                 result.message = f"Choose the {setting.name} in Settings"
                 return result
+        # A file setting is keyed by the file as it is now (size and time), not
+        # just its name: an input edited on disk gets computed again, never
+        # served from the cache as if nothing had happened.
+        for setting in spec.settings:
+            if setting.kind == "path" and settings.get(setting.name) not in (None, ""):
+                keys.append(f"{setting.name}={_file_signature(settings[setting.name])}")
         result.key = hashlib.sha256(
             (spec.fingerprint + "|" + settings_key(settings) + "|" + "|".join(keys)).encode()).hexdigest()
         cached = self.cache.get(result.key)

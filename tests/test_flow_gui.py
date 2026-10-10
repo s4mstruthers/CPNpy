@@ -321,7 +321,8 @@ def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
     window.action_new_workflow(TEMPLATES[0][1])
     page = window.current_page()
     _wait_run(app, page)
-    header = [b.text() for b in page.header.findChildren(QPushButton) if b.isVisible()]
+    header = [b.text() for b in page.header.findChildren(QPushButton)
+              if b.isVisible() and b.objectName() != "reproBadge"]
     assert header == ["Canvas", "Summary", "+ Add box", "Run ▶", "⋯"]
     assert [a.text() for a in page.more_menu.actions() if a.text()] == ["Re-run", "Record…", "Export experiment…", "Save"]
     assert not page.panel.isVisible() and not hasattr(page, "box_tree")
@@ -930,5 +931,70 @@ def test_motion_settles_the_window_and_can_be_turned_off(app, monkeypatch):
     assert not page.body.findChildren(Veil)
     monkeypatch.setattr(motion, "enabled", False)
     assert motion.lift(window.modes) is None and motion.fade_in(window) is None
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_header_says_whether_the_analysis_is_reproducible(app, tmp_path):
+    """A badge beside the title: not recorded, then recorded and reproducing
+    once the run is saved, then "changes since" when an input file is edited."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    (week / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(TEMPLATES[0][1])              # on the folder's first log
+    page = window.current_page()
+    assert page.header.badge is not None and page.header.badge.text() == "Not recorded yet"
+    _wait_run(app, page)
+    window._flush_autosaves()                                # the run is recorded on save
+    assert page.header.badge.text() == "Recorded · this run reproduces it"
+    assert page.document.record is not None and page.document.record.results
+    (week / "orders.log.txt").write_text("[<a,b>^9]", encoding="utf-8")
+    page.refresh_reproducibility()
+    assert page.header.badge.text() == "Recorded · 1 change since"
+    assert "has changed" in page.header.badge.toolTip()
+    page.header.badge.click()                                # the record, with the status on top
+    _pump(app, 0.2)
+    from PySide6.QtWidgets import QDialog, QLabel
+    dialog = next(d for d in window.findChildren(QDialog) if "the record" in d.windowTitle())
+    assert any("1 change since" in w.text() for w in dialog.findChildren(QLabel))
+    dialog.close()
+    page.document.dirty = False
+    window.close()
+
+
+def test_cite_the_app_and_an_algorithm(app):
+    """Help ▸ Cite OpenProcess… gives the app's BibTeX; an algorithm's Code tab
+    has Cite for the papers it follows."""
+    from PySide6.QtWidgets import QPushButton
+
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.cite_app()
+    assert window.cite_dialog.bibtex.startswith("@software{openprocess,")
+    assert "version = {" in window.cite_dialog.bibtex
+    window.cite_dialog.close()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    page.select(page.workflow.order()[1].id, 2)             # the miner's Code tab
+    _pump(app, 0.2)
+    cite = next(b for b in page.panel_host.findChildren(QPushButton) if b.objectName() == "algorithmCite")
+    cite.click()
+    _pump(app, 0.2)
+    from PySide6.QtWidgets import QDialog
+    dialog = next(d for d in window.findChildren(QDialog) if d.windowTitle().startswith("Cite:"))
+    assert "@inproceedings{leemans2013," in dialog.bibtex
+    dialog.close()
     page.document.dirty = False
     window.close()

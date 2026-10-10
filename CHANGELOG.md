@@ -6,6 +6,28 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.0
+
+Two things an academic looks for first: is this reproducible, and how do I
+cite it.
+
+- **A reproducibility badge beside every analysis's title.** "Not recorded
+  yet"; "Recorded · this run reproduces it" when every result matches the
+  record's fingerprints and nothing the analysis depends on has changed;
+  "Recorded · n changes since" when an input file, a box file, a seed or a
+  version differs (hover for which); "This run differs from the record"
+  when the same inputs gave another result. Click it for the record. In a
+  folder the record follows each run by itself.
+- **Cite.** *Help ▸ Cite OpenProcess…* gives the app's BibTeX and a one-line
+  citation. On a box's Code tab, each algorithm has *Cite* with BibTeX for
+  the paper it follows, generated from the reference list. An exported
+  experiment includes `CITATIONS.bib` and a *How to cite* section. The
+  repository has a `CITATION.cff`, so GitHub offers *Cite this repository*.
+- **Fixed: an input file edited on disk was served from the cache.** A box
+  reading a file is now keyed by the file as it is (size and time), so a
+  re-run after editing the log computes again instead of repeating the old
+  result.
+
 ## 0.9.5
 
 - **The log page no longer discovers models by itself.** Its *Discover* tab

@@ -553,7 +553,10 @@ def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
             whole = button("Whole file ⤢", lambda _checked=False, c=called: show_file(c, host.window()),
                            tooltip="The whole algorithm: the file this function lives in, in a window of its own")
             whole.setObjectName("algorithmFile")
-            algorithm_card.add(hbox(title, None, whole))
+            cite = button("Cite", lambda _checked=False, c=called: _cite(c, host.window()),
+                          tooltip="BibTeX for the paper(s) this algorithm follows")
+            cite.setObjectName("algorithmCite")
+            algorithm_card.add(hbox(title, None, cite, whole))
             follows = _follows(called)
             if follows:
                 algorithm_card.add(follows)
@@ -563,6 +566,11 @@ def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
     layout.addWidget(label("The function is the box: call it from a script or a notebook and it runs the same way.",
                            "muted", wrap=True))
     return host
+
+
+def _cite(called: Called, parent=None):
+    from ..studio.cite import cite_module
+    return cite_module(called.module, called.name, parent)
 
 
 def _extent(called: Called) -> str:

@@ -1325,6 +1325,7 @@ class StudioWindow(QMainWindow):
         self._action(help_menu, "References", None, lambda: self.show_guide("references"))
         self._action(help_menu, "Writing Exercise Packs", None,
                      lambda: self.show_guide("exercise-packs"))
+        self._action(help_menu, "Cite OpenProcess…", None, self.cite_app)
         self._action(help_menu, "Check for Updates…", None,
                      lambda: self.check_for_updates(manual=True))
         self._action(help_menu, f"About {APPLICATION_NAME}", None, self._about)
@@ -1346,6 +1347,11 @@ class StudioWindow(QMainWindow):
         action.triggered.connect(slot)
         menu.addAction(action)
         return action
+
+    def cite_app(self) -> None:
+        """Help ▸ Cite OpenProcess…: the app's BibTeX and a one-line citation."""
+        from .cite import cite_app
+        self.cite_dialog = cite_app(self)
 
     def _definitions(self) -> None:
         """Every analysis property, defined mathematically (docs/definitions.md)."""
@@ -1442,6 +1448,7 @@ class StudioWindow(QMainWindow):
             page.edit_requested.connect(lambda net, origin, doc=document: self.edit_petri_net(net, origin, doc))
             page.keep_requested.connect(lambda doc=document: self.keep_workflow(doc))
             page.edited.connect(lambda doc=document: (self._refresh_item(doc), self._schedule_autosave(doc)))
+            page.ran.connect(lambda doc=document: self._schedule_autosave(doc))   # the record follows the run
             if self.workspace is not None:
                 page.custom_allowed = bool(self.workspace.settings().get("boxes_allowed"))
                 page._refresh_custom_bar()
@@ -3567,9 +3574,10 @@ class StudioWindow(QMainWindow):
     def _flush_autosaves(self, ids: list[int] | None = None) -> None:
         """Save now what autosave would save in a moment (switching, closing, quitting)."""
         for document in list(self.documents):
+            timer = self._autosave_timers.get(document.id)
+            pending = timer is not None and timer.isActive()        # a run waiting to be recorded
             if (ids is None or document.id in ids) and getattr(document, "autosave", False) \
-                    and document.dirty:
-                timer = self._autosave_timers.get(document.id)
+                    and (document.dirty or pending):
                 if timer is not None:
                     timer.stop()
                 self._autosave(document)
