@@ -6,6 +6,25 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.8.1
+
+- **A file box has a *Choose…* button.** *Open log*, *Open net*, *Open
+  coloured net* and *Open transition system* no longer ask you to type a
+  path: press *Choose…* under *file* in Settings and pick the file. A file
+  inside the workflow's folder is kept by its name, so the workflow still
+  works when the folder moves; one elsewhere is kept by its full path.
+- **A typed or pasted path works as it is.** Quotes around it, spaces
+  escaped the shell's way (`Week\ 2`) and a leading `~` no longer make
+  the box fail with "No such file".
+- ***+ Add box* is a rounded card with a soft shadow**, like the app's
+  menus, instead of a square box with a hard edge.
+- **The Code tab says which code is which.** Two cards: *This box*, the
+  few lines that make the box, and *The algorithm it calls*, the function
+  the box hands the work to. Under that function a line says how much of
+  its file it is ("inductive_miner is 12 of inductive.py's 478 lines; the
+  other 466 are the algorithm's helpers and its docstring") and that
+  *Whole file ⤢* shows them.
+
 ## 0.8.0
 
 A calmer Workflows page. Nothing is gone; what you rarely need has moved out

@@ -13,25 +13,41 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtWidgets import QFrame, QGridLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QGridLayout, QLineEdit, QPushButton, QVBoxLayout,
+                               QWidget)
 
 from ...flow.library import GROUP_ORDER, Library
+from .. import theme
 from ..studio import style
 from ..studio.widgets import hbox, label, vbox
 
 #: The groups shown before *Show all*: what most workflows are made of.
 CORE_GROUPS = GROUP_ORDER[:6]
 COLUMNS = 3
+#: Room around the card for its shadow, inside the see-through popup window.
+SHADOW_MARGIN = 24
 
 
-class BoxPicker(QFrame):
-    """A popup listing the library's boxes by group; emits :attr:`chosen` with a box id."""
+class BoxPicker(QWidget):
+    """A popup listing the library's boxes by group; emits :attr:`chosen` with a box id.
+
+    The window itself is see-through: what shows is :attr:`card`, a rounded
+    panel with a soft shadow, so the popover has the corners of the app's
+    menus rather than a square box with a hard edge."""
 
     chosen = Signal(str)
 
     def __init__(self, library: Library, parent: QWidget | None = None) -> None:
-        super().__init__(parent, Qt.Popup)
-        self.setObjectName("card")
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.card = QFrame()
+        self.card.setObjectName("boxPicker")
+        shadow = QGraphicsDropShadowEffect(self.card)
+        shadow.setBlurRadius(SHADOW_MARGIN + 8)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(0, 0, 0, 110 if theme.is_dark() else 50))
+        self.card.setGraphicsEffect(shadow)
         self.library = library
         self.show_all = False
         self.search = QLineEdit()
@@ -49,26 +65,33 @@ class BoxPicker(QFrame):
         self.more_button = QPushButton()
         self.more_button.clicked.connect(self._toggle_all)
         self.footer = hbox(self.more_text, None, self.more_button)
-        self.setLayout(vbox(self.search, self.groups_host, self.footer, spacing=12, margins=(14, 14, 14, 14)))
-        self.setMinimumWidth(560)
+        self.card.setLayout(vbox(self.search, self.groups_host, self.footer, spacing=12, margins=(16, 16, 16, 16)))
+        self.card.setMinimumWidth(560)
+        self.setLayout(vbox(self.card, margins=(SHADOW_MARGIN,) * 4))
         self.buttons: list[QPushButton] = []
         self.refill()
 
     # -- showing ---------------------------------------------------------------------------
     def open_at(self, point: QPoint) -> None:
-        """Show the popover with its top-left corner at ``point`` (global), kept on screen."""
+        """Show the popover with the card's top-left corner at ``point`` (global), kept on screen."""
         self.search.clear()
         self.show_all = False
         self.refill()
         self.adjustSize()
         screen = self.screen().availableGeometry() if self.screen() else None
+        width, height = self.card_size()
         x, y = point.x(), point.y()
         if screen is not None:
-            x = max(screen.left(), min(x, screen.right() - self.width()))
-            y = max(screen.top(), min(y, screen.bottom() - self.height()))
-        self.move(x, y)
+            x = max(screen.left(), min(x, screen.right() - width))
+            y = max(screen.top(), min(y, screen.bottom() - height))
+        self.move(x - SHADOW_MARGIN, y - SHADOW_MARGIN)
         self.show()
         self.search.setFocus()
+
+    def card_size(self) -> tuple[int, int]:
+        """Width and height of the visible card (the window is larger by the shadow's room)."""
+        hint = self.sizeHint()
+        return hint.width() - 2 * SHADOW_MARGIN, hint.height() - 2 * SHADOW_MARGIN
 
     # -- filling -----------------------------------------------------------------------------
     def shown_groups(self) -> dict[str, list]:

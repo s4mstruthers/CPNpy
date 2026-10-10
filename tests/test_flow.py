@@ -526,3 +526,20 @@ def test_a_box_without_its_file_waits_instead_of_failing():
     result = run.result(log)
     assert result.status == "idle" and "Choose the file in Settings" in result.message
     assert not run.failed()
+
+
+def test_a_typed_path_setting_is_cleaned_up(tmp_path):
+    """A path pasted with quotes, shell escapes or a leading ~ is taken as
+    the file it names, with spaces in folder names and all."""
+    from openprocess.flow.box import clean_path
+
+    setting = open_log.spec.setting("file")
+    spaced = tmp_path / "Week 2" / "boarding.xes"
+    assert setting.coerce(f'  "{spaced}"  ') == spaced
+    assert setting.coerce(f"'{spaced}'") == spaced
+    assert setting.coerce(str(spaced).replace(" ", "\\ ")) == spaced
+    assert setting.coerce("orders.log.txt") == Path("orders.log.txt")
+    assert setting.coerce("") is None and setting.coerce(None) is None
+    assert setting.coerce(spaced) == spaced
+    assert clean_path("~/logs/a.xes") == str(Path.home() / "logs" / "a.xes")
+    assert "Choose…" in setting.help and "folder" in setting.help

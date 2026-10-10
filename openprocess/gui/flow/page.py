@@ -274,7 +274,7 @@ class WorkflowPage(QWidget):
         picker = self.picker()
         picker.chosen.connect(self.add_box_in_view)
         corner = self.add_button.mapToGlobal(QPoint(0, self.add_button.height() + 4))
-        picker.open_at(QPoint(corner.x() + self.add_button.width() - picker.sizeHint().width(), corner.y()))
+        picker.open_at(QPoint(corner.x() + self.add_button.width() - picker.card_size()[0], corner.y()))
 
     def add_box_in_view(self, box_id: str) -> None:
         """Add ``box_id`` where it can be seen: bottom-left of the view, staggered."""
@@ -295,7 +295,7 @@ class WorkflowPage(QWidget):
         if unchosen:
             # A box that needs a file: open its Settings, where the file is chosen.
             self.select(node.id, 3)
-            self.status.emit(f"Added {spec.name}: choose its {unchosen[0].name} in Settings, on the right")
+            self.status.emit(f"Added {spec.name}: press Choose… under {unchosen[0].name} in Settings, on the right")
         else:
             self.status.emit(f"Added {spec.name}: drag from a dot on the right of a box to connect it")
         self.refresh_title()

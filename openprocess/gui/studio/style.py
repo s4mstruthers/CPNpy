@@ -461,7 +461,11 @@ def stylesheet() -> str:
         border-bottom: 1px solid {t.border}; padding: 6px 8px; font-weight: 600;
         font-size: 11px; }}
     QTableCornerButton::section {{ background: {t.surface}; border: none; }}
-    /* The Workflows page's + Add box popover: rows like the sidebar's, group names as captions. */
+    /* The Workflows page's + Add box popover: a rounded card in a see-through
+       window (the shadow is drawn by the picker), rows like the sidebar's,
+       group names as captions. */
+    #boxPicker {{ background: {t.surface}; border: 1px solid {t.border}; border-radius: 12px; }}
+    QLineEdit#boxSearch {{ border-radius: 8px; padding: 7px 10px; font-size: 13px; }}
     QPushButton#boxChoice {{ background: transparent; border: none; border-radius: 5px;
         padding: 4px 8px; text-align: left; }}
     QPushButton#boxChoice:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}

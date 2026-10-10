@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from ...flow.box import BoxSpec, Called, Setting, algorithm_calls
+from ...flow.box import BoxSpec, Called, Setting, algorithm_calls, clean_path
 from ...flow.explain import Explanation
 from ...flow.runner import Result
 from ...flow.sweep import Sweep, is_sweep
@@ -492,19 +492,27 @@ def _follows(called: Called) -> QLabel | None:
 
 
 def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
-    """The box's own source and, under it, the code of every algorithm it
-    calls (see :func:`openprocess.flow.box.algorithm_calls`): the box is a thin
-    wrapper, so the code to read when assessing correctness is the latter."""
+    """Two cards: *This box* (its own few lines) and *The algorithm it calls*
+    (see :func:`openprocess.flow.box.algorithm_calls`), each with the code
+    and a line saying what it is.  The box is a thin wrapper, so the code
+    to read when assessing correctness is the second; what it shows is the
+    function the box calls, and *Whole file* opens the rest of the
+    algorithm."""
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(8)
+    layout.setSpacing(12)
     calls = algorithm_calls(spec)
     where = spec.file if spec.custom else f"openprocess/flow/boxes/{spec.module.rsplit('.', 1)[-1]}.py"
+    where = f"{where}:{spec.line}" if spec.line else where
+    lines = (spec.source or "").count("\n") + 1
     if calls:
-        layout.addWidget(label("THE BOX", "sectionLabel"))
-    layout.addWidget(label(f"{where}:{spec.line}" if spec.line else where, "muted", wrap=True, selectable=True))
-    layout.addWidget(_code_view(spec.source, compact), 1)
+        box_caption = (f"{where} · {lines} line{'s' if lines != 1 else ''}. The function that is the box: "
+                       f"it takes the inputs, calls the algorithm below and hands back the result.")
+    else:
+        box_caption = f"{where} · {lines} line{'s' if lines != 1 else ''}. The function that is the box."
+    box_card = Card("This box", box_caption)
+    box_card.add(_code_view(spec.source, compact), 1)
     actions = []
     if spec.file and Path(spec.file).is_file():
         actions.append(button("Open in your editor", lambda: _open_in_editor(spec.file),
@@ -514,28 +522,49 @@ def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
         actions.append(label("Needs " + ", ".join(spec.needs)
                              + ("" if spec.available else " (not installed: the box is greyed out)"), "muted"))
     if actions:
-        layout.addLayout(hbox(*actions, None))
+        box_card.add(hbox(*actions, None))
+    layout.addWidget(box_card)
     if calls:
-        layout.addSpacing(6)
-        layout.addWidget(label("THE ALGORITHM", "sectionLabel"))
-        layout.addWidget(label("The box only wraps these: the actual work is in the functions it calls, "
-                               "shown here in the order they are called. <i>Whole file</i> opens the module "
-                               "they live in, whose docstring explains the algorithm and names its source.",
-                               "muted", wrap=True))
+        several = len(calls) > 1
+        algorithm_card = Card(
+            "The algorithm it calls" if not several else "The algorithms it calls",
+            "The actual work. Shown here: " + ("the function the box calls" if not several else
+                                                "the functions the box calls, in order")
+            + ". The rest of the algorithm, the helpers it uses and the docstring that names its source, "
+              "are in its file: <i>Whole file ⤢</i> opens it, scrolled to the function.")
         for called in calls:
             title = label(f"<b>{escape(called.name)}</b>  ·  {escape(called.where)}", "muted", wrap=True,
                           selectable=True)
             whole = button("Whole file ⤢", lambda _checked=False, c=called: show_file(c, host.window()),
-                           tooltip="The module this function lives in, in a window of its own")
+                           tooltip="The whole algorithm: the file this function lives in, in a window of its own")
             whole.setObjectName("algorithmFile")
-            layout.addLayout(hbox(title, None, whole))
+            algorithm_card.add(hbox(title, None, whole))
             follows = _follows(called)
             if follows:
-                layout.addWidget(follows)
-            layout.addWidget(_code_view(called.source, compact))
+                algorithm_card.add(follows)
+            algorithm_card.add(_code_view(called.source, compact))
+            algorithm_card.add(label(_extent(called), "muted", wrap=True))
+        layout.addWidget(algorithm_card)
     layout.addWidget(label("The function is the box: call it from a script or a notebook and it runs the same way.",
                            "muted", wrap=True))
     return host
+
+
+def _extent(called: Called) -> str:
+    """"alpha_miner is 24 of alpha.py's 310 lines; the other 286 are the
+    algorithm's helpers" — so it is plain that the snippet is one function
+    of the file, not the whole algorithm."""
+    shown = (called.source or "").count("\n") + 1
+    try:
+        total = Path(called.file).read_text(encoding="utf-8", errors="replace").count("\n") + 1
+    except OSError:
+        return f"{called.name}: the function the box calls, {shown} lines."
+    name = Path(called.file).name
+    rest = total - shown
+    if rest <= 0:
+        return f"{called.name} is the whole of {name}."
+    return (f"{called.name} is {shown} of {name}'s {total} lines; the other {rest} are the algorithm's "
+            f"helpers and its docstring. Whole file ⤢ shows them.")
 
 
 # ---------------------------------------------------------------------------
@@ -594,19 +623,18 @@ class SettingsWidget(QWidget):
             control.setValue(float(value) if not swept else float(setting.default))
             control.valueChanged.connect(lambda v, s=setting: self.changed.emit(s.name, v))
         elif setting.kind == "path":
-            control = QComboBox()
-            control.setEditable(True)
-            for name in self._files():
-                control.addItem(name)
-            control.setCurrentText("" if value in (None, "") else str(value))
-            control.lineEdit().editingFinished.connect(
-                lambda s=setting, c=control: self.changed.emit(s.name, c.currentText()))
-            control.activated.connect(lambda _i, s=setting, c=control: self.changed.emit(s.name, c.currentText()))
+            control = self._path_control(setting, value)
         else:
             control = QLineEdit(str(value) if not swept else "")
             control.editingFinished.connect(lambda s=setting, c=control: self.changed.emit(s.name, c.text()))
         self.controls[setting.name] = control
-        column.addWidget(control)
+        if setting.kind == "path":
+            choose = button("Choose…", lambda _checked=False, s=setting, c=control: self._choose_file(s, c),
+                            tooltip="Pick the file in a dialog")
+            choose.setObjectName(f"choose_{setting.name}")
+            column.addLayout(hbox(control, choose, spacing=6))
+        else:
+            column.addWidget(control)
         if setting.kind in ("int", "float"):
             sweep_row = QHBoxLayout()
             sweep_row.setSpacing(6)
@@ -646,6 +674,57 @@ class SettingsWidget(QWidget):
             return
         edit.setStyleSheet("")
         self.changed.emit(setting.name, sweep)
+
+    def _path_control(self, setting: Setting, value) -> QComboBox:
+        """The file field: a list of the folder's files to pick from, or a
+        path typed or pasted (quotes and shell escapes are tolerated)."""
+        control = QComboBox()
+        control.setEditable(True)
+        control.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        control.lineEdit().setPlaceholderText("Choose… or type a name in the workflow's folder")
+        for name in self._files():
+            control.addItem(name)
+        control.setCurrentText("" if value in (None, "") else str(value))
+
+        def typed(s=setting, c=control):
+            text = clean_path(c.currentText())
+            if text != c.currentText():
+                c.setCurrentText(text)
+            self.changed.emit(s.name, text)
+        control.lineEdit().editingFinished.connect(typed)
+        control.activated.connect(lambda _i: typed())
+        return control
+
+    def _choose_file(self, setting: Setting, control: QComboBox) -> None:
+        """*Choose…*: a file dialog, starting in the workflow's folder (or
+        where the current file is).  A file inside the folder is kept
+        relative to it, so the workflow still works when the folder moves;
+        one elsewhere is kept as its full path."""
+        current = clean_path(control.currentText())
+        start = ""
+        if current:
+            candidate = Path(current) if Path(current).is_absolute() or self.folder is None else Path(self.folder) / current
+            if candidate.exists():
+                start = str(candidate)
+        if not start and self.folder is not None:
+            start = str(self.folder)
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Choose {setting.name.replace('_', ' ')}", start,
+            "Logs and nets (*.xes *.gz *.csv *.txt *.pnml *.cpn);;All files (*)")
+        if not path:
+            return
+        control.setCurrentText(self.display_path(path))
+        self.changed.emit(setting.name, control.currentText())
+
+    def display_path(self, path: str | Path) -> str:
+        """``path`` relative to the workflow's folder when it is inside it, else as given."""
+        chosen = Path(path)
+        if self.folder is not None:
+            try:
+                return str(chosen.resolve().relative_to(Path(self.folder).resolve()))
+            except ValueError:
+                pass
+        return str(chosen)
 
     def _files(self) -> list[str]:
         if self.folder is None or not Path(self.folder).is_dir():
