@@ -541,7 +541,8 @@ def test_choose_picks_the_file_in_a_dialog(app, tmp_path, monkeypatch):
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(fake_dialog))
     asked["answer"] = str(inside)
     choose.click()
-    assert asked["title"] == "Choose file" and Path(asked["start"]) == week and "*.xes" in asked["filters"]
+    assert asked["title"] == "Choose file" and Path(asked["start"]) == week
+    assert asked["filters"] == "Event logs (*.xes *.xes.gz *.gz *.csv *.txt);;All files (*)"
     assert field.currentText() == "orders.log.txt"                 # relative: the folder may move
     _pump(app, 0.6)                                                  # settings apply after a short pause
     _wait_run(app, page)
@@ -584,6 +585,8 @@ def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
     week = tmp_path / "Week 2"
     (week / "logs").mkdir(parents=True)
     (week / "logs" / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    (week / "net.pnml").write_text("<pnml/>", encoding="utf-8")          # not a log: not listed
+    (week / "notes.txt").write_text("not a log either", encoding="utf-8")
     library = library_for(week)
     wf = Workflow("Pick from the list", library)
     node = wf.add(next(s for s in library.specs.values() if s.id.endswith("open_log")))
@@ -595,7 +598,7 @@ def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
     page.select(node.id, 3)
     _pump(app, 0.1)
     field = next(c for c in page.panel_host.findChildren(QComboBox) if c.isEditable())
-    assert [field.itemText(i) for i in range(field.count())] == ["orders.log.txt"]   # short names
+    assert [field.itemText(i) for i in range(field.count())] == ["orders.log.txt"]   # logs only, short names
     assert field.itemData(0) == "logs/orders.log.txt"                               # the path behind
     runs_before = page.run
     field.lineEdit().setFocus()

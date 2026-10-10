@@ -38,6 +38,12 @@ moves on disk.
   list, and "Untitled" drafts of nets sitting among logs.
 - The welcome page has one card per space. View ▸ Mine, Model and Learn
   (⌃⌥1, ⌃⌥2, ⌃⌥3) switch too.
+- **A file box lists only the files it can read.** *Open log* offers the
+  folder's event logs, *Open net* its PNML files, *Open coloured net* its
+  .cpn files, *Open transition system* its ts.txt files, by name, with the
+  subfolder shown only when two names clash. *Choose…* filters the same way.
+  Picking from the list works on macOS now (it flickered shut before), and
+  the panel no longer runs off the edge in a folder with long paths.
 
 ## 0.8.1
 

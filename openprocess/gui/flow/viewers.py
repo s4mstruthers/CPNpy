@@ -734,8 +734,7 @@ class SettingsWidget(QWidget):
         if not start and self.folder is not None:
             start = str(self.folder)
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Choose {setting.name.replace('_', ' ')}", start,
-            "Logs and nets (*.xes *.gz *.csv *.txt *.pnml *.cpn);;All files (*)")
+            self, f"Choose {setting.name.replace('_', ' ')}", start, self._dialog_filter())
         if not path:
             return
         control.setCurrentText(self.display_path(path))
@@ -751,15 +750,43 @@ class SettingsWidget(QWidget):
                 pass
         return str(chosen)
 
+    def _kinds(self) -> tuple[str, ...]:
+        """The kinds of file this box can read, from what it gives: a box that
+        gives a Log reads event logs, one that gives a Petri net reads PNML,
+        and so on (nothing for a box author to declare).  Empty: any kind."""
+        kinds = []
+        for port in self.spec.outputs:
+            for cls, kind in ((EventLog, "log"), (PetriNet, "petri"), (CPNet, "cpn"),
+                              (TransitionSystem, "ts")):
+                if port.type is cls:
+                    kinds.append(kind)
+        return tuple(kinds)
+
     def _files(self) -> list[str]:
+        """The folder's files this box can read, relative to it (up to 200)."""
+        from ..studio.workspace import file_kind
         if self.folder is None or not Path(self.folder).is_dir():
             return []
+        kinds = self._kinds()
         names = []
         for path in sorted(Path(self.folder).rglob("*")):
-            if path.is_file() and not path.name.startswith(".") and path.suffix.lower() in (
-                    ".xes", ".gz", ".csv", ".txt", ".pnml", ".cpn") and len(names) < 200:
-                names.append(str(path.relative_to(self.folder)))
+            if len(names) >= 200:
+                break
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            kind = file_kind(path)
+            if kind is None or kind == "workflow" or (kinds and kind not in kinds):
+                continue
+            names.append(str(path.relative_to(self.folder)))
         return names
+
+    def _dialog_filter(self) -> str:
+        """The Choose… dialog's file types, matching :meth:`_files`."""
+        by_kind = {"log": "Event logs (*.xes *.xes.gz *.gz *.csv *.txt)",
+                   "petri": "Petri nets (*.pnml)", "cpn": "Coloured Petri nets (*.cpn)",
+                   "ts": "Transition systems (*.txt)"}
+        kinds = self._kinds() or tuple(by_kind)
+        return ";;".join([by_kind[k] for k in kinds] + ["All files (*)"])
 
 
 # ---------------------------------------------------------------------------
