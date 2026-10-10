@@ -16,6 +16,14 @@ notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 - **A typed or pasted path works as it is.** Quotes around it, spaces
   escaped the shell's way (`Week\ 2`) and a leading `~` no longer make
   the box fail with "No such file".
+- ***+ Add box* is a rounded card with a soft shadow**, like the app's
+  menus, instead of a square box with a hard edge.
+- **The Code tab says which code is which.** Two cards: *This box*, the
+  few lines that make the box, and *The algorithm it calls*, the function
+  the box hands the work to. Under that function a line says how much of
+  its file it is ("inductive_miner is 12 of inductive.py's 478 lines; the
+  other 466 are the algorithm's helpers and its docstring") and that
+  *Whole file ⤢* shows them.
 
 ## 0.8.0
 

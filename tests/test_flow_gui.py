@@ -76,7 +76,9 @@ def test_workflow_page_runs_and_shows_every_tab(app):
     edits = [w.toPlainText() for w in page.panel_host.findChildren(QPlainTextEdit)]
     assert "def alpha_miner(log: EventLog)" in edits[0]                 # the box: a thin wrapper
     labels = " ".join(w.text() for w in page.panel_host.findChildren(QLabel))
-    assert "THE ALGORITHM" in labels and "openprocess/mining/discovery/alpha.py" in labels
+    assert "This box" in labels and "The algorithms it calls" in labels     # α calls two functions
+    assert "openprocess/mining/discovery/alpha.py" in labels
+    assert "alpha_miner is" in labels and "lines; the other" in labels   # the snippet is one function of the file
     assert "Follows" in labels and "Weijters" in labels                 # the work the code follows
     assert any("def alpha_miner(log: SimpleLog" in text for text in edits)   # the algorithm itself
     assert any("def footprint_of_log" in text for text in edits)

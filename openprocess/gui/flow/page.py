@@ -274,7 +274,7 @@ class WorkflowPage(QWidget):
         picker = self.picker()
         picker.chosen.connect(self.add_box_in_view)
         corner = self.add_button.mapToGlobal(QPoint(0, self.add_button.height() + 4))
-        picker.open_at(QPoint(corner.x() + self.add_button.width() - picker.sizeHint().width(), corner.y()))
+        picker.open_at(QPoint(corner.x() + self.add_button.width() - picker.card_size()[0], corner.y()))
 
     def add_box_in_view(self, box_id: str) -> None:
         """Add ``box_id`` where it can be seen: bottom-left of the view, staggered."""
