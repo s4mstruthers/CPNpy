@@ -1,4 +1,4 @@
-"""Smoke test for CPNpy Studio: build every page offscreen and exercise it.
+"""Smoke test for OpenProcess Studio: build every page offscreen and exercise it.
 
 Skipped when PySide6 is not installed.  Nothing is shown on screen: Qt's
 "offscreen" platform renders into memory, which is enough to catch errors
@@ -30,7 +30,7 @@ def app():
 def fake_bin(tmp_path_factory, monkeypatch):
     """Nothing a test moves "to the Bin" goes to your real Bin: it lands here."""
     import shutil
-    from cpnpy.gui.studio import app as studio_app
+    from openprocess.gui.studio import app as studio_app
 
     folder = tmp_path_factory.mktemp("Bin")
 
@@ -53,9 +53,9 @@ def _pump(app, seconds: float) -> None:
 
 
 def test_studio_end_to_end(app):
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument, ModelDocument
-    from cpnpy.mining import inductive_miner, read_xes
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument, ModelDocument
+    from openprocess.mining import inductive_miner, read_xes
 
     window = StudioWindow()
     window.resize(1400, 900)
@@ -111,7 +111,7 @@ def test_studio_end_to_end(app):
     window.tree.setCurrentItem(window.items[log.id])
     log_page.tabs.set_index(3)
     _pump(app, 0.3)
-    from cpnpy.gui.studio.dotted_chart import DottedChartPanel
+    from openprocess.gui.studio.dotted_chart import DottedChartPanel
     panel = log_page.findChild(DottedChartPanel)
     chart = panel.chart
     full = (chart.vx0, chart.vx1)
@@ -136,7 +136,7 @@ def test_studio_end_to_end(app):
 
 
 def test_graph_view_zoom_controls(app):
-    from cpnpy.gui.studio.graph_view import GraphView, NodeSpec, EdgeSpec
+    from openprocess.gui.studio.graph_view import GraphView, NodeSpec, EdgeSpec
 
     view = GraphView()
     view.resize(600, 400)
@@ -172,9 +172,9 @@ def test_cpn_page_edit_simulate_analyse(app, tmp_path):
     from PySide6.QtTest import QTest
     from models import dining_philosophers
 
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.cpn_page import CpnPage, simulation_to_log
-    from cpnpy.gui.studio.documents import CpnDocument, LogDocument
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.cpn_page import CpnPage, simulation_to_log
+    from openprocess.gui.studio.documents import CpnDocument, LogDocument
 
     window = StudioWindow()
     window.resize(1500, 950)
@@ -269,7 +269,7 @@ def test_cpn_page_edit_simulate_analyse(app, tmp_path):
     target = tmp_path / "saved.cpn"
     assert page._write(target)
     assert not page.document.dirty
-    from cpnpy.io.cpn_reader import read_cpn
+    from openprocess.io.cpn_reader import read_cpn
     assert read_cpn(target).compile() == []
 
     # A new model, built by hand: declarations, places, transition, arcs.
@@ -332,11 +332,11 @@ def test_cpn_page_edit_simulate_analyse(app, tmp_path):
 
 
 def test_compare_logs(app):
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.compare_page import ComparePage, activity_shares, key_figures
-    from cpnpy.gui.studio.documents import ComparisonDocument, LogDocument
-    from cpnpy.mining import read_xes
-    from cpnpy.mining.log import EventLog, parse_simple_log
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.compare_page import ComparePage, activity_shares, key_figures
+    from openprocess.gui.studio.documents import ComparisonDocument, LogDocument
+    from openprocess.mining import read_xes
+    from openprocess.mining.log import EventLog, parse_simple_log
 
     window = StudioWindow()
     window.show()
@@ -382,8 +382,8 @@ def test_cpn_arc_editing_like_cpn_ide(app):
     from PySide6.QtCore import QPoint, QPointF
     from PySide6.QtTest import QTest
 
-    from cpnpy.gui.items import PlaceItem
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.items import PlaceItem
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.resize(1500, 950)
@@ -480,13 +480,13 @@ def test_petri_net_editor_draw_and_analyse(app, tmp_path):
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QPushButton, QTableWidget
 
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import CpnDocument
-    from cpnpy.gui.studio.petri_page import PetriNetPage
-    from cpnpy.mining.analysis import check_soundness
-    from cpnpy.mining.petrinet import PetriNet
-    from cpnpy.mining.pnml import read_pnml
-    from cpnpy.model.plain import from_petri_net
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import CpnDocument
+    from openprocess.gui.studio.petri_page import PetriNetPage
+    from openprocess.mining.analysis import check_soundness
+    from openprocess.mining.petrinet import PetriNet
+    from openprocess.mining.pnml import read_pnml
+    from openprocess.model.plain import from_petri_net
 
     window = StudioWindow()
     window.resize(1500, 950)
@@ -619,8 +619,8 @@ def test_petri_net_names_inside_or_outside(app, tmp_path):
     from PySide6.QtCore import QPointF
     from PySide6.QtTest import QTest
 
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.petri_page import PetriNetPage
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.petri_page import PetriNetPage
 
     window = StudioWindow()
     window.resize(1400, 900)
@@ -700,9 +700,9 @@ def test_dotted_chart_custom_colours(app):
     """Legend values can be given their own dot colour, and reset."""
     from PySide6.QtGui import QColor
 
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.dotted_chart import DottedChartPanel
-    from cpnpy.mining import read_xes
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.dotted_chart import DottedChartPanel
+    from openprocess.mining import read_xes
 
     panel = DottedChartPanel(LogDocument(read_xes(DATA / "plane_wilma_10.xes")))
     panel.resize(1200, 700)
@@ -729,10 +729,10 @@ def test_hover_arrow_draws_arcs(app):
     from PySide6.QtCore import QPointF
     from PySide6.QtTest import QTest
 
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.mining.petrinet import PetriNet
-    from cpnpy.model.plain import from_petri_net
-    from cpnpy.gui.studio.documents import CpnDocument
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.mining.petrinet import PetriNet
+    from openprocess.model.plain import from_petri_net
+    from openprocess.gui.studio.documents import CpnDocument
 
     petri = PetriNet("hover")
     for name, x in (("p1", 0.0), ("p2", 300.0)):
@@ -798,11 +798,11 @@ def test_dragging_the_arrow_to_empty_space_adds_the_other_node(app):
     from PySide6.QtCore import QPointF
     from PySide6.QtTest import QTest
 
-    from cpnpy.gui.items import PlaceItem, TransitionItem
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import CpnDocument
-    from cpnpy.mining.petrinet import PetriNet
-    from cpnpy.model.plain import from_petri_net
+    from openprocess.gui.items import PlaceItem, TransitionItem
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import CpnDocument
+    from openprocess.mining.petrinet import PetriNet
+    from openprocess.model.plain import from_petri_net
 
     petri = PetriNet("chain")
     petri.add_place("p1").position = (0.0, 0.0)
@@ -883,9 +883,9 @@ def test_petri_analysis_follows_the_paper_and_trace_highlights(app):
     up the path taken, and the Trace box switches that off."""
     from PySide6.QtWidgets import QLabel
 
-    from cpnpy.gui.studio import petri_page
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.model.examples import order_handling_unsound
+    from openprocess.gui.studio import petri_page
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.model.examples import order_handling_unsound
 
     window = StudioWindow()
     window.resize(1500, 950)
@@ -946,11 +946,11 @@ def test_properties_show_their_definitions(app):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    from cpnpy.gui.studio import petri_page
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.definition_view import show_reference
-    from cpnpy.gui.studio.widgets import Verdict
-    from cpnpy.model.examples import order_handling_unsound
+    from openprocess.gui.studio import petri_page
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.definition_view import show_reference
+    from openprocess.gui.studio.widgets import Verdict
+    from openprocess.model.examples import order_handling_unsound
 
     window = StudioWindow()
     window.resize(1500, 950)
@@ -993,10 +993,10 @@ def test_removing_a_petri_net_and_a_log_without_times(app, monkeypatch):
     section was missing from the ordering), and the dotted chart of a log
     without timestamps raised AttributeError while it was being built."""
     import sys
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.dotted_chart import DottedChartPanel
-    from cpnpy.mining import EventLog, parse_simple_log
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.dotted_chart import DottedChartPanel
+    from openprocess.mining import EventLog, parse_simple_log
 
     errors = []
     monkeypatch.setattr(sys, "excepthook", lambda *info: errors.append(info))
@@ -1022,10 +1022,10 @@ def test_removing_a_petri_net_and_a_log_without_times(app, monkeypatch):
 
 
 def test_filter_dialog_opens_a_filtered_log(app):
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.gui.studio.filter_dialog import FilterDialog
-    from cpnpy.mining import EventLog, parse_simple_log
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.gui.studio.filter_dialog import FilterDialog
+    from openprocess.mining import EventLog, parse_simple_log
 
     window = StudioWindow()
     window.show()
@@ -1052,8 +1052,8 @@ def test_substitution_transition_opens_its_subpage(app, tmp_path):
     import sys
     sys.path.insert(0, str(Path(__file__).parent))
     from test_hierarchy import hierarchical
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.io.cpn_writer import write_cpn
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.io.cpn_writer import write_cpn
 
     net = hierarchical()
     net.compile()
@@ -1082,7 +1082,7 @@ def test_clicking_away_from_the_name_box_keeps_the_name(app):
     an untouched box used to stay open over the node)."""
     from PySide6.QtCore import QPoint
     from PySide6.QtTest import QTest
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.show()
@@ -1127,8 +1127,8 @@ def test_clicking_away_from_the_name_box_keeps_the_name(app):
 def test_save_as_names_the_net_after_its_file(app, tmp_path, monkeypatch):
     """Regression: Save As wrote the file but the net kept the name
     "Untitled 1" in the header, the sidebar and the window title."""
-    from cpnpy.gui.studio import cpn_page, petri_page
-    from cpnpy.gui.studio.app import APPLICATION_NAME, StudioWindow
+    from openprocess.gui.studio import cpn_page, petri_page
+    from openprocess.gui.studio.app import APPLICATION_NAME, StudioWindow
 
     window = StudioWindow()
     window.show()
@@ -1167,10 +1167,10 @@ def test_renaming_a_net_renames_its_file(app, tmp_path, monkeypatch):
     import shutil
 
     from PySide6.QtTest import QTest
-    from cpnpy.gui.studio import app as studio_app
-    from cpnpy.gui.studio.app import APPLICATION_NAME, StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.mining import EventLog, parse_simple_log
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import APPLICATION_NAME, StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.mining import EventLog, parse_simple_log
 
     root = Path(__file__).resolve().parents[1]
     source = tmp_path / "order.pnml"
@@ -1212,7 +1212,7 @@ def test_renaming_a_net_renames_its_file(app, tmp_path, monkeypatch):
 
     # A log is named by its concept:name, not its file: only the name changes.
     log_file = tmp_path / "events.xes"
-    from cpnpy.mining.xes import write_xes
+    from openprocess.mining.xes import write_xes
     write_xes(EventLog.from_simple_log(parse_simple_log("[<a,b>^2]"), "Boarding"), log_file)
     window.open_path(str(log_file))
     for _ in range(300):                       # logs are read in the background
@@ -1234,11 +1234,11 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     receive new nets, and the open files are restored next time."""
     import shutil
 
-    from cpnpy.gui.studio import petri_page
-    from cpnpy.gui.studio.app import APPLICATION_NAME, FILE_ROLE, StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.mining import EventLog, parse_simple_log
-    from cpnpy.mining.xes import write_xes
+    from openprocess.gui.studio import petri_page
+    from openprocess.gui.studio.app import APPLICATION_NAME, FILE_ROLE, StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.mining import EventLog, parse_simple_log
+    from openprocess.mining.xes import write_xes
 
     root = Path(__file__).resolve().parents[1]
     week = tmp_path / "Week 2"
@@ -1314,7 +1314,7 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     assert sum(1 for i in range(3) if window.petri_section.child(i).data(0, FILE_ROLE)) == 2
 
     # What was open is remembered in the folder and comes back next time.
-    assert (week / ".cpnpy").exists()
+    assert (week / ".openprocess").exists()
     window.close()
     again = StudioWindow()
     again.show()
@@ -1323,7 +1323,7 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
     assert sorted(d.name for d in again.documents) == ["Boarding", "my model"]
     assert again.windowTitle() == "my model — Week 2"          # it was selected
 
-    # Closing the workspace closes everything and goes back to "CPNpy Studio".
+    # Closing the workspace closes everything and goes back to "OpenProcess Studio".
     assert again.close_workspace()
     assert again.documents == [] and again.sidebar_title.text() == APPLICATION_NAME
     assert all(s.isHidden() for s in (again.logs_section, again.petri_section, again.cpn_section))
@@ -1331,7 +1331,7 @@ def test_workspace_folder(app, tmp_path, monkeypatch):
 
 
 def test_empty_workspace_says_so(app, tmp_path):
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.show()
@@ -1368,7 +1368,7 @@ def test_middle_drag_pans_the_net_editor(app):
     starts on the left button), did nothing while the whole net was in view,
     and could leave the view stuck in hand-drag mode."""
     from PySide6.QtWidgets import QGraphicsView
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     root = Path(__file__).resolve().parents[1]
     window = StudioWindow()
@@ -1431,10 +1431,10 @@ def test_the_canvas_is_endless(app, which):
     from PySide6.QtCore import QEvent, QPoint, QPointF
     from PySide6.QtGui import QKeyEvent, QMouseEvent
     from PySide6.QtWidgets import QApplication
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.graph_view import GraphView
-    from cpnpy.mining import alpha_miner, parse_simple_log
-    from cpnpy.gui.studio.graph_builders import petri_net_specs
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.graph_view import GraphView
+    from openprocess.mining import alpha_miner, parse_simple_log
+    from openprocess.gui.studio.graph_builders import petri_net_specs
 
     root = Path(__file__).resolve().parents[1]
     window = StudioWindow()
@@ -1523,8 +1523,8 @@ def _week(tmp_path) -> Path:
     """A course folder: a net at the top, a log and a net in subfolders, an empty one."""
     import shutil
 
-    from cpnpy.mining import EventLog, parse_simple_log
-    from cpnpy.mining.xes import write_xes
+    from openprocess.mining import EventLog, parse_simple_log
+    from openprocess.mining.xes import write_xes
 
     root = Path(__file__).resolve().parents[1]
     week = tmp_path / "Week 2"
@@ -1558,8 +1558,8 @@ def _layout(window) -> list[str]:
 
 
 def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
-    from cpnpy.gui.studio.app import FOLDER_ROLE, StudioWindow
-    from cpnpy.gui.studio.workspace import Workspace
+    from openprocess.gui.studio.app import FOLDER_ROLE, StudioWindow
+    from openprocess.gui.studio.workspace import Workspace
 
     week = _week(tmp_path)
     window = StudioWindow()
@@ -1600,8 +1600,8 @@ def test_folder_view_shows_subfolders_and_remembers_them(app, tmp_path):
 def test_organising_files_from_the_sidebar(app, tmp_path, monkeypatch, fake_bin):
     """New Folder, drag to move (an open file follows), rename a folder with an
     open file in it, and Move to Bin (recoverable), with the disk matching."""
-    from cpnpy.gui.studio import app as studio_app
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
 
     week = _week(tmp_path)
     answers = []
@@ -1670,10 +1670,10 @@ def test_changes_on_disk_reach_the_app(app, tmp_path):
     mistaken for changes made elsewhere."""
     import shutil
 
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.mining import EventLog, parse_simple_log
-    from cpnpy.mining.pnml import read_pnml, write_pnml
-    from cpnpy.mining.xes import write_xes
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.mining import EventLog, parse_simple_log
+    from openprocess.mining.pnml import read_pnml, write_pnml
+    from openprocess.mining.xes import write_xes
 
     root = Path(__file__).resolve().parents[1]
     week = _week(tmp_path)
@@ -1740,11 +1740,11 @@ def test_changes_on_disk_reach_the_app(app, tmp_path):
 def test_the_app_keeps_the_folder_up_to_date(app, tmp_path):
     """App → folder: new nets and logs are files from the start, edits are
     autosaved, results go next to their source, and Keep saves a model."""
-    from cpnpy.gui.studio.app import AUTOSAVE_DELAY, StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument, ModelDocument
-    from cpnpy.mining import EventLog, parse_simple_log
-    from cpnpy.mining.discovery.alpha import alpha_miner
-    from cpnpy.mining.pnml import read_pnml
+    from openprocess.gui.studio.app import AUTOSAVE_DELAY, StudioWindow
+    from openprocess.gui.studio.documents import LogDocument, ModelDocument
+    from openprocess.mining import EventLog, parse_simple_log
+    from openprocess.mining.discovery.alpha import alpha_miner
+    from openprocess.mining.pnml import read_pnml
 
     week = _week(tmp_path)
     window = StudioWindow()
@@ -1755,7 +1755,7 @@ def test_the_app_keeps_the_folder_up_to_date(app, tmp_path):
     window.action_new_petri()
     net, page = window.documents[-1], window.current_page()
     assert net.path and Path(net.path).name == "Untitled 1.pnml" and net.autosave
-    from cpnpy.model.net import Place
+    from openprocess.model.net import Place
     page._checkpoint()
     net.net.pages[0].places.append(Place(name="start"))
     page._edited()
@@ -1767,7 +1767,7 @@ def test_the_app_keeps_the_folder_up_to_date(app, tmp_path):
     assert window.pages[net.id] is page          # its own save is not reloaded
 
     # Renaming the net renames the file; a new coloured net is a .cpn.
-    import cpnpy.gui.studio.app as studio_app
+    import openprocess.gui.studio.app as studio_app
     original = studio_app.QInputDialog.getText
     studio_app.QInputDialog.getText = lambda *args, **kwargs: ("first net", True)
     try:
@@ -1817,9 +1817,9 @@ def test_opening_a_file_from_outside_the_folder(app, tmp_path, monkeypatch, fake
     remembered choice; dropping onto a subfolder."""
     import shutil
 
-    from cpnpy.gui.studio import app as studio_app
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.workspace import Workspace
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.workspace import Workspace
 
     root = Path(__file__).resolve().parents[1]
     week = _week(tmp_path)
@@ -1902,7 +1902,7 @@ def test_a_file_moved_in_finder_stays_open(app, tmp_path):
     marked missing and listed again, unopened, in its new place."""
     import os
 
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     week = _week(tmp_path)
     window = StudioWindow()
@@ -1923,7 +1923,7 @@ def test_recent_folder_buttons_on_the_welcome_page(app, tmp_path, monkeypatch):
     """Regression: clicking a recent folder on the welcome page raised
     TypeError (the button's "checked" argument replaced the folder)."""
     from PySide6.QtWidgets import QPushButton
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     week = _week(tmp_path)
     window = StudioWindow()
@@ -1945,8 +1945,8 @@ def test_autosave_that_cannot_write_says_so_once(app, tmp_path, monkeypatch):
     import os
     import stat
 
-    from cpnpy.gui.studio import cpn_page
-    from cpnpy.gui.studio.app import AUTOSAVE_DELAY, StudioWindow
+    from openprocess.gui.studio import cpn_page
+    from openprocess.gui.studio.app import AUTOSAVE_DELAY, StudioWindow
 
     popups = []
     monkeypatch.setattr(cpn_page.QMessageBox, "critical",
@@ -1980,7 +1980,7 @@ def test_a_log_still_loading_stays_with_its_folder(app, tmp_path):
     switched (or closed) was added to the next folder anyway."""
     import shutil
 
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     first, second = tmp_path / "A", tmp_path / "B"
     first.mkdir()
@@ -2005,8 +2005,8 @@ def test_snap_to_grid_and_tidy_make_neat_nets(app, monkeypatch):
     every editor."""
     from PySide6.QtCore import QPointF
     from PySide6.QtTest import QTest
-    from cpnpy.gui.canvas import GRID_STEP, NetScene
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.canvas import GRID_STEP, NetScene
+    from openprocess.gui.studio.app import StudioWindow
 
     def on_grid(item) -> bool:
         return item.pos().x() % GRID_STEP == 0 and item.pos().y() % GRID_STEP == 0
@@ -2071,7 +2071,7 @@ def test_hover_arrow_only_outside_the_node(app):
     """The arrow to draw an arc shows when the mouse is just outside a place or
     transition, not while it is over the node (where it was in the way)."""
     from PySide6.QtCore import QPointF
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     root = Path(__file__).resolve().parents[1]
     window = StudioWindow()
@@ -2096,7 +2096,7 @@ def test_a_new_file_reusing_a_deleted_files_number_is_not_taken_for_it(app, tmp_
     move keeps the size and time too; a new file with a reused number does not."""
     import os
 
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     week = _week(tmp_path)
     window = StudioWindow()
@@ -2123,7 +2123,7 @@ def test_net_editor_fits_a_laptop_window_and_the_sidebar_hides(app):
     so the divider between canvas and inspector can be dragged; the sidebar
     button hides the sidebar and the menu tick follows."""
     from PySide6.QtWidgets import QScrollArea
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.resize(1280, 800)
@@ -2156,8 +2156,8 @@ def test_notes_overlay(app, tmp_path):
     resizes; its text is kept with the folder that is open (outside a folder,
     in the settings)."""
     from PySide6.QtCore import QPoint
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.workspace import NOTES_FILE
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.workspace import NOTES_FILE
 
     window = StudioWindow()
     window.resize(1200, 800)
@@ -2197,8 +2197,8 @@ def test_process_tree_drawn_top_down(app):
     """The Inductive Miner's tree reads as in the course: root on top, children
     left to right in order, plain lines, τ a leaf (not a black bar)."""
     from collections import Counter
-    from cpnpy.gui.studio.derivation_view import tree_specs
-    from cpnpy.mining.discovery.inductive import inductive_miner
+    from openprocess.gui.studio.derivation_view import tree_specs
+    from openprocess.mining.discovery.inductive import inductive_miner
 
     log = Counter({("a", "b", "d"): 3, ("a", "c", "d"): 2, ("a", "d"): 1})
     tree = inductive_miner(log).tree
@@ -2220,10 +2220,10 @@ def test_log_tabs_fit_the_window(app):
     graph's height (which made the page scroll), and the drawn process tree
     keeps its zoom bar inside the card."""
     from PySide6.QtWidgets import QComboBox, QScrollArea
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.derivation_view import TreeView
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.mining import read_xes
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.derivation_view import TreeView
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.mining import read_xes
 
     window = StudioWindow()
     window.resize(1200, 760)
@@ -2258,7 +2258,7 @@ def test_the_name_box_follows_the_node(app):
     of the net (a new item for the same node), and still rename the node."""
     from PySide6.QtCore import QPoint
     from PySide6.QtTest import QTest
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.resize(1400, 900)

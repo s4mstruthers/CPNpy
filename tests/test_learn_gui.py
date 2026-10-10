@@ -1,4 +1,4 @@
-"""CPNpy Learn in the window: the new answer boxes, the Workflow tab, exams and
+"""OpenProcess Learn in the window: the new answer boxes, the Workflow tab, exams and
 variants.  Rendered offscreen; the demo exercises are copied first, because
 an exercise saves your work into its folder."""
 
@@ -15,7 +15,7 @@ import pytest
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-DEMO = Path(__file__).resolve().parents[1] / "cpnpy" / "exercises"
+DEMO = Path(__file__).resolve().parents[1] / "openprocess" / "exercises"
 MARKINGS = "5 Markings/Exercise 5.1 Markings and matrices"
 CUTS = "6 Inductive Miner/Exercise 6.1 Cuts and trees"
 CONFORMANCE = "7 Conformance/Exercise 7.1 Replay, alignments and workflows"
@@ -50,7 +50,7 @@ def demo(tmp_path):
 
 
 def _window():
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.app import StudioWindow
     window = StudioWindow()
     window.resize(1500, 950)
     window.show()
@@ -71,7 +71,7 @@ def _answer_and_check(app, cards: dict, answers: dict) -> None:
 
 
 def test_markings_matrices_and_transition_systems_in_the_window(app, demo):
-    from cpnpy.gui.learn.answer_boxes import MatrixEditor, NotationEditor, TupleEditor
+    from openprocess.gui.learn.answer_boxes import MatrixEditor, NotationEditor, TupleEditor
 
     window = _window()
     assert window.open_exercise(demo / MARKINGS)
@@ -124,7 +124,7 @@ def test_markings_matrices_and_transition_systems_in_the_window(app, demo):
 
 
 def test_cuts_trees_predictions_and_rankings_in_the_window(app, demo):
-    from cpnpy.gui.learn.answer_boxes import LineEditor, RankingEditor
+    from openprocess.gui.learn.answer_boxes import LineEditor, RankingEditor
 
     window = _window()
     assert window.open_exercise(demo / CUTS)
@@ -154,8 +154,8 @@ def test_cuts_trees_predictions_and_rankings_in_the_window(app, demo):
 
 
 def test_replay_alignment_and_the_workflow_tab(app, demo):
-    from cpnpy.gui.flow.page import WorkflowPage
-    from cpnpy.gui.learn.answer_boxes import ReplayEditor, WorkflowEditor
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.learn.answer_boxes import ReplayEditor, WorkflowEditor
 
     folder = demo / CONFORMANCE
     window = _window()

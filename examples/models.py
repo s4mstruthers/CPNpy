@@ -2,19 +2,19 @@
 
 These double as the fixtures for the test suite and as a demonstration of the
 model-construction API.  Each builder returns a compiled :class:`CPNet`, ready
-to hand to a :class:`~cpnpy.sim.simulator.Simulator`.
+to hand to a :class:`~openprocess.sim.simulator.Simulator`.
 
 Building a net in code takes four steps, visible in every function below:
 
-1. create the :class:`~cpnpy.model.net.CPNet` and add declarations;
-2. create a :class:`~cpnpy.model.net.Page`;
+1. create the :class:`~openprocess.model.net.CPNet` and add declarations;
+2. create a :class:`~openprocess.model.net.Page`;
 3. add places, transitions and the arcs between them;
-4. call :meth:`~cpnpy.model.net.CPNet.compile` and check it returned no errors.
+4. call :meth:`~openprocess.model.net.CPNet.compile` and check it returned no errors.
 """
 
 from __future__ import annotations
 
-from cpnpy.model.net import Arc, CPNet, Graphics, Page, Place, Transition
+from openprocess.model.net import Arc, CPNet, Graphics, Page, Place, Transition
 
 
 def _connect(page: Page, place: Place, transition: Transition,

@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cpnpy.mining import discover_dfg, read_xes, summarise
-from cpnpy.mining.columns import ColumnStore, LazyTraces
-from cpnpy.mining.log import BY_NAME, KEY_NAME, EventLog, Trace
-from cpnpy.mining.xes import read_xes_string, xes_string
+from openprocess.mining import discover_dfg, read_xes, summarise
+from openprocess.mining.columns import ColumnStore, LazyTraces
+from openprocess.mining.log import BY_NAME, KEY_NAME, EventLog, Trace
+from openprocess.mining.xes import read_xes_string, xes_string
 
 DATA = Path(__file__).parent / "data"
 

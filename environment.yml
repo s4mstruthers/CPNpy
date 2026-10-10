@@ -1,13 +1,13 @@
-# Conda environment for CPNpy (CPN editor + CPNpy Studio).
+# Conda environment for OpenProcess (CPN editor + OpenProcess Studio).
 #
 #   conda env create -f environment.yml      # first time
-#   conda activate cpnpy
+#   conda activate openprocess
 #   conda env update -f environment.yml --prune   # after pulling changes
 #
 # Python and the Qt bindings come from conda-forge (native builds for macOS,
-# Windows and Linux).  CPNpy itself is installed from this folder in *editable* mode
+# Windows and Linux).  OpenProcess itself is installed from this folder in *editable* mode
 # ("-e ."), so edits to the source take effect without reinstalling.
-name: cpnpy
+name: openprocess
 channels:
   - conda-forge
 dependencies:

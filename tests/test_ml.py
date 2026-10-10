@@ -2,15 +2,15 @@
 
 import pytest
 
-from cpnpy.ml.errors import CPNMLError, EvalError, ParseError
-from cpnpy.ml.evaluator import Environment, Evaluator
-from cpnpy.ml.lexer import tokenise
-from cpnpy.ml.multiset import Multiset
-from cpnpy.ml.parser import (
+from openprocess.ml.errors import CPNMLError, EvalError, ParseError
+from openprocess.ml.evaluator import Environment, Evaluator
+from openprocess.ml.lexer import tokenise
+from openprocess.ml.multiset import Multiset
+from openprocess.ml.parser import (
     expression_to_pattern, parse_arc_expression, parse_declarations,
     parse_expression,
 )
-from cpnpy.ml.values import Constructor, MLList, Record, UNIT, format_value
+from openprocess.ml.values import Constructor, MLList, Record, UNIT, format_value
 
 
 @pytest.fixture

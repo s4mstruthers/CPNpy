@@ -7,8 +7,8 @@ listed greyed out with "needs sklearn".  Any object with ``fit`` and
 way: change the two class names below and the box is a different model.
 """
 
-from cpnpy import flow
-from cpnpy.flow import Dataset, Predictor, box
+from openprocess import flow
+from openprocess.flow import Dataset, Predictor, box
 
 
 @box(name="Random forest", group="Predict", needs="sklearn")

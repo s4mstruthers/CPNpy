@@ -20,15 +20,15 @@ from pathlib import Path
 
 import pytest
 
-from cpnpy.mining import (
+from openprocess.mining import (
     EventLog, Marking, PetriNet, align_log, alpha_miner, analyse, check_soundness,
     compare_footprints, discover_dfg, footprint_of_log, footprint_of_net, format_simple_log,
     inductive_miner, parse_simple_log, precision, read_csv, read_xes, summarise, token_replay,
 )
-from cpnpy.mining.layout import layered_layout
-from cpnpy.mining.pnml import parse_pnml, pnml_string
-from cpnpy.mining.stats import format_duration
-from cpnpy.mining.xes import read_xes_string, xes_string
+from openprocess.mining.layout import layered_layout
+from openprocess.mining.pnml import parse_pnml, pnml_string
+from openprocess.mining.stats import format_duration
+from openprocess.mining.xes import read_xes_string, xes_string
 
 DATA = Path(__file__).parent / "data"
 L1 = "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"
@@ -285,7 +285,7 @@ def test_textbook_typesetting_is_accepted():
 
 
 def test_csv_dates_with_fractional_seconds():
-    from cpnpy.mining.csv_import import parse_timestamp
+    from openprocess.mining.csv_import import parse_timestamp
     assert parse_timestamp("05/01/2023 10:00:00.250").microsecond == 250_000
     assert parse_timestamp("2023/01/05 10:00:00.5").microsecond == 500_000
 
@@ -294,8 +294,8 @@ def test_csv_dates_with_fractional_seconds():
 # Invariants
 # ---------------------------------------------------------------------------
 def test_incidence_matrix_and_invariants_of_alpha_l1():
-    from cpnpy.mining.analysis import short_circuit
-    from cpnpy.mining.invariants import incidence_matrix, invariants
+    from openprocess.mining.analysis import short_circuit
+    from openprocess.mining.invariants import incidence_matrix, invariants
     net = alpha_miner(parse_simple_log(L1)).net
     places, transitions, matrix = incidence_matrix(net)
     a = transitions.index(next(t for t in net.transitions if net.node_name(t) == "a"))
@@ -317,9 +317,9 @@ def test_incidence_matrix_and_invariants_of_alpha_l1():
 
 
 def test_invariants_expose_the_unsound_order_net():
-    from cpnpy.mining.analysis import short_circuit
-    from cpnpy.mining.invariants import invariants
-    from cpnpy.mining import read_pnml
+    from openprocess.mining.analysis import short_circuit
+    from openprocess.mining.invariants import invariants
+    from openprocess.mining import read_pnml
     net = read_pnml(Path(__file__).resolve().parents[1] / "examples" / "petri" /
                     "order_handling_unsound.pnml")
     found = invariants(net)
@@ -330,7 +330,7 @@ def test_invariants_expose_the_unsound_order_net():
 
 
 def test_weighted_invariant():
-    from cpnpy.mining.invariants import invariants
+    from openprocess.mining.invariants import invariants
     # t: 2 tokens from p to 1 token in q, and back: 1·p + 2·q is conserved.
     net = PetriNet("weights")
     p, q = net.add_place("p"), net.add_place("q")
@@ -349,7 +349,7 @@ def test_weighted_invariant():
 # Filtering and CSV export
 # ---------------------------------------------------------------------------
 def test_filters():
-    from cpnpy.mining.filtering import FilterSettings, apply_filters, top_variants
+    from openprocess.mining.filtering import FilterSettings, apply_filters, top_variants
     log = EventLog.from_simple_log(parse_simple_log(
         "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>, <a,b>]"), "L")
 
@@ -370,12 +370,12 @@ def test_filters():
     assert [v for v, _ in top_variants(unique, coverage=50)] == [("a",), ("b",)]
     filtered = apply_filters(log, FilterSettings(end_activities={"d"}, top_variants=2))
     assert filtered.name == "L (filtered)"
-    assert filtered.attributes["cpnpy:filter"] == "end with d; the 2 most frequent variants"
+    assert filtered.attributes["openprocess:filter"] == "end with d; the 2 most frequent variants"
     assert len(log) == 7                                   # the original is untouched
 
 
 def test_projection_keeps_skipped_events_and_time_frame():
-    from cpnpy.mining.filtering import FilterSettings, apply_filters
+    from openprocess.mining.filtering import FilterSettings, apply_filters
     log = read_xes(DATA / "plane_wilma_10.xes")            # start + complete events
     kept = apply_filters(log, FilterSettings(activities=({"Move in", "stow bag"},
                                                          "keep events")))
@@ -388,7 +388,7 @@ def test_projection_keeps_skipped_events_and_time_frame():
 
 
 def test_csv_export_round_trip(tmp_path):
-    from cpnpy.mining.csv_import import write_csv
+    from openprocess.mining.csv_import import write_csv
     log = read_xes(DATA / "plane_wilma_10.xes")
     write_csv(log, tmp_path / "log.csv")
     again = read_csv(tmp_path / "log.csv")
@@ -400,7 +400,7 @@ def test_csv_export_round_trip(tmp_path):
 # Heuristics Miner -> Petri net
 # ---------------------------------------------------------------------------
 def test_heuristics_net_of_l1_is_the_textbook_model():
-    from cpnpy.mining.discovery.heuristics import heuristics_net
+    from openprocess.mining.discovery.heuristics import heuristics_net
     log = parse_simple_log(L1)
     result = heuristics_net(log)
     # After a: b and c together (5 cases) or e alone (1 case); d waits for the same.
@@ -420,7 +420,7 @@ def test_heuristics_net_of_l1_is_the_textbook_model():
     "[<a,b,c,d>^30, <a,c,b,d>^20, <a,d>, <a,b,d>]",
 ])
 def test_heuristics_net_replays_its_log(text):
-    from cpnpy.mining.discovery.heuristics import heuristics_net
+    from openprocess.mining.discovery.heuristics import heuristics_net
     log = parse_simple_log(text)
     assert align_log(heuristics_net(log).net, log).average_fitness == pytest.approx(1.0)
 
@@ -428,7 +428,7 @@ def test_heuristics_net_replays_its_log(text):
 def test_csv_from_excel_in_a_windows_code_page(tmp_path):
     """Regression: a CSV saved by Excel on Windows (cp1252, not UTF-8) could
     not be read at all (UnicodeDecodeError)."""
-    from cpnpy.mining.csv_import import guess_mapping, read_csv, sniff
+    from openprocess.mining.csv_import import guess_mapping, read_csv, sniff
 
     path = tmp_path / "events.csv"
     path.write_bytes("case;activity\n1;Café order\n1;Müller check\n".encode("cp1252"))

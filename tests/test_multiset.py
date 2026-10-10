@@ -6,7 +6,7 @@ against hand-computed values rather than against the implementation.
 
 import pytest
 
-from cpnpy.ml.multiset import Multiset, TimedMultiset
+from openprocess.ml.multiset import Multiset, TimedMultiset
 
 
 def test_construction_drops_zero_counts():

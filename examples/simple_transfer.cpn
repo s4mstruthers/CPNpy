@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
 <!DOCTYPE workspaceElements PUBLIC "-//CPN//DTD CPNXML 1.0//EN" "http://cpntools.org/DTD/6/cpn.dtd">
 <workspaceElements>
-  <generator tool="CPNpy" version="0.1.0" format="6"/>
+  <generator tool="OpenProcess" version="0.1.0" format="6"/>
   <cpnet>
     <globbox>
       <block id="IDW1">

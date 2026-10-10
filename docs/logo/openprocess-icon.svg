@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- OpenProcess: an open box with the process flowing out of it.
+       The box is a workflow box; its open side says the algorithm inside is
+       there to be read; the flow is a Petri net in three strokes: a place
+       with a token, a transition, and the arc that leaves. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#0F2A6B"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect x="0" y="0" width="512" height="512" rx="116" fill="url(#shine)"/>
+  <!-- the open box: a rounded square whose right side is open -->
+  <path d="M 356 176 V 158 Q 356 118 316 118 H 142 Q 102 118 102 158 V 354 Q 102 394 142 394 H 316 Q 356 394 356 354 V 336"
+        fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round"/>
+  <!-- the process inside: place with a token, arc, transition -->
+  <circle cx="178" cy="256" r="34" fill="none" stroke="#FFFFFF" stroke-width="18"/>
+  <circle cx="178" cy="256" r="11" fill="#7DD3FC"/>
+  <line x1="222" y1="256" x2="246" y2="256" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+  <rect x="256" y="206" width="30" height="100" rx="8" fill="#FFFFFF"/>
+  <!-- the arc that leaves through the open side -->
+  <line x1="296" y1="256" x2="402" y2="256" stroke="#7DD3FC" stroke-width="18" stroke-linecap="round"/>
+  <path d="M 392 220 L 444 256 L 392 292 Z" fill="#7DD3FC"/>
+</svg>

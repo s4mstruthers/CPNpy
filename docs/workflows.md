@@ -1,7 +1,7 @@
 # Workflows: boxes, how they run, and how to write your own
 
-The workflow framework is `cpnpy.flow`. It has no Qt in it: everything
-here works in a script, a notebook, a test and from `cpnpy run`, and the
+The workflow framework is `openprocess.flow`. It has no Qt in it: everything
+here works in a script, a notebook, a test and from `openprocess run`, and the
 app only draws it. For *using* workflows in the app, see the README; this
 page is for people who write boxes, read the code, or want to know what a
 `.cpnflow` file guarantees.
@@ -27,9 +27,9 @@ page is for people who write boxes, read the code, or want to know what a
 
 ```python
 # Week 5/boxes/last_two.py
-from cpnpy.flow import box, EventLog, TransitionSystem
-from cpnpy.mining.transition_system import transition_system_from_log
-from cpnpy import flow
+from openprocess.flow import box, EventLog, TransitionSystem
+from openprocess.mining.transition_system import transition_system_from_log
+from openprocess import flow
 
 
 @box(group="Discover")
@@ -47,10 +47,10 @@ What the decorator reads, and nothing else:
 
 | From | Becomes |
 |---|---|
-| a parameter whose type is a CPNpy type (`EventLog`, `PetriNet`, `TransitionSystem`, …) | an input connection point, named after the parameter |
+| a parameter whose type is a OpenProcess type (`EventLog`, `PetriNet`, `TransitionSystem`, …) | an input connection point, named after the parameter |
 | `list[Scores]` | an input that takes any number of connections |
 | `Table | None`, or a default of `None` | an optional input |
-| the return type | the output; a `@dataclass` whose fields are CPNpy types gives several outputs (one per field) |
+| the return type | the output; a `@dataclass` whose fields are OpenProcess types gives several outputs (one per field) |
 | `int`, `float`, `bool`, `str` with a default | a setting, the default as its value |
 | `Literal["a", "b"]` | a setting that is a choice |
 | `Path` | a setting that is a file in the workflow's folder |
@@ -68,7 +68,7 @@ or a test, exactly as the app would.
 
 ### The types
 
-`cpnpy.flow.types` re-exports the engine's types and adds the few that
+`openprocess.flow.types` re-exports the engine's types and adds the few that
 only workflows need:
 
 | Type | What it is |
@@ -89,7 +89,7 @@ only workflows need:
 ### Reporting how (the *How* tab)
 
 ```python
-from cpnpy import flow
+from openprocess import flow
 
 flow.note("Split on XOR: {a, e} | {b, c}")     # one line
 flow.show(dfg, "Filtered DFG")                # an intermediate value, in its own viewer
@@ -102,11 +102,11 @@ Outside a running box the calls do nothing. A result object with a
 
 ### Other libraries
 
-`cpnpy.flow.convert` turns CPNpy types into other libraries' objects and
+`openprocess.flow.convert` turns OpenProcess types into other libraries' objects and
 back, in one line, importing nothing until asked:
 
 ```python
-from cpnpy.flow.convert import convert
+from openprocess.flow.convert import convert
 
 df = convert(log, "pandas.DataFrame")      # one row per event
 figure = convert(fig, Figure)               # a matplotlib figure as SVG
@@ -119,17 +119,17 @@ Built in: `EventLog ↔ pandas.DataFrame`, `SimpleLog ↔ EventLog`,
 `register(source, target, function)` adds one. The runner also applies a
 converter when an output is connected to an input of a convertible type.
 
-The *Science* boxes in `cpnpy/flow/boxes/science.py` (pandas, NumPy, SciPy,
+The *Science* boxes in `openprocess/flow/boxes/science.py` (pandas, NumPy, SciPy,
 matplotlib) are written to be copied: each is a few lines around one
 library call.
 
 ## Workflows in Python
 
 ```python
-from cpnpy.flow import Workflow, Runner, Sweep, save, load
-from cpnpy.flow.boxes.input import typed_log
-from cpnpy.flow.boxes.discover import inductive_miner
-from cpnpy.flow.boxes.check import check_fit
+from openprocess.flow import Workflow, Runner, Sweep, save, load
+from openprocess.flow.boxes.input import typed_log
+from openprocess.flow.boxes.discover import inductive_miner
+from openprocess.flow.boxes.check import check_fit
 
 wf = Workflow("demo")
 log = wf.add(typed_log, {"text": "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"})
@@ -152,7 +152,7 @@ lists what stops the workflow from running.
 Or write the workflow as a function and record it:
 
 ```python
-from cpnpy.flow import workflow, to_python
+from openprocess.flow import workflow, to_python
 
 @workflow(name="demo")
 def demo():
@@ -224,12 +224,12 @@ A `.cpnflow` file is JSON:
 {
   "format": "cpnflow/1",
   "name": "compare discovery",
-  "boxes": [{"id": "n1", "box": "cpnpy.flow.boxes.input.open_log",
+  "boxes": [{"id": "n1", "box": "openprocess.flow.boxes.input.open_log",
              "settings": {"file": "orders.xes"}, "position": [0, 0]}, ...],
   "connections": [{"from": "n1", "output": "out", "to": "n2", "input": "log"}, ...],
   "groups": [],
   "record": {
-    "versions": {"cpnpy": "0.6.0", "python": "3.12.4", "numpy": "1.26.4"},
+    "versions": {"openprocess": "0.6.0", "python": "3.12.4", "numpy": "1.26.4"},
     "environment": {"platform": "...", "packages": {"numpy": "1.26.4", ...}},
     "inputs": [{"node": "n1", "setting": "file", "file": "orders.xes", "sha256": "..."}],
     "custom_boxes": [{"file": "boxes/last_two.py", "sha256": "..."}],
@@ -241,7 +241,7 @@ A `.cpnflow` file is JSON:
 ```
 
 - `differences(record, workflow, folder)` says what has changed since the
-  file was saved: an input file, a box file, a seed, the CPNpy version.
+  file was saved: an input file, a box file, a seed, the OpenProcess version.
   The app shows it before *Re-run*.
 - `check(workflow, record, run)` says which boxes give a different result
   than recorded (by the fingerprint of the result's content).
@@ -251,42 +251,42 @@ A `.cpnflow` file is JSON:
 ### Headless, and in CI
 
 ```bash
-cpnpy run experiment.cpnflow                 # run it, print what every box gave
-cpnpy run experiment.cpnflow --check         # re-run; exit 1 if any result differs from the record
-cpnpy run experiment.cpnflow --save          # record the results in the file
-cpnpy run experiment.cpnflow --sweep noise=0..0.5 step 0.1
-cpnpy run experiment.cpnflow -o results/     # every result as a file (CSV, PNML, SVG)
-cpnpy run experiment.cpnflow --lock          # write requirements.lock
-cpnpy run experiment.cpnflow --export experiment.zip   # the workflow, its record, inputs, boxes,
+openprocess run experiment.cpnflow                 # run it, print what every box gave
+openprocess run experiment.cpnflow --check         # re-run; exit 1 if any result differs from the record
+openprocess run experiment.cpnflow --save          # record the results in the file
+openprocess run experiment.cpnflow --sweep noise=0..0.5 step 0.1
+openprocess run experiment.cpnflow -o results/     # every result as a file (CSV, PNML, SVG)
+openprocess run experiment.cpnflow --lock          # write requirements.lock
+openprocess run experiment.cpnflow --export experiment.zip   # the workflow, its record, inputs, boxes,
                                              # results, requirements.lock and a README: for a paper
-cpnpy boxes [folder]                         # the boxes, with a folder's boxes/
-cpnpy datasets list | fetch "Sepsis cases" | where
+openprocess boxes [folder]                         # the boxes, with a folder's boxes/
+openprocess datasets list | fetch "Sepsis cases" | where
 ```
 
-A paper's repository can run `cpnpy run --check` on every push; the
+A paper's repository can run `openprocess run --check` on every push; the
 passing badge is the reproducibility claim.
 
 ## Public datasets
 
-`cpnpy.flow.datasets` knows the standard logs by name (the BPI Challenge
+`openprocess.flow.datasets` knows the standard logs by name (the BPI Challenge
 logs, Sepsis, Road Traffic Fine Management, Hospital Billing) with where
 they are published and, once fetched, their SHA-256. The *Open dataset*
-box fetches a log once into `~/.cpnpy/datasets` (or `$CPNPY_DATASETS`),
+box fetches a log once into `~/.openprocess/datasets` (or `$OPENPROCESS_DATASETS`),
 checks the hash on every later use, and records the name and hash in the
 workflow file. 4TU.ResearchData serves the files behind DOI pages, so the
 first fetch says where to download the file by hand and where to put it;
-a direct `url` can be given in `~/.cpnpy/datasets/datasets.json`, which
+a direct `url` can be given in `~/.openprocess/datasets/datasets.json`, which
 also takes datasets of your own.
 
 ## Where boxes come from
 
-- `cpnpy.flow.boxes`: the standard library, one module per group.
+- `openprocess.flow.boxes`: the standard library, one module per group.
 - a folder's `boxes/` subfolder: every `.py` file, loaded with
   `library_for(folder)`; saving the file reloads the box in the app.
 - installed packages that declare an entry point:
 
   ```toml
-  [project.entry-points."cpnpy.boxes"]
+  [project.entry-points."openprocess.boxes"]
   my_pack = "my_pack.boxes"
   ```
 
@@ -303,7 +303,7 @@ baseline that needs no library; *Predict* applies any `Predictor`;
 of your own is a box from `Dataset` to `Predictor`:
 
 ```python
-from cpnpy.flow import box, Dataset, Predictor
+from openprocess.flow import box, Dataset, Predictor
 
 @box(group="Predict", needs="sklearn")
 def random_forest(train: Dataset, trees: int = 100, seed: int = 0) -> Predictor:
@@ -320,7 +320,7 @@ def random_forest(train: Dataset, trees: int = 100, seed: int = 0) -> Predictor:
 ## Module map
 
 ```
-cpnpy/flow/
+openprocess/flow/
   types.py      the types and their registry
   box.py        @box, BoxSpec, Port, Setting: the signature read into a box
   explain.py    flow.note / show / steps and the Explanation a run keeps

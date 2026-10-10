@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from cpnpy.teaching import answers
-from cpnpy.teaching.checks import (
+from openprocess.teaching import answers
+from openprocess.teaching.checks import (
     CORRECT, INCORRECT, PARTIAL, UNKNOWN, Context, check, model_answer_text, validate,
 )
-from cpnpy.teaching.pack import Exercise, load_pack, natural_key, pack_root
-from cpnpy.teaching.sheet import SheetError, parse_sheet
+from openprocess.teaching.pack import Exercise, load_pack, natural_key, pack_root
+from openprocess.teaching.sheet import SheetError, parse_sheet
 
-DEMO = Path(__file__).resolve().parents[1] / "cpnpy" / "exercises"
+DEMO = Path(__file__).resolve().parents[1] / "openprocess" / "exercises"
 ORDERS = DEMO / "1 Petri nets" / "Exercise 1.1 Order handling"
 FLAW = DEMO / "2 Soundness" / "Exercise 2.1 Spot the flaw"
 ALPHA = DEMO / "3 Discovery" / "Exercise 3.1 The alpha-algorithm"
@@ -106,7 +106,7 @@ def test_mistakes_in_a_sheet_are_reported(block, message):
 # -- the demo pack --------------------------------------------------------------------------
 def test_the_demo_pack():
     pack = load_pack(DEMO)
-    assert pack.title == "CPNpy demo exercises"
+    assert pack.title == "OpenProcess demo exercises"
     assert [e.folder.name for e in pack.exercises][:4] == [
         ORDERS.name, FLAW.name, ALPHA.name, REGIONS.name]
     assert [name for name, _ in pack.chapters()][:4] == [
@@ -134,7 +134,7 @@ def test_computed_answers_are_checked():
 
 
 def test_footprint_check_marks_the_wrong_cells():
-    from cpnpy.mining import footprint_of_log, parse_simple_log
+    from openprocess.mining import footprint_of_log, parse_simple_log
     exercise = Exercise.at(ALPHA)
     task = next(t for t in exercise.sheet.tasks if t.type == "footprint")
     footprint = footprint_of_log(parse_simple_log((ALPHA / "log.txt").read_text()))
@@ -160,7 +160,7 @@ def test_soundness_questions():
     assert not result.correct and "“archive” is not enabled" in result.message
     assert not check(exercise, deadlock, "register").correct     # not a deadlock yet
 
-    from cpnpy.mining.pnml import read_pnml
+    from openprocess.mining.pnml import read_pnml
     given = read_pnml(str(FLAW / "net.pnml"))
     result = check(exercise, repair, given)
     assert result.status == INCORRECT and "not sound" in result.message
@@ -170,7 +170,7 @@ def test_soundness_questions():
 def test_a_net_against_a_discovered_model(tmp_path):
     exercise = Exercise.at(ALPHA)
     task = next(t for t in exercise.sheet.tasks if t.type == "net")
-    from cpnpy.mining import alpha_miner, inductive_miner, parse_simple_log
+    from openprocess.mining import alpha_miner, inductive_miner, parse_simple_log
     log = parse_simple_log((ALPHA / "log.txt").read_text())
     assert check(exercise, task, alpha_miner(log).net).correct
     sequence = inductive_miner(parse_simple_log("[<a,b,c,e>]")).net
@@ -224,7 +224,7 @@ def test_comments_in_a_block():
 
 
 def test_the_command_line_checks_a_pack(tmp_path, capsys):
-    from cpnpy.cli import main
+    from openprocess.cli import main
     assert main(["exercises", "check", str(DEMO), "--answers"]) == 0
     out = capsys.readouterr().out
     assert "No problems found." in out and "({a}, {b, d})" in out
@@ -237,10 +237,10 @@ def test_the_command_line_checks_a_pack(tmp_path, capsys):
 
 def test_net_properties_of_a_net_that_is_not_a_workflow_net(tmp_path):
     """free-choice and dead transitions need no WF-net (a cyclic net with a marking)."""
-    from cpnpy.mining.petrinet import Marking, PetriNet
-    from cpnpy.mining.pnml import write_pnml
-    from cpnpy.teaching.sheet import Task
-    from cpnpy.teaching.checks import compute
+    from openprocess.mining.petrinet import Marking, PetriNet
+    from openprocess.mining.pnml import write_pnml
+    from openprocess.teaching.sheet import Task
+    from openprocess.teaching.checks import compute
     net = PetriNet("cycle")
     for p in ("p1", "p2", "p3"):
         net.add_place(p, id=p)

@@ -1,7 +1,7 @@
-"""Build the standalone CPNpy Studio app for the system this runs on.
+"""Build the standalone OpenProcess Studio app for the system this runs on.
 
-Usage, from the project folder, in an environment with CPNpy and its GUI
-installed (``pip install -e ".[gui]"``, or the conda environment)::
+Usage, from the project folder, in an environment with OpenProcess and its GUI
+installed (``pip install -e ".[app]"``, or the conda environment)::
 
     pip install pyinstaller
     python packaging/build.py
@@ -11,15 +11,15 @@ Result, in ``dist/``:
 =========  ==========================================================  ==================================
 system     app                                                         file to share
 =========  ==========================================================  ==================================
-macOS      ``CPNpy.app``                                               ``CPNpy-<version>-macOS-<arch>.dmg``
-Windows    ``CPNpy\\CPNpy.exe`` (with its folder)                      ``CPNpy-<version>-Windows-<arch>.zip``
-Linux      ``CPNpy/CPNpy`` (with its folder)                           ``CPNpy-<version>-Linux-<arch>.tar.gz``
+macOS      ``OpenProcess.app``                                               ``OpenProcess-<version>-macOS-<arch>.dmg``
+Windows    ``OpenProcess\\OpenProcess.exe`` (with its folder)                      ``OpenProcess-<version>-Windows-<arch>.zip``
+Linux      ``OpenProcess/OpenProcess`` (with its folder)                           ``OpenProcess-<version>-Linux-<arch>.tar.gz``
 =========  ==========================================================  ==================================
 
 The steps:
 
-1. run PyInstaller on ``packaging/cpnpy.spec``;
-2. smoke-test the result: start it with ``--cpnpy-self-test`` (builds the
+1. run PyInstaller on ``packaging/openprocess.spec``;
+2. smoke-test the result: start it with ``--openprocess-self-test`` (builds the
    window off-screen and computes a state space through a worker process, as
    the app does), then run the worker on its own;
 3. pack it into the file people download.
@@ -72,8 +72,8 @@ def run(command: list[str], title: str, attempts: int = 1, **options) -> None:
 
 
 def version() -> str:
-    """The version number, from its one home: ``__version__`` in cpnpy/__init__.py."""
-    text = (ROOT / "cpnpy" / "__init__.py").read_text(encoding="utf-8")
+    """The version number, from its one home: ``__version__`` in openprocess/__init__.py."""
+    text = (ROOT / "openprocess" / "__init__.py").read_text(encoding="utf-8")
     return re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.M).group(1)
 
 
@@ -89,10 +89,10 @@ def architecture() -> str:
 def executable() -> Path:
     """The program inside the build that a user would start."""
     if sys.platform == "darwin":
-        return DIST / "CPNpy.app" / "Contents" / "MacOS" / "CPNpy"
+        return DIST / "OpenProcess.app" / "Contents" / "MacOS" / "OpenProcess"
     if sys.platform == "win32":
-        return DIST / "CPNpy" / "CPNpy.exe"
-    return DIST / "CPNpy" / "CPNpy"
+        return DIST / "OpenProcess" / "OpenProcess.exe"
+    return DIST / "OpenProcess" / "OpenProcess"
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ def run_pyinstaller() -> None:
     print("== PyInstaller", flush=True)
     run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
          "--distpath", str(DIST), "--workpath", str(ROOT / "build"),
-         str(PACKAGING / "cpnpy.spec")], "PyInstaller failed", cwd=ROOT)
+         str(PACKAGING / "openprocess.spec")], "PyInstaller failed", cwd=ROOT)
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ def smoke_test() -> None:
     # a) The GUI, plus a state space computed the way the app computes it:
     #    the frozen app starts a copy of itself as the worker process.
     model = ROOT / "examples" / "dining_philosophers.cpn"
-    result = subprocess.run([str(program), "--cpnpy-self-test", str(model)], capture_output=True,
+    result = subprocess.run([str(program), "--openprocess-self-test", str(model)], capture_output=True,
                             text=True, timeout=300, env=environment)
     if result.returncode != 0 or not result.stdout.rstrip().endswith("ok"):
         fail("Self-test failed", f"exit {result.returncode}\n{result.stdout}\n{result.stderr}")
@@ -126,7 +126,7 @@ def smoke_test() -> None:
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "result.pickle"
         result = subprocess.run(
-            [str(program), "--cpnpy-state-space-worker", str(model), "1000", str(output)],
+            [str(program), "--openprocess-state-space-worker", str(model), "1000", str(output)],
             input="", capture_output=True, text=True, timeout=180, env=environment)
         if "done" not in result.stdout or not output.exists():
             fail("State space worker failed",
@@ -138,7 +138,7 @@ def smoke_test() -> None:
 # 3. The file to share
 # ---------------------------------------------------------------------------
 def package() -> Path:
-    name = f"CPNpy-{version()}-{system_name()}-{architecture()}"
+    name = f"OpenProcess-{version()}-{system_name()}-{architecture()}"
     print(f"== Packing {name}", flush=True)
     if sys.platform == "darwin":
         return _dmg(name)
@@ -148,17 +148,17 @@ def package() -> Path:
 
 
 def _dmg(name: str) -> Path:
-    """A disk image showing CPNpy.app next to a shortcut to /Applications."""
+    """A disk image showing OpenProcess.app next to a shortcut to /Applications."""
     staging = DIST / "dmg"
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir()
     # ditto copies an app bundle faithfully (symlinks, permissions, signatures).
-    run(["ditto", str(DIST / "CPNpy.app"), str(staging / "CPNpy.app")], "Copying the app failed")
+    run(["ditto", str(DIST / "OpenProcess.app"), str(staging / "OpenProcess.app")], "Copying the app failed")
     (staging / "Applications").symlink_to("/Applications")
     target = DIST / f"{name}.dmg"
     target.unlink(missing_ok=True)
     # hdiutil sometimes fails with "Resource busy" on CI machines; retry it.
-    run(["hdiutil", "create", "-volname", "CPNpy", "-srcfolder", str(staging),
+    run(["hdiutil", "create", "-volname", "OpenProcess", "-srcfolder", str(staging),
          "-ov", "-format", "UDZO", str(target)], "Making the disk image failed", attempts=3)
     shutil.rmtree(staging)
     return target
@@ -167,21 +167,21 @@ def _dmg(name: str) -> Path:
 def _zip(name: str) -> Path:
     target = DIST / f"{name}.zip"
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted((DIST / "CPNpy").rglob("*")):
-            archive.write(path, Path("CPNpy") / path.relative_to(DIST / "CPNpy"))
+        for path in sorted((DIST / "OpenProcess").rglob("*")):
+            archive.write(path, Path("OpenProcess") / path.relative_to(DIST / "OpenProcess"))
     return target
 
 
 def _tarball(name: str) -> Path:
     """The app folder plus what Linux needs to show it in the applications menu."""
-    folder = DIST / "CPNpy"
-    shutil.copy(PACKAGING / "icons" / "CPNpy.png", folder / "CPNpy.png")
+    folder = DIST / "OpenProcess"
+    shutil.copy(PACKAGING / "icons" / "OpenProcess.png", folder / "OpenProcess.png")
     installer = folder / "install-desktop-entry.sh"
     shutil.copy(PACKAGING / "linux" / "install-desktop-entry.sh", installer)
     installer.chmod(0o755)
     target = DIST / f"{name}.tar.gz"
     with tarfile.open(target, "w:gz") as archive:
-        archive.add(folder, arcname="CPNpy")
+        archive.add(folder, arcname="OpenProcess")
     return target
 
 

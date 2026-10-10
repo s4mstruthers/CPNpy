@@ -46,9 +46,9 @@ def _node(page, suffix: str):
 
 
 def test_workflow_page_runs_and_shows_every_tab(app):
-    from cpnpy.gui.flow.page import WorkflowPage
-    from cpnpy.gui.flow.templates import TEMPLATES
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.resize(1400, 900)
@@ -76,11 +76,11 @@ def test_workflow_page_runs_and_shows_every_tab(app):
     edits = [w.toPlainText() for w in page.panel_host.findChildren(QPlainTextEdit)]
     assert "def alpha_miner(log: EventLog)" in edits[0]                 # the box: a thin wrapper
     labels = " ".join(w.text() for w in page.panel_host.findChildren(QLabel))
-    assert "THE ALGORITHM" in labels and "cpnpy/mining/discovery/alpha.py" in labels
+    assert "THE ALGORITHM" in labels and "openprocess/mining/discovery/alpha.py" in labels
     assert "Follows" in labels and "Weijters" in labels                 # the work the code follows
     assert any("def alpha_miner(log: SimpleLog" in text for text in edits)   # the algorithm itself
     assert any("def footprint_of_log" in text for text in edits)
-    from cpnpy.gui.flow import viewers
+    from openprocess.gui.flow import viewers
     whole = next(b for b in page.panel_host.findChildren(QPushButton) if b.objectName() == "algorithmFile")
     whole.click()
     _pump(app, 0.1)
@@ -97,8 +97,8 @@ def test_workflow_page_runs_and_shows_every_tab(app):
 
 
 def test_changing_a_setting_reruns_only_what_follows(app):
-    from cpnpy.gui.flow.templates import TEMPLATES
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
 
     window = StudioWindow()
     window.show()
@@ -122,9 +122,9 @@ def test_changing_a_setting_reruns_only_what_follows(app):
 
 
 def test_dragging_a_wire_connects_and_refuses(app):
-    from cpnpy.flow.workflow import Workflow
-    from cpnpy.gui.flow.page import WorkflowPage
-    from cpnpy.gui.studio.documents import WorkflowDocument
+    from openprocess.flow.workflow import Workflow
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.studio.documents import WorkflowDocument
 
     wf = Workflow("drag")
     log = wf.add("typed_log", {"text": "[<a,b>^2, <a,c>]"}, (0, 0))
@@ -173,10 +173,10 @@ def test_dragging_a_wire_connects_and_refuses(app):
 
 
 def test_workflow_files_in_a_folder(app, tmp_path):
-    from cpnpy.flow.record import load
-    from cpnpy.gui.flow.page import WorkflowPage
-    from cpnpy.gui.flow.templates import TEMPLATES
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.flow.record import load
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
 
     (tmp_path / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
     window = StudioWindow()
@@ -203,21 +203,21 @@ def test_workflow_files_in_a_folder(app, tmp_path):
     assert again.run.value(fit).metrics["fitness"] == pytest.approx(1.0)
     # The record notices a changed log before Re-run.
     (tmp_path / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,d>]", encoding="utf-8")
-    from cpnpy.flow.record import differences
+    from openprocess.flow.record import differences
     assert any("orders.log.txt" in line for line in differences(again.document.record, again.workflow, tmp_path))
     again.document.dirty = False
     window.close()
 
 
 def test_custom_boxes_wait_for_an_ok(app, tmp_path):
-    from cpnpy.gui.flow.templates import TEMPLATES
-    from cpnpy.gui.studio.app import StudioWindow
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
 
     boxes = tmp_path / "boxes"
     boxes.mkdir()
     (boxes / "mine.py").write_text(textwrap.dedent('''
-        from cpnpy.flow import box, EventLog, TransitionSystem
-        from cpnpy.mining.transition_system import transition_system_from_log
+        from openprocess.flow import box, EventLog, TransitionSystem
+        from openprocess.mining.transition_system import transition_system_from_log
 
         @box(group="Discover")
         def last_two(log: EventLog) -> TransitionSystem:
@@ -248,11 +248,11 @@ def test_custom_boxes_wait_for_an_ok(app, tmp_path):
 
 
 def test_groups_show_as_one_box_and_open_their_own_canvas(app, tmp_path):
-    from cpnpy.gui.flow.canvas import GroupItem
-    from cpnpy.gui.flow.page import WorkflowPage
-    from cpnpy.gui.flow.templates import compare_discovery
-    from cpnpy.gui.studio.documents import WorkflowDocument
-    from cpnpy.flow.library import library_for
+    from openprocess.gui.flow.canvas import GroupItem
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.flow.templates import compare_discovery
+    from openprocess.gui.studio.documents import WorkflowDocument
+    from openprocess.flow.library import library_for
 
     library = library_for(tmp_path)
     wf = compare_discovery(library)
@@ -302,10 +302,10 @@ def test_groups_show_as_one_box_and_open_their_own_canvas(app, tmp_path):
 
 def test_quick_actions_make_workflows(app):
     from PySide6.QtWidgets import QPushButton
-    from cpnpy.gui.flow.page import WorkflowPage
-    from cpnpy.gui.studio.app import StudioWindow
-    from cpnpy.gui.studio.documents import LogDocument
-    from cpnpy.mining import read_xes
+    from openprocess.gui.flow.page import WorkflowPage
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.mining import read_xes
 
     window = StudioWindow()
     window.resize(1400, 900)

@@ -1,4 +1,4 @@
-# How CPNpy works
+# How OpenProcess works
 
 Background for anyone reading or changing the code. For *using* the app,
 see the [README](../README.md).
@@ -7,16 +7,16 @@ see the [README](../README.md).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  cpnpy.gui.studio  CPNpy Studio (the desktop app)                 │
-│  cpnpy.gui         CPN editor (canvas, panels, menus)             │
+│  openprocess.gui.studio  OpenProcess Studio (the desktop app)                 │
+│  openprocess.gui         CPN editor (canvas, panels, menus)             │
 ├──────────────────────────────────┬───────────────────────────────┤
-│  cpnpy.mining                    │  cpnpy.analysis  CPN state     │
+│  openprocess.mining                    │  openprocess.analysis  CPN state     │
 │    log, xes, csv, stats          │                  space         │
-│    dfg, footprint, layout        │  cpnpy.sim       binding +     │
+│    dfg, footprint, layout        │  openprocess.sim       binding +     │
 │    petrinet, pnml, analysis      │                  firing rule   │
-│    discovery/  alpha, inductive, │  cpnpy.io        .cpn XML      │
-│                heuristics        │  cpnpy.model     CPN model     │
-│    conformance/ token replay,    │  cpnpy.ml        CPN ML        │
+│    discovery/  alpha, inductive, │  openprocess.io        .cpn XML      │
+│                heuristics        │  openprocess.model     CPN model     │
+│    conformance/ token replay,    │  openprocess.ml        CPN ML        │
 │                alignments, quality│                               │
 └──────────────────────────────────┴───────────────────────────────┘
 ```
@@ -107,7 +107,7 @@ firing         M'(p)  =  ( M(p) −− E(p,t)<b> )  ++  E(t,p)<b>
 ```
 
 Get `≤`, `−−` and `++` right and the simulator is a short piece of code. That
-is why `cpnpy/ml/multiset.py` is separate and has its own test module with
+is why `openprocess/ml/multiset.py` is separate and has its own test module with
 hand-computed expected values.
 
 ### Binding search is the hard part
@@ -116,7 +116,7 @@ An arc inscription `(x, n)` does not say *which* token to take. Enumerating
 every variable over its colour set is correct but hopeless — three variables
 over a 100-element colour set is a million candidates per transition per step.
 
-Instead, `cpnpy/sim/binding.py` reads each input inscription as a **pattern**
+Instead, `openprocess/sim/binding.py` reads each input inscription as a **pattern**
 and matches it against the tokens that are actually in the place, which yields
 the variable values directly:
 
@@ -136,7 +136,7 @@ variable, not a hang.
 
 ### Timed nets
 
-Three rules, implemented in `cpnpy/sim/simulator.py`:
+Three rules, implemented in `openprocess/sim/simulator.py`:
 
 - a token in a timed place carries a **time stamp**; only tokens whose stamp
   has been reached may be consumed;
@@ -152,7 +152,7 @@ transition is enabled *and* no future stamp exists is the model dead.
 
 ### State space
 
-`cpnpy/analysis/state_space.py` explores breadth-first, keying the visited set
+`openprocess/analysis/state_space.py` explores breadth-first, keying the visited set
 on `(marking, clock)` — markings are immutable and hashable, so this is an
 ordinary Python `set`. Properties come from **Tarjan's SCC decomposition**
 (written iteratively, so a hundred thousand nodes will not blow the recursion
@@ -189,7 +189,7 @@ so that case is reported as a problem.
 ### File format
 
 `.cpn` is XML with a `<workspaceElements>` root, a `<globbox>` of declarations
-and one `<page>` per diagram. The reader (`cpnpy/io/cpn_reader.py`) is
+and one `<page>` per diagram. The reader (`openprocess/io/cpn_reader.py`) is
 deliberately forgiving — unknown elements are ignored, every field has a
 default, and declaration text is taken from the `<layout>` element, which is
 the exact source the modeller typed. Entity resolution is off, so opening a
@@ -206,7 +206,7 @@ a minimal valid set of those sections.
 ## Project layout
 
 ```
-cpnpy/
+openprocess/
   ml/
     values.py        runtime values; hashable and totally ordered
     multiset.py      Multiset and TimedMultiset algebra
@@ -234,8 +234,10 @@ cpnpy/
     canvas.py        the scene, the editing tools (drag to connect, rename), the view
     panning.py       the endless canvas: panning and zooming, shared by every canvas
     arc_editing.py   CPN IDE's rules for bending, sliding and reconnecting arcs
-    app.py           `cpn-ide`: CPNpy Studio opened on a new coloured net
-  cli.py             the `cpnpy` command (`run`, `boxes`, `datasets`, `mine`, `exercises`)
+    app.py           `openprocess-cpn`: OpenProcess Studio opened on a new coloured net
+cpnpy/               the old name (CPNpy, up to 0.6): `import cpnpy` is `openprocess`
+                     under that name, so boxes and packs written for it run unchanged
+  cli.py             the `openprocess` command (`run`, `boxes`, `datasets`, `mine`, `exercises`)
   flow/              workflows, no Qt (docs/workflows.md): types.py, box.py (@box),
                      explain.py, workflow.py, runner.py, sweep.py, record.py
                      (.cpnflow files, fingerprints, the environment lock), convert.py,
@@ -243,7 +245,7 @@ cpnpy/
                      boxes/ (the standard boxes, one module per group)
   sim/export.py      a simulation's firing history as an event log
   references.py      the sources of every notation and algorithm (docs/references.md)
-  learn/             CPNpy Learn, no Qt: sheet.py (question.md with answer blocks),
+  learn/             OpenProcess Learn, no Qt: sheet.py (question.md with answer blocks),
                      pack.py (folders, progress, points), answers.py and notation.py
                      (reading typed sets, markings, cuts, trees, matrices, alignments…),
                      computed.py (the right answers worked out: @computed registry),
@@ -285,7 +287,7 @@ examples/models.py   four complete models, also used as test fixtures
   gui/studio/
     app.py           window, sidebar rows, welcome page, file opening, keeping the
                      open folder and the app in step (watching, autosave, moving)
-    workspace.py     the open folder: its tree of files, the hidden .cpnpy state,
+    workspace.py     the open folder: its tree of files, the hidden .openprocess state,
                      unique names, safe (atomic) writes
     sidebar.py       the sidebar tree: dragging files to subfolders, Finder, back in
     file_dialogs.py  copy/move a file into the folder, name clashes, Settings
@@ -303,7 +305,7 @@ examples/models.py   four complete models, also used as test fixtures
     markdown_view.py Markdown with maths; net_comparison.py: Compare nets' result
     dotted_chart.py, charts.py, widgets.py, style.py, workers.py, documents.py
 tests/               the test suite (tests/data holds a small course plane-boarding log)
-packaging/           the standalone apps: PyInstaller recipe (cpnpy.spec), entry
+packaging/           the standalone apps: PyInstaller recipe (openprocess.spec), entry
                      script, icons, build.py (build, smoke-test, pack)
 .github/workflows/   build-apps.yml: builds the macOS, Windows and Linux apps
 ```
@@ -314,18 +316,18 @@ packaging/           the standalone apps: PyInstaller recipe (cpnpy.spec), entry
 ## Using the command line
 
 ```bash
-cpnpy check       model.cpn              # compile and report problems
-cpnpy info        model.cpn              # colour sets, variables, initial marking
-cpnpy simulate    model.cpn -n 100 --seed 7
-cpnpy statespace  model.cpn --max-nodes 50000
-cpnpy example     timed_conveyor -o demo.cpn
+openprocess check       model.cpn              # compile and report problems
+openprocess info        model.cpn              # colour sets, variables, initial marking
+openprocess simulate    model.cpn -n 100 --seed 7
+openprocess statespace  model.cpn --max-nodes 50000
+openprocess example     timed_conveyor -o demo.cpn
 
-cpnpy mine stats      log.xes                       # cases, activities, variants
-cpnpy mine filter     log.xes --variants 80 --end d -o filtered.xes
-cpnpy mine discover   log.xes -a heuristics -o model.pnml   # or alpha, im, imf
-cpnpy mine conform    model.pnml log.xes            # fitness, precision, ...
-cpnpy mine soundness  model.pnml
-cpnpy mine invariants model.pnml                    # incidence matrix, P-/T-invariants
+openprocess mine stats      log.xes                       # cases, activities, variants
+openprocess mine filter     log.xes --variants 80 --end d -o filtered.xes
+openprocess mine discover   log.xes -a heuristics -o model.pnml   # or alpha, im, imf
+openprocess mine conform    model.pnml log.xes            # fitness, precision, ...
+openprocess mine soundness  model.pnml
+openprocess mine invariants model.pnml                    # incidence matrix, P-/T-invariants
 ```
 
 `--seed` makes a run reproducible: the same seed replays the same choices,
@@ -339,7 +341,7 @@ textbook notation.
 ## Using it as a library
 
 ```python
-from cpnpy import read_cpn, Simulator, StateSpace
+from openprocess import read_cpn, Simulator, StateSpace
 
 net = read_cpn("philosophers.cpn")
 assert net.errors == []                  # a list of CompileIssue, empty when clean
@@ -360,7 +362,7 @@ print(space.dead_markings())             # [] means no deadlock
 Building a model in code (see `examples/models.py` for four complete ones):
 
 ```python
-from cpnpy import CPNet, Page, Place, Transition, Arc
+from openprocess import CPNet, Page, Place, Transition, Arc
 
 net = CPNet("Demo")
 net.add_declaration("colset COLOUR = with red | green;")

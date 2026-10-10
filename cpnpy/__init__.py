@@ -1,57 +1,46 @@
-"""CPNpy -- Coloured Petri Nets, Petri nets and process mining, on macOS, Windows and Linux.
+"""``cpnpy``: the old name of :mod:`openprocess` (CPNpy, up to 0.6).
 
-A from-scratch implementation of the modelling, simulation and analysis parts
-of CPN Tools / CPN IDE in pure Python, with a PySide6 desktop application.
-
-Quick start::
-
-    from cpnpy import read_cpn, Simulator, StateSpace
-
-    net = read_cpn("model.cpn")
-    print(net.errors)                 # [] means it compiled cleanly
-
-    simulator = Simulator(net, seed=0)
-    simulator.run(100)
-    print(simulator.marking.describe(net))
-
-    print(StateSpace(net).generate().report())
-
-Package layout
---------------
-``cpnpy.ml``
-    The CPN ML subset: values, multisets, colour sets, lexer, parser, evaluator.
-``cpnpy.model``
-    The net data model and the declaration compiler.
-``cpnpy.io``
-    Reading and writing CPN Tools ``.cpn`` XML.
-``cpnpy.sim``
-    Binding search and the simulator.
-``cpnpy.analysis``
-    State space generation and the properties derived from it.
-``cpnpy.mining``
-    Process mining: event logs (XES/CSV), discovery (α, Inductive Miner,
-    Heuristics), conformance (token replay, alignments, precision), P/T nets,
-    PNML, soundness.  See ``cpnpy/mining/__init__.py``.
-``cpnpy.gui``
-    The PySide6 desktop applications (optional; need the ``gui`` extra):
-    the CPN editor (``cpnpy.gui.app``) and CPNpy Studio (``cpnpy.gui.studio``).
+``import cpnpy`` and ``from cpnpy.flow import box`` keep working: every
+``cpnpy.*`` module is the ``openprocess.*`` module under its old name, so a
+box file or an exercise pack written for CPNpy runs unchanged.  New code
+should import ``openprocess``; this shim warns once per process.
 """
 
-from .analysis.state_space import StateSpace
-from .io.cpn_reader import parse_cpn, read_cpn
-from .io.cpn_writer import to_xml_string, write_cpn
-from .ml.multiset import Multiset, TimedMultiset
-from .model.net import Arc, CPNet, Marking, Page, Place, Transition
-from .sim.binding import BindingElement
-from .sim.simulator import Simulator
+from __future__ import annotations
 
-#: The one place the version number is written (pyproject.toml, the update
-#: check and packaging/build.py read it from here).  A release is tagged
-#: "v" + this, e.g. v0.2.0.
-__version__ = "0.6.0"
+import importlib
+import importlib.abc
+import importlib.machinery
+import sys
+import warnings
 
-__all__ = [
-    "Arc", "BindingElement", "CPNet", "Marking", "Multiset", "Page", "Place",
-    "Simulator", "StateSpace", "TimedMultiset", "Transition",
-    "parse_cpn", "read_cpn", "to_xml_string", "write_cpn",
-]
+import openprocess as _new
+
+__version__ = _new.__version__
+__all__ = list(getattr(_new, "__all__", []))
+
+
+class _Alias(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """``cpnpy.x.y`` resolves to the already-imported ``openprocess.x.y``."""
+
+    def find_spec(self, name, path=None, target=None):
+        if name == __name__ or not name.startswith(__name__ + "."):
+            return None
+        return importlib.machinery.ModuleSpec(name, self)
+
+    def create_module(self, spec):
+        module = importlib.import_module(_new.__name__ + spec.name[len(__name__):])
+        sys.modules[spec.name] = module
+        return module
+
+    def exec_module(self, module):
+        pass
+
+
+sys.meta_path.insert(0, _Alias())
+warnings.warn("cpnpy is now openprocess: import openprocess instead (cpnpy keeps working for now)",
+              DeprecationWarning, stacklevel=2)
+
+
+def __getattr__(name):
+    return getattr(_new, name)

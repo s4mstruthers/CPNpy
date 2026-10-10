@@ -1,20 +1,30 @@
 <p align="center">
-  <img src="docs/logo/cpnpy-logo.svg" alt="CPNpy" width="560">
+  <img src="docs/logo/openprocess-logo.svg" alt="OpenProcess" width="600">
 </p>
 
 <p align="center">
-  <b>A modern take on ProM and CPN IDE, in one app: process mining, Petri nets and coloured Petri nets.</b><br>
-  Pure Python + Qt. No Java, no Wine, no separate simulator to install.
+  <b>Process mining, Petri nets and workflows in one open app.</b><br>
+  Every algorithm is there to read, every result can be reproduced, every step can be taught.<br>
+  Pure Python and Qt. No Java, no Wine, no separate simulator to install.
 </p>
 
 <p align="center">
-  <a href="https://github.com/s4mstruthers/CPNpy/releases/latest"><b>⬇ Download for macOS, Windows or Linux</b></a>
-  · no Python needed · <a href="#install">install guide</a>
+  <a href="https://github.com/s4mstruthers/openprocess/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/s4mstruthers/openprocess?label=download&color=2563EB"></a>
+  <a href="https://pypi.org/project/openprocess/"><img alt="PyPI" src="https://img.shields.io/pypi/v/openprocess?color=2563EB"></a>
+  <a href="https://github.com/s4mstruthers/openprocess/actions/workflows/build-apps.yml"><img alt="Tests and builds" src="https://img.shields.io/github/actions/workflow/status/s4mstruthers/openprocess/build-apps.yml?label=tests"></a>
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/licence-MIT-0F2A6B"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/s4mstruthers/openprocess/releases/latest"><b>⬇ Download for macOS, Windows or Linux</b></a>
+  · no Python needed · or <code>pip install openprocess[app]</code> · <a href="#install">install guide</a>
 </p>
 
 ![Drawing a WF-net and checking its soundness](docs/screenshots/petri-analysis.png)
 
-**CPNpy Studio** brings together what usually takes several tools:
+**OpenProcess Studio** is the workbench; **OpenProcess Learn** is the teaching
+mode built on it. Together they bring under one roof what usually takes several
+tools (and, until version 0.7, went by the name CPNpy):
 
 | | What you can do | Instead of |
 |---|---|---|
@@ -48,36 +58,51 @@
 
 ## Install
 
-CPNpy runs on **macOS, Windows and Linux**. Download the app, or run it from
+OpenProcess runs on **macOS, Windows and Linux**. Download the app, or run it from
 source if you want to change the code.
 
 ### Download the app
 
 No Python needed. Take the file for your system from the
-[latest release](https://github.com/s4mstruthers/CPNpy/releases/latest):
+[latest release](https://github.com/s4mstruthers/openprocess/releases/latest):
 
 | System | File | Then |
 |---|---|---|
-| macOS | `CPNpy-…-macOS-arm64.dmg` (Apple silicon) or `…-macOS-x64.dmg` (Intel) | Open it and drag **CPNpy** onto **Applications**. |
-| Windows | `CPNpy-…-Windows-x64.zip` | Unzip it anywhere and start `CPNpy\CPNpy.exe`. For a desktop shortcut: right-click `CPNpy.exe` ▸ *Send to* ▸ *Desktop*. |
-| Linux | `CPNpy-…-Linux-x64.tar.gz` | `tar xzf CPNpy-*.tar.gz`, then `./CPNpy/install-desktop-entry.sh` to add it to the applications menu and the desktop. |
+| macOS | `OpenProcess-…-macOS-arm64.dmg` (Apple silicon) or `…-macOS-x64.dmg` (Intel) | Open it and drag **OpenProcess** onto **Applications**. |
+| Windows | `OpenProcess-…-Windows-x64.zip` | Unzip it anywhere and start `OpenProcess\OpenProcess.exe`. For a desktop shortcut: right-click `OpenProcess.exe` ▸ *Send to* ▸ *Desktop*. |
+| Linux | `OpenProcess-…-Linux-x64.tar.gz` | `tar xzf OpenProcess-*.tar.gz`, then `./OpenProcess/install-desktop-entry.sh` to add it to the applications menu and the desktop. |
 
 The apps are not signed with a paid developer certificate, so the system asks
 once, the first time you start one:
 
 - **macOS** says Apple could not check it. Click *Done*, then open *System
-  Settings ▸ Privacy & Security* and click *Open Anyway* next to CPNpy. (Or
-  in Terminal: `xattr -dr com.apple.quarantine /Applications/CPNpy.app`.)
+  Settings ▸ Privacy & Security* and click *Open Anyway* next to OpenProcess. (Or
+  in Terminal: `xattr -dr com.apple.quarantine /Applications/OpenProcess.app`.)
 - **Windows** shows *Windows protected your PC*. Click *More info*, then
   *Run anyway*.
 
 Later versions install themselves: the app says when one is out, or ask with
 **Help ▸ Check for Updates…**.
 
+### With pip
+
+For a script, a notebook, a box of your own, or CI, OpenProcess is a normal
+Python package with no required dependencies:
+
+```
+pip install openprocess            # the engine: process mining, Petri nets, workflows, Learn
+pip install "openprocess[app]"     # also the desktop app: then `openprocess studio`
+pip install "openprocess[app,science]"   # and the pandas, SciPy and matplotlib boxes
+```
+
+Code written for CPNpy keeps working: `import cpnpy` is `openprocess` under
+its old name (with a one-line warning), so existing boxes and exercise packs
+run unchanged.
+
 ### From source
 
 You need Python 3.10 or newer, with Qt through PySide6. The easiest way to set
-it up is a **conda** environment called `cpnpy`, defined in `environment.yml`.
+it up is a **conda** environment called `openprocess`, defined in `environment.yml`.
 
 #### 1. Get conda (once)
 
@@ -96,10 +121,10 @@ The same commands on every system (Terminal on macOS and Linux, Miniforge
 Prompt or PowerShell on Windows):
 
 ```bash
-git clone https://github.com/s4mstruthers/CPNpy.git
-cd CPNpy
-conda env create -f environment.yml       # Python 3.12, PySide6, pytest, CPNpy itself
-conda activate cpnpy
+git clone https://github.com/s4mstruthers/openprocess.git
+cd OpenProcess
+conda env create -f environment.yml       # Python 3.12, PySide6, pytest, OpenProcess itself
+conda activate openprocess
 ```
 
 No git? Use **Code ▸ Download ZIP** on GitHub, unzip it and `cd` into the
@@ -108,10 +133,10 @@ folder.
 #### 3. Start the app
 
 ```bash
-cpnpy-studio
+openprocess-studio
 ```
 
-`python -m cpnpy.gui.studio` does the same. After pulling changes that touch
+`python -m openprocess.gui.studio` does the same. After pulling changes that touch
 `environment.yml` or `pyproject.toml`, run
 `conda env update -f environment.yml --prune`.
 
@@ -130,8 +155,8 @@ virtual environment in the project folder:
 Then, on every system:
 
 ```bash
-pip install -e ".[gui,dev]"
-cpnpy-studio
+pip install -e ".[app,dev]"
+openprocess-studio
 ```
 
 If PowerShell refuses to run `Activate.ps1`, allow local scripts once with
@@ -198,7 +223,7 @@ handling (unsound — try Analysis)**.
 Keep each week's material in a folder (the logs from the course, the nets
 you draw) and open it: **File ▸ Open Folder…** (⌥⌘O / Ctrl+Alt+O), or drag
 the folder onto the window. **The sidebar and the folder always match**:
-what you see in CPNpy is what is in Finder (or Explorer), and the other way
+what you see in OpenProcess is what is in Finder (or Explorer), and the other way
 round.
 
 ![The folder Week 2 in the sidebar, with its subfolders, one net open and the others listed](docs/screenshots/workspace.png)
@@ -230,7 +255,7 @@ round.
   and when you switch to another file or quit. There is no "edited" dot, and
   undo still works. Turn it off with **File ▸ Autosave**. **File ▸ Revert to
   Saved…** goes back to the file as it was when you opened it.
-  A `.cpn` model made in CPN Tools is not autosaved (CPNpy would rewrite it
+  A `.cpn` model made in CPN Tools is not autosaved (OpenProcess would rewrite it
   in its own writer) until you save it once yourself with ⌘S.
 - **Logs you make are files too**: a log typed in notation is saved as
   `<name>.log.txt` (still in notation), a filtered log as `<log> (filtered).xes` next to the log it
@@ -248,8 +273,8 @@ round.
   second on macOS.
 - **An open file changed on disk** (a `.xes` exported again from ProM, a
   `.pnml` edited in WoPeD) is **reloaded** by itself. If it also has edits in
-  CPNpy that are not saved yet, a bar above the page asks: *Reload (lose my
-  edits)* or *Keep Mine*. CPNpy's own saves are recognised and never reload.
+  OpenProcess that are not saved yet, a bar above the page asks: *Reload (lose my
+  edits)* or *Keep Mine*. OpenProcess's own saves are recognised and never reload.
 - **An open file moved or renamed in Finder**, within the folder, stays open
   and follows the file to its new place, unsaved edits included.
 - **An open file deleted, or moved out of the folder,** stays open, shown in
@@ -278,7 +303,7 @@ FILES**.
 
 - **What you had open comes back** the next time you open the folder, and
   the app reopens the last folder at launch. This is kept in a small hidden
-  file, `.cpnpy`, in the folder, with paths relative to the folder, so it
+  file, `.openprocess`, in the folder, with paths relative to the folder, so it
   keeps working if you move or sync the folder. Delete it to start fresh.
 - Switch with **File ▸ Open Recent Folder**, the buttons on the welcome
   page, or the **⋯** menu next to the folder's name, which also has *Show in
@@ -469,7 +494,7 @@ The app follows the system's light or dark appearance:
 
 ## Learn
 
-CPNpy Learn is the teaching side of the app, built on top of it: exercise
+OpenProcess Learn is the teaching side of the app, built on top of it: exercise
 packs with answer boxes that the app checks. Click an exercise folder in the
 sidebar, **Learn ▸ Open Exercise Pack…**, or **Learn ▸ Open Demo Exercises**
 (it asks where to put a copy, since your answers are saved next to the
@@ -527,18 +552,18 @@ transition system (α-algorithm steps, the Inductive Miner's cuts, soundness
 and its conditions, markings and matrices, replay, regions, fitness… and any
 box of the workflow library: `box(alpha_miner).net.transitions`), so most
 answers need not be written by hand. **Learn ▸ Writing Exercise Packs**
-([cpnpy/learn/exercise-packs.md](cpnpy/learn/exercise-packs.md)) lists every
-box type and computed answer. From a terminal, `cpnpy exercises check <pack>`
-reports mistakes in a pack before you share it, `cpnpy exercises marks <pack>`
-prints the marks, `cpnpy exercises computes` lists every compute, and
-`cpnpy exercises import exam.txt <pack>` (or **Learn ▸ Make a Pack from an
+([openprocess/learn/exercise-packs.md](openprocess/learn/exercise-packs.md)) lists every
+box type and computed answer. From a terminal, `openprocess exercises check <pack>`
+reports mistakes in a pack before you share it, `openprocess exercises marks <pack>`
+prints the marks, `openprocess exercises computes` lists every compute, and
+`openprocess exercises import exam.txt <pack>` (or **Learn ▸ Make a Pack from an
 Exam…**) turns a past exam's text into a skeleton pack, one exercise per
 question with an answer block per part, for you to finish. Exercises written
 for earlier versions still work: a sheet written in lettered parts (a., b., …)
 gets a box under each part, with that part of `answer.md` as its model answer.
 
-The code is `cpnpy.learn` (no Qt: the worksheet format, the notations, the
-computed answers and the checks) and `cpnpy.gui.learn` (the window).
+The code is `openprocess.learn` (no Qt: the worksheet format, the notations, the
+computed answers and the checks) and `openprocess.gui.learn` (the window).
 
 ## Coloured Petri nets
 
@@ -639,7 +664,7 @@ The app shows each shortcut the way your system writes it.
 | Petri nets: `.pnml` (with positions, weights, τ, arc bends) | ✓ | ✓ |
 | CPN Tools models: `.cpn` | ✓ | ✓ |
 | Pictures of nets and charts | | `.png`, `.svg` |
-| Folder state: `.cpnpy` (hidden, in the folder) | ✓ | ✓ |
+| Folder state: `.openprocess` (hidden, in the folder) | ✓ | ✓ |
 
 Example files: `examples/petri/*.pnml` (Petri nets), `examples/*.cpn`
 (coloured nets) and `tests/data/` (a plane-boarding model and log from the
@@ -651,26 +676,26 @@ course).
 
 ```bash
 pytest -q                 # the whole suite, including GUI tests that run offscreen
-cpnpy --help              # command line: check, simulate, state space, mining
+openprocess --help              # command line: check, simulate, state space, mining
 ```
 
-The same commands work on macOS, Windows and Linux. `cpnpy mine` covers the
+The same commands work on macOS, Windows and Linux. `openprocess mine` covers the
 process mining side: `stats`, `filter`, `discover` (α, IM, IMf, heuristics),
-`conform`, `soundness` and `invariants`; `cpnpy exercises check`, `marks`,
+`conform`, `soundness` and `invariants`; `openprocess exercises check`, `marks`,
 `import` and `computes` serve exercise packs. `docs/definitions.md` is
-generated from `cpnpy/mining/definitions.py`; after editing a definition, run
-`python -m cpnpy.mining.definitions > docs/definitions.md` (a test checks it).
-Likewise [`docs/references.md`](docs/references.md) — every source CPNpy's
+generated from `openprocess/mining/definitions.py`; after editing a definition, run
+`python -m openprocess.mining.definitions > docs/definitions.md` (a test checks it).
+Likewise [`docs/references.md`](docs/references.md) — every source OpenProcess's
 notation and algorithms follow, also in the app under **Help ▸ References** —
-is generated from `cpnpy/references.py` with
-`python -m cpnpy.references > docs/references.md`.
+is generated from `openprocess/references.py` with
+`python -m openprocess.references > docs/references.md`.
 
-The engines (`cpnpy.mining`, `cpnpy.ml`, `cpnpy.sim`, `cpnpy.analysis`)
+The engines (`openprocess.mining`, `openprocess.ml`, `openprocess.sim`, `openprocess.analysis`)
 have **no dependencies**, so they work in a notebook or a script:
 
 ```python
-from cpnpy.mining import read_xes, inductive_miner
-from cpnpy.mining.analysis import check_soundness
+from openprocess.mining import read_xes, inductive_miner
+from openprocess.mining.analysis import check_soundness
 
 net = inductive_miner(read_xes("log.xes").simple_log()).net
 report = check_soundness(net)
@@ -722,7 +747,7 @@ extra) and *Predict the next activity*. Or start empty.
 - **Export experiment** writes a zip with the workflow file and its record,
   the inputs, your boxes, every result as a file (CSV, PNML, SVG, XES), a
   `requirements.lock` and a README that says what was run: supplementary
-  material for a paper, which `cpnpy run --check` can verify.
+  material for a paper, which `openprocess run --check` can verify.
 - **The three panels** (box list, canvas, side panel) resize by dragging the
   gaps, hide with *⇤ Boxes* / *Panel ⇥* or the View menu, and come back with
   *View ▸ Reset Workflow Layout*.
@@ -736,10 +761,10 @@ to get the same numbers again: fingerprints of the input files and of the
 box code, every seed, and the installed packages.
 
 ```python
-from cpnpy.flow import Workflow, Runner, save
-from cpnpy.flow.boxes.input import open_log
-from cpnpy.flow.boxes.discover import inductive_miner
-from cpnpy.flow.boxes.check import check_fit
+from openprocess.flow import Workflow, Runner, save
+from openprocess.flow.boxes.input import open_log
+from openprocess.flow.boxes.discover import inductive_miner
+from openprocess.flow.boxes.check import check_fit
 
 wf = Workflow("orders")
 log = wf.add(open_log, {"file": "orders.xes"})
@@ -753,16 +778,16 @@ save(wf, "orders.cpnflow", run)
 ```
 
 ```bash
-cpnpy run orders.cpnflow --check     # re-run; fails if any result differs from the record
-cpnpy run orders.cpnflow --sweep noise=0..0.5 step 0.1
-cpnpy boxes                          # the 47 boxes, with a folder's boxes/
-cpnpy datasets list                  # the BPI Challenge, Sepsis, ... logs by name
+openprocess run orders.cpnflow --check     # re-run; fails if any result differs from the record
+openprocess run orders.cpnflow --sweep noise=0..0.5 step 0.1
+openprocess boxes                          # the 47 boxes, with a folder's boxes/
+openprocess datasets list                  # the BPI Challenge, Sepsis, ... logs by name
 ```
 
 A box of your own is one function in a `boxes/` folder:
 
 ```python
-from cpnpy.flow import box, EventLog, TransitionSystem
+from openprocess.flow import box, EventLog, TransitionSystem
 
 @box(group="Discover")
 def last_two(log: EventLog, representation: str = "multiset") -> TransitionSystem:
@@ -777,12 +802,12 @@ into columns rather than objects, so a million events fit in memory.
 a box, the types, the *How* tab, sweeps, the prediction pipeline, the
 record and running in CI.
 
-**Building the apps.** `packaging/` turns CPNpy into a standalone app with
+**Building the apps.** `packaging/` turns OpenProcess into a standalone app with
 PyInstaller. In the environment:
 
 ```bash
 pip install pyinstaller
-python packaging/build.py      # → dist/CPNpy.app or dist/CPNpy/, plus a .dmg / .zip / .tar.gz
+python packaging/build.py      # → dist/OpenProcess.app or dist/OpenProcess/, plus a .dmg / .zip / .tar.gz
 ```
 
 The script also smoke-tests the result. Each system can only build its own
@@ -798,7 +823,7 @@ workflow* on the Actions tab.
    [CHANGELOG.md](CHANGELOG.md) (`## 0.4.0`, then a few bullet points). Write
    it for the people using the app: it becomes the text of the release on
    GitHub, and the app shows it when it offers the update.
-2. Set `__version__` in `cpnpy/__init__.py` to the same version and merge
+2. Set `__version__` in `openprocess/__init__.py` to the same version and merge
    both into `main`. It is the only place the version is written:
    `pyproject.toml`, the download names and the app's update check all read
    it from there.
@@ -811,7 +836,7 @@ workflow* on the Actions tab.
    ```
 
 About five minutes later the
-[Releases page](https://github.com/s4mstruthers/CPNpy/releases) has the
+[Releases page](https://github.com/s4mstruthers/openprocess/releases) has the
 macOS (Apple silicon and Intel), Windows and Linux apps. The build refuses a
 tag that does not match `__version__`, or a version with no section in
 `CHANGELOG.md`.
@@ -829,7 +854,7 @@ version (the old one is kept until the new one is in place).
 Run from source (a git clone), the app never changes itself: the bar's
 button says **How to Update** and explains `git pull`. It only appears when
 the clone is older than the latest release. See
-`cpnpy/gui/studio/updates.py`.
+`openprocess/gui/studio/updates.py`.
 
 ---
 

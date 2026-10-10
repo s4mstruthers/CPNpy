@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cpnpy.gui.studio.workspace import STATE_FILE, Workspace, display_name, file_kind
+from openprocess.gui.studio.workspace import STATE_FILE, Workspace, display_name, file_kind
 
 
 def _touch(path: Path, text: str = "x") -> Path:
@@ -83,7 +83,7 @@ def test_broken_state_file_is_ignored(tmp_path):
 
 
 def test_tree_lists_folders_first_including_empty_ones(tmp_path):
-    from cpnpy.gui.studio.workspace import WorkspaceFolder
+    from openprocess.gui.studio.workspace import WorkspaceFolder
 
     _touch(tmp_path / "b.pnml")
     _touch(tmp_path / "A.xes")
@@ -107,7 +107,7 @@ def test_tree_lists_folders_first_including_empty_ones(tmp_path):
 
 
 def test_tree_says_when_it_stopped_listing(tmp_path, monkeypatch):
-    from cpnpy.gui.studio import workspace as module
+    from openprocess.gui.studio import workspace as module
 
     monkeypatch.setattr(module, "MAX_FILES", 3)
     for index in range(5):
@@ -145,7 +145,7 @@ def test_settings_live_next_to_the_open_files(tmp_path):
 
 
 def test_unique_names_and_safe_names(tmp_path):
-    from cpnpy.gui.studio.workspace import file_stem, file_suffix, safe_file_name, unique_path
+    from openprocess.gui.studio.workspace import file_stem, file_suffix, safe_file_name, unique_path
 
     assert unique_path(tmp_path, "Wilma 50.xes") == tmp_path / "Wilma 50.xes"
     _touch(tmp_path / "Wilma 50.xes")
@@ -160,7 +160,7 @@ def test_unique_names_and_safe_names(tmp_path):
 
 def test_atomic_write_never_leaves_half_a_file(tmp_path):
     import pytest
-    from cpnpy.gui.studio.workspace import atomic_write, made_by_cpnpy
+    from openprocess.gui.studio.workspace import atomic_write, made_by_openprocess
 
     target = _touch(tmp_path / "model.pnml", "old")
     atomic_write(target, lambda path: path.write_text("new"))
@@ -174,13 +174,13 @@ def test_atomic_write_never_leaves_half_a_file(tmp_path):
     assert target.read_text() == "new"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["model.pnml"]   # no leftovers
 
-    assert made_by_cpnpy(_touch(tmp_path / "a.cpn", '<generator tool="CPNpy" version="0.2.0"/>'))
-    assert not made_by_cpnpy(_touch(tmp_path / "b.cpn", '<generator tool="CPN Tools"/>'))
-    assert not made_by_cpnpy(tmp_path / "missing.cpn")
+    assert made_by_openprocess(_touch(tmp_path / "a.cpn", '<generator tool="OpenProcess" version="0.2.0"/>'))
+    assert not made_by_openprocess(_touch(tmp_path / "b.cpn", '<generator tool="CPN Tools"/>'))
+    assert not made_by_openprocess(tmp_path / "missing.cpn")
 
 
 def test_text_files_and_exercise_folders(tmp_path):
-    from cpnpy.gui.studio.workspace import exercise_files, file_suffix
+    from openprocess.gui.studio.workspace import exercise_files, file_suffix
     assert file_kind(Path("log.txt")) == "log" and file_kind(Path("L1.log.txt")) == "log"
     assert file_kind(Path("ts.txt")) == "ts" and file_kind(Path("exam.ts.txt")) == "ts"
     assert file_kind(Path("notes.txt")) is None

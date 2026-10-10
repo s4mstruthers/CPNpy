@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cpnpy import CPNet, Simulator, read_cpn
+from openprocess import CPNet, Simulator, read_cpn
 
 DATA = Path(__file__).parent / "data"
 
@@ -48,7 +48,7 @@ def test_list_append_with_plus_plus():
 
 
 def test_list_guard_parses_as_conjunction():
-    from cpnpy.model.net import parse_guard
+    from openprocess.model.net import parse_guard
     guard = parse_guard("r = cr + 1, cr < r")
     assert type(guard).__name__ == "BinOp" and guard.operator == "andalso"
 
