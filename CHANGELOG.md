@@ -6,6 +6,24 @@ each [release on GitHub](https://github.com/s4mstruthers/CPNpy/releases) uses
 it as its description. Write for the people using the app: what they will
 notice, not how it was done.
 
+## 0.6.0
+
+- **Workflows, from Python.** The new `cpnpy.flow` framework: every
+  algorithm is a *box* (a Python function with type hints), an analysis is
+  a *workflow* of boxes you can run, save as a `.cpnflow` file and re-run
+  headless with `cpnpy run`. The file records the fingerprints of its
+  inputs and box code, every seed, and the installed packages, and
+  `cpnpy run --check` fails when a result no longer matches the record.
+  Forty-seven boxes come with it (the discovery algorithms, conformance,
+  filters, comparing, saving, simulating plain and coloured nets, sweeps,
+  a prediction pipeline, and pandas, NumPy, SciPy and matplotlib examples
+  behind `pip install cpnpy[science]`), and your own box is one function in
+  a `boxes/` folder. See `docs/workflows.md`. The app's Workflows page
+  follows in the next version.
+- **Public datasets by name**: `cpnpy datasets` lists the BPI Challenge,
+  Sepsis, Road Traffic Fine and Hospital Billing logs with their DOIs,
+  fetches them into a shared cache and checks their fingerprints.
+
 ## 0.5.5
 
 - **Fixed:** the box that opens to name a new place or transition could end

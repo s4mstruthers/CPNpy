@@ -34,6 +34,12 @@ dependencies = []
 # updates (its bundled Python cannot find the system's own).
 gui = ["PySide6>=6.6", "certifi"]
 dev = ["pytest>=8.0"]
+# The Science boxes (Describe log, Bootstrap fitness, Compare samples, Correlate,
+# Plot) and the converters to pandas and matplotlib.  Each box says which of
+# these it needs; without them it is listed greyed out.
+science = ["numpy>=1.24", "pandas>=2.0", "scipy>=1.10", "matplotlib>=3.7"]
+# The scikit-learn example model in examples/boxes/.
+predict = ["scikit-learn>=1.3"]
 # Optional: the ILP Miner, PM4Py's heuristics net, and a cross-check of the
 # built-in algorithms.  PM4Py is AGPL-3.0 licensed.
 pm4py = ["pm4py>=2.7"]
@@ -51,6 +57,10 @@ version = { attr = "cpnpy.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["cpnpy*"]
+
+# Installed packages can add boxes to the box list by declaring an entry point
+# in this group, e.g. [project.entry-points."cpnpy.boxes"] my_pack = "my_pack.boxes".
+# (CPNpy itself declares none; its boxes are found as cpnpy.flow.boxes.)
 
 [tool.setuptools.package-data]
 "cpnpy.gui" = ["resources/*.png"]

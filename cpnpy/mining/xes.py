@@ -48,7 +48,7 @@ from typing import Any, BinaryIO
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
-from .log import Classifier, Event, EventLog, Trace
+from .log import KEY_LIFECYCLE, KEY_NAME, KEY_RESOURCE, KEY_TIME, Classifier, Event, EventLog, Trace
 
 _ATTRIBUTE_TAGS = {"string", "date", "int", "float", "boolean", "id", "list", "container"}
 
@@ -137,12 +137,26 @@ def _open(source: str | Path | BinaryIO) -> BinaryIO:
     return open(path, "rb")
 
 
-def read_xes(source: str | Path | BinaryIO, progress=None) -> EventLog:
+#: Files larger than this (bytes on disk) are read into columns unless told otherwise.
+COLUMNAR_FROM = 20 * 1024 * 1024
+
+
+def read_xes(source: str | Path | BinaryIO, progress=None, columnar: bool | None = None) -> EventLog:
     """Read an XES (or gzip-compressed XES) file into an :class:`EventLog`.
 
     ``progress`` is an optional callable receiving the number of traces read
-    so far; the GUI uses it to update a progress indicator.
+    so far; the GUI uses it to update a progress indicator.  ``columnar``
+    keeps the events in arrays rather than objects (see
+    :mod:`.columns`); by default that is done for files above
+    :data:`COLUMNAR_FROM`.
     """
+    if columnar is None:
+        try:
+            columnar = isinstance(source, (str, Path)) and Path(source).stat().st_size >= COLUMNAR_FROM
+        except OSError:
+            columnar = False
+    if columnar:
+        return _read_columnar(source, progress)
     log = EventLog()
     if isinstance(source, (str, Path)):
         log.source_path = str(source)
@@ -201,6 +215,77 @@ def read_xes(source: str | Path | BinaryIO, progress=None) -> EventLog:
 
     _apply_event_defaults(log)
     return log
+
+
+def _read_columnar(source: str | Path | BinaryIO, progress=None) -> EventLog:
+    """The same parse, but events go into a :class:`~.columns.ColumnStore`."""
+    from .columns import ColumnStore
+    store = ColumnStore()
+    fields: dict = {"attributes": {}, "extensions": [], "global_trace_attributes": {},
+                    "global_event_attributes": {}, "declared_classifiers": []}
+    if isinstance(source, (str, Path)):
+        fields["source_path"] = str(source)
+    stream = _open(source)
+    try:
+        stack: list[str] = []
+        for kind, element in ET.iterparse(stream, events=("start", "end")):
+            tag = _strip_namespace(element.tag)
+            if kind == "start":
+                stack.append(tag)
+                continue
+            stack.pop()
+            element.tag = tag
+            parent = stack[-1] if stack else None
+            if tag == "event" and parent == "trace":
+                activity = stamp = lifecycle = resource = None
+                extras, order = [], []
+                for child in element:
+                    child.tag = _strip_namespace(child.tag)
+                    key = child.get("key")
+                    order.append(key)
+                    if key == KEY_NAME:
+                        activity = child.get("value", "")
+                    elif key == KEY_TIME:
+                        try:
+                            stamp = parse_xes_date(child.get("value", ""))
+                        except (TypeError, ValueError):
+                            stamp = None
+                    elif key == KEY_LIFECYCLE:
+                        lifecycle = child.get("value", "")
+                    elif key == KEY_RESOURCE:
+                        resource = child.get("value", "")
+                    elif child.tag in _ATTRIBUTE_TAGS:
+                        for inner in child.iter():
+                            inner.tag = _strip_namespace(inner.tag)
+                        extras.append((key, _convert(child)))
+                store.add(activity, stamp, lifecycle, resource, extras, order)
+            elif tag == "trace":
+                for child in element.iter():
+                    child.tag = _strip_namespace(child.tag)
+                store.end_case(_attributes_of(element))
+                element.clear()
+                if progress is not None and store.case_count % 500 == 0:
+                    progress(store.case_count)
+            elif tag in _ATTRIBUTE_TAGS and parent in ("event", "trace", "list", "values", "container"):
+                element.tag = tag
+            elif tag == "extension" and parent == "log":
+                fields["extensions"].append(dict(element.attrib))
+            elif tag == "global" and parent == "log":
+                for child in element:
+                    child.tag = _strip_namespace(child.tag)
+                scope = element.get("scope", "event")
+                target = fields["global_trace_attributes"] if scope == "trace" else fields["global_event_attributes"]
+                target.update(_attributes_of(element))
+            elif tag == "classifier" and parent == "log":
+                keys = tuple(_split_classifier_keys(element.get("keys", "")))
+                if keys:
+                    fields["declared_classifiers"].append(Classifier(element.get("name") or " + ".join(keys), keys))
+            elif tag in _ATTRIBUTE_TAGS and parent == "log":
+                fields["attributes"][element.get("key")] = _convert(element)
+    finally:
+        if not hasattr(source, "read"):
+            stream.close()
+    return EventLog.from_columns(store, **fields)
 
 
 def _split_classifier_keys(text: str) -> list[str]:

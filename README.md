@@ -39,6 +39,7 @@
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Files](#files)
 - [For developers](#for-developers)
+- [Workflows from Python](#workflows-from-python)
 - [Limitations and roadmap](#limitations-and-roadmap)
 
 ---
@@ -658,6 +659,56 @@ print(report.sound, report.findings)
 [**docs/how-it-works.md**](docs/how-it-works.md) covers the architecture, the
 CPN ML subset, binding search, timed nets, the state space, the file format
 and the project layout.
+
+## Workflows from Python
+
+Every algorithm is also a **box**: a Python function with type hints that
+the app (from 0.7) draws on a canvas. A workflow of boxes runs from Python
+or from the command line, and its `.cpnflow` file records what is needed
+to get the same numbers again: fingerprints of the input files and of the
+box code, every seed, and the installed packages.
+
+```python
+from cpnpy.flow import Workflow, Runner, save
+from cpnpy.flow.boxes.input import open_log
+from cpnpy.flow.boxes.discover import inductive_miner
+from cpnpy.flow.boxes.check import check_fit
+
+wf = Workflow("orders")
+log = wf.add(open_log, {"file": "orders.xes"})
+model = wf.add(inductive_miner, {"noise": 0.2})
+fit = wf.add(check_fit)
+wf.connect(log, model); wf.connect(model, fit, "model"); wf.connect(log, fit, "log")
+run = Runner().run(wf)
+print(run.value(fit).metrics)                  # fitness, precision, generalisation, simplicity
+print(run.result(model).explanation.steps)     # how the Inductive Miner got there
+save(wf, "orders.cpnflow", run)
+```
+
+```bash
+cpnpy run orders.cpnflow --check     # re-run; fails if any result differs from the record
+cpnpy run orders.cpnflow --sweep noise=0..0.5 step 0.1
+cpnpy boxes                          # the 47 boxes, with a folder's boxes/
+cpnpy datasets list                  # the BPI Challenge, Sepsis, ... logs by name
+```
+
+A box of your own is one function in a `boxes/` folder:
+
+```python
+from cpnpy.flow import box, EventLog, TransitionSystem
+
+@box(group="Discover")
+def last_two(log: EventLog, representation: str = "multiset") -> TransitionSystem:
+    """The last two activities as the state."""
+    ...
+```
+
+`pip install -e ".[science]"` adds the pandas, NumPy, SciPy and matplotlib
+boxes (describe, bootstrap intervals, tests, plots). Large logs are read
+into columns rather than objects, so a million events fit in memory.
+[**docs/workflows.md**](docs/workflows.md) has the whole framework: writing
+a box, the types, the *How* tab, sweeps, the prediction pipeline, the
+record and running in CI.
 
 **Building the apps.** `packaging/` turns CPNpy into a standalone app with
 PyInstaller. In the environment:

@@ -235,7 +235,13 @@ cpnpy/
     panning.py       the endless canvas: panning and zooming, shared by every canvas
     arc_editing.py   CPN IDE's rules for bending, sliding and reconnecting arcs
     app.py           `cpn-ide`: CPNpy Studio opened on a new coloured net
-  cli.py             the `cpnpy` command (`cpnpy exercises check` too)
+  cli.py             the `cpnpy` command (`run`, `boxes`, `datasets`, `mine`, `exercises`)
+  flow/              workflows, no Qt (docs/workflows.md): types.py, box.py (@box),
+                     explain.py, workflow.py, runner.py, sweep.py, record.py
+                     (.cpnflow files, fingerprints, the environment lock), convert.py,
+                     library.py (a folder's boxes/, entry points), datasets.py,
+                     boxes/ (the standard boxes, one module per group)
+  sim/export.py      a simulation's firing history as an event log
   references.py      the sources of every notation and algorithm (docs/references.md)
   teaching/          exercise packs, no Qt: sheet.py (question.md with answer
                      blocks), pack.py (folders, progress), answers.py (reading typed

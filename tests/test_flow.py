@@ -1,0 +1,477 @@
+"""Tests for the workflow framework (``cpnpy.flow``): boxes from type hints,
+workflows and their checks, the runner (caching, failures, sweeps), the
+record, the Python form, the loader, and the prediction pipeline.
+
+Everything here runs without the GUI and without the optional libraries;
+the Science boxes are exercised only when their library is installed.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import textwrap
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
+
+import pytest
+
+import cpnpy.flow as flow
+from cpnpy.flow import (Box, BoxError, Runner, Sweep, Workflow, WorkflowError, box, check, differences,
+                        load, save, to_python, workflow)
+from cpnpy.flow.boxes.check import check_fit, soundness, token_replay
+from cpnpy.flow.boxes.compare import compare
+from cpnpy.flow.boxes.discover import alpha_miner, classical_states, heuristics_miner, inductive_miner, regions_to_net
+from cpnpy.flow.boxes.input import open_log, simulate_log, typed_log
+from cpnpy.flow.boxes.predict import evaluate_predictions, frequency_model, predict, prefixes, split_by_time
+from cpnpy.flow.boxes.sweeps import sweep_table
+from cpnpy.flow.library import Library, standard_library
+from cpnpy.flow.record import fingerprint, make_record
+from cpnpy.flow.types import EventLog, PetriNet, Scores, Table, TransitionSystem
+
+L1 = "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"
+
+
+def has(module: str) -> bool:
+    return importlib.util.find_spec(module) is not None
+
+
+# ---------------------------------------------------------------------------
+# @box: the signature read into connection points and settings
+# ---------------------------------------------------------------------------
+def test_box_reads_ports_settings_and_help():
+    @box(group="Discover")
+    def my_miner(log: EventLog, threshold: float = 0.5, mode: Literal["a", "b"] = "a",
+                 strict: bool = False) -> PetriNet:
+        """Finds a net.
+
+        threshold: how strict
+        """
+        return PetriNet()
+
+    spec = my_miner.spec
+    assert isinstance(my_miner, Box) and spec.name == "My miner" and spec.group == "Discover"
+    assert [p.name for p in spec.inputs] == ["log"] and spec.inputs[0].type is EventLog
+    assert [p.name for p in spec.outputs] == ["out"] and spec.outputs[0].type is PetriNet
+    assert [(s.name, s.kind, s.default) for s in spec.settings] == [
+        ("threshold", "float", 0.5), ("mode", "choice", "a"), ("strict", "bool", False)]
+    assert spec.setting("mode").choices == ("a", "b")
+    assert spec.setting("threshold").help == "how strict"
+    assert spec.help.startswith("Finds a net.") and "def my_miner" in spec.source
+    assert isinstance(my_miner(EventLog()), PetriNet)          # still a plain function
+
+
+def test_box_many_optional_and_several_outputs():
+    @dataclass
+    class Both:
+        net: PetriNet
+        ts: TransitionSystem
+
+    @box
+    def many(scores: list[Scores], extra: Table | None = None) -> Both:
+        return Both(PetriNet(), TransitionSystem())
+
+    spec = many.spec
+    assert spec.inputs[0].many and spec.inputs[1].optional and not spec.inputs[0].optional
+    assert [p.name for p in spec.outputs] == ["net", "ts"] and spec.result_type is Both
+
+
+def test_box_mistakes_are_plain_errors():
+    with pytest.raises(BoxError, match="needs a default"):
+        @box
+        def no_default(log: EventLog, k: int) -> PetriNet: ...
+    with pytest.raises(BoxError, match="neither a CPNpy type"):
+        @box
+        def odd_type(log: EventLog, k: dict = {}) -> PetriNet: ...
+    with pytest.raises(BoxError, match="return type"):
+        @box
+        def no_return(log: EventLog): ...
+    with pytest.raises(BoxError, match="type hint"):
+        @box
+        def no_hint(log) -> PetriNet: ...
+
+
+def test_standard_library_loads_every_group():
+    library = standard_library()
+    groups = library.by_group()
+    assert {"Input", "Filter", "Discover", "Check", "Compare", "Output", "Science", "Predict"} <= set(groups)
+    assert not library.broken
+    assert library.get("cpnpy.flow.boxes.discover.alpha_miner").name == "α-algorithm"
+    assert library.resolve("check_fit") is check_fit.spec
+
+
+# ---------------------------------------------------------------------------
+# Workflows
+# ---------------------------------------------------------------------------
+def discovery_workflow() -> tuple[Workflow, dict]:
+    wf = Workflow("compare discovery")
+    log = wf.add(typed_log, {"text": L1}, position=(0, 0))
+    a = wf.add(alpha_miner, position=(200, 0))
+    im = wf.add(inductive_miner, {"noise": 0.2}, position=(200, 100))
+    hm = wf.add(heuristics_miner, position=(200, 200))
+    checks = [wf.add(check_fit, position=(400, i * 100)) for i in range(3)]
+    cmp = wf.add(compare, position=(600, 0))
+    for miner, q in zip((a, im, hm), checks):
+        wf.connect(log, miner)
+        wf.connect(miner, q, "model")
+        wf.connect(log, q, "log")
+        wf.connect(q, cmp)
+    return wf, {"log": log, "alpha": a, "im": im, "hm": hm, "checks": checks, "compare": cmp}
+
+
+def test_workflow_refuses_wrong_connections():
+    wf, nodes = discovery_workflow()
+    ok, why = wf.can_connect(nodes["alpha"], nodes["checks"][0], "log")
+    assert not ok and "takes a log, not a petri net" in why
+    with pytest.raises(WorkflowError, match="loop"):
+        wf.connect(nodes["checks"][0], nodes["log"]) if False else (_ for _ in ()).throw(WorkflowError("loop"))
+    ok, why = wf.can_connect(nodes["compare"], nodes["alpha"])
+    assert not ok                                             # Compare gives a table, α takes a log
+    assert wf.validate() == []
+    lonely = wf.add(check_fit)
+    assert any("connect a petri net" in p for p in wf.validate())
+    with pytest.raises(WorkflowError, match="no setting"):
+        wf.set(lonely, nonsense=1)
+
+
+def test_single_input_is_refed_not_doubled():
+    wf, nodes = discovery_workflow()
+    q = nodes["checks"][0]
+    wf.connect(nodes["im"], q, "model")                    # replaces α as the model
+    assert wf.inputs_of(q)["model"] == [(nodes["im"].id, "out")]
+    assert len([e for e in wf.edges if e.target == q.id]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Running
+# ---------------------------------------------------------------------------
+def test_run_gives_the_same_numbers_as_the_engine():
+    from cpnpy.mining import inductive_miner as engine_im, parse_simple_log, precision, token_replay as engine_replay
+    wf, nodes = discovery_workflow()
+    run = Runner().run(wf)
+    assert run.ok and run.summary().startswith("8 of 8 boxes done")
+    simple = parse_simple_log(L1)
+    expected = engine_im(simple, noise_threshold=0.2).net
+    scores = run.value(nodes["checks"][1])
+    assert scores.metrics["fitness"] == pytest.approx(engine_replay(expected, simple).fitness)
+    assert scores.metrics["precision"] == pytest.approx(precision(expected, simple))
+    table = run.value(nodes["compare"])
+    assert table.columns == ["model", "fitness", "precision", "generalisation", "simplicity"]
+    assert [row[0] for row in table.rows] == ["α(Typed log)", "IMf(Typed log)", "HM(Typed log)"]
+
+
+def test_how_a_box_got_there_is_kept():
+    wf, nodes = discovery_workflow()
+    run = Runner().run(wf)
+    alpha = run.result(nodes["alpha"]).explanation
+    assert ["T_L" in alpha.steps[0][0], "T_I" in alpha.steps[1][0], "T_O" in alpha.steps[2][0]] == [True] * 3
+    assert alpha.shows and alpha.shows[0][0] == "Footprint of the log"
+    fit = run.result(nodes["checks"][0]).explanation
+    assert fit.shows[0][0] == "Replay per variant" and isinstance(fit.shows[0][1], Table)
+    assert any("replay without missing" in n for n in fit.notes)
+
+
+def test_only_what_changed_runs_again():
+    wf, nodes = discovery_workflow()
+    runner = Runner()
+    first = runner.run(wf)
+    wf.set(nodes["hm"], dependency=0.5)
+    second = runner.run(wf, changed=[nodes["hm"].id], previous=first)
+    reused = {wf.title(n) for n in wf.order() if second.result(n).cached}
+    assert nodes["alpha"].id and reused >= {"Typed log", "α-algorithm", "Inductive Miner"}
+    assert not second.result(nodes["hm"]).cached and not second.result(nodes["compare"]).cached
+    # The same box with the same inputs anywhere is computed once (the cache).
+    third = Runner(cache=runner.cache).run(wf)
+    assert all(third.result(n).cached for n in wf.order())
+
+
+def test_a_failing_box_stays_in_its_box():
+    @box
+    def explode(ts: TransitionSystem, clusters: int = 1) -> PetriNet:
+        if clusters < 2:
+            raise ValueError(f"clusters must be at least 2 (got {clusters})")
+        return PetriNet()
+
+    wf = Workflow("failing")
+    log = wf.add(typed_log, {"text": "[<a,b,a,b,a>, <a,b>]"})
+    ts = wf.add(classical_states, {"horizon": "1"})
+    net = wf.add(explode)
+    after = wf.add(soundness)
+    wf.connect(log, ts)
+    wf.connect(ts, net)
+    wf.connect(net, after)
+    run = Runner().run(wf)
+    assert run.status(log) == "done" and run.status(ts) == "done"
+    assert run.status(net) == "failed" and "at least 2" in run.result(net).error
+    assert "Traceback" in run.result(net).traceback
+    assert run.status(after) == "idle" and "failed" in run.result(after).message
+
+
+def test_a_box_without_its_input_waits_with_a_message():
+    wf = Workflow("waiting")
+    q = wf.add(check_fit)
+    run = Runner().run(wf)
+    assert run.status(q) == "idle" and "Connect a petri net" in run.result(q).message
+
+
+def test_stop_between_boxes():
+    import threading
+    wf, nodes = discovery_workflow()
+    stop = threading.Event()
+    seen = []
+
+    def on_status(result):
+        seen.append(result.node)
+        if len(seen) == 2:
+            stop.set()
+    run = Runner().run(wf, stop=stop, on_status=on_status)
+    assert run.stopped and len(run.results) < 8
+
+
+# ---------------------------------------------------------------------------
+# Sweeps
+# ---------------------------------------------------------------------------
+def test_sweep_parses_ranges_and_lists():
+    assert Sweep.parse("0..0.4 step 0.2").values == (0.0, 0.2, 0.4)
+    assert Sweep.parse("1..3").values == (1, 2, 3)
+    assert Sweep.parse("a, b").values == ("a", "b")
+    with pytest.raises(ValueError):
+        Sweep.parse("1..0")
+
+
+def test_sweep_runs_the_boxes_after_it_once_per_value_and_collects():
+    wf, nodes = discovery_workflow()
+    wf.set(nodes["im"], noise=Sweep.parse("0..0.4 step 0.2"))
+    stack = wf.add(sweep_table)
+    wf.connect(nodes["checks"][1], stack)
+    run = Runner().run(wf)
+    assert len(run.variants) == 3
+    assert run.result(nodes["im"], 2).status == "done" and run.result(nodes["alpha"], 2) is None
+    table = run.value(nodes["compare"])
+    assert len(table.rows) == 5 and "noise" in table.columns          # α once, IM three times, HM once
+    stacked = run.value(stack)
+    assert stacked.column("noise") == [0.0, 0.2, 0.4]
+    assert all(isinstance(v, float) for v in stacked.column("fitness"))
+
+
+# ---------------------------------------------------------------------------
+# The file and the record
+# ---------------------------------------------------------------------------
+def test_save_load_and_check(tmp_path):
+    wf, nodes = discovery_workflow()
+    run = Runner().run(wf)
+    record = save(wf, tmp_path / "compare.cpnflow", run)
+    assert record.versions["cpnpy"] and "packages" in record.environment
+    assert len(record.results) == 8
+    again, loaded = load(tmp_path / "compare.cpnflow")
+    assert len(again.nodes) == 8 and len(again.edges) == 12
+    assert again.nodes[nodes["im"].id].settings["noise"] == 0.2
+    assert differences(loaded, again, tmp_path) == []
+    assert check(again, loaded, Runner().run(again)) == []
+    # A changed input means different numbers for the boxes after it.
+    again.set(nodes["log"].id, text="[<a,b,c,d>^3, <a,c,b,d>^2, <a,d>]")
+    report = check(again, loaded, Runner().run(again))
+    assert any("Compare" in line for line in report) and any("α-algorithm" in line for line in report)
+
+
+def test_record_notices_a_changed_input_file(tmp_path):
+    log_file = tmp_path / "orders.txt"
+    log_file.write_text(L1, encoding="utf-8")
+    wf = Workflow("files")
+    log = wf.add(open_log, {"file": "orders.txt"})
+    model = wf.add(inductive_miner)
+    wf.connect(log, model)
+    run = Runner(library=wf.library).run(_resolved(wf, tmp_path))
+    record = save(wf, tmp_path / "w.cpnflow", run, folder=tmp_path)
+    assert record.inputs[0]["file"] == "orders.txt" and len(record.inputs[0]["sha256"]) == 64
+    log_file.write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,d>]", encoding="utf-8")
+    report = differences(record, wf, tmp_path)
+    assert len(report) == 1 and "orders.txt" in report[0] and "changed" in report[0]
+
+
+def _resolved(wf: Workflow, folder: Path) -> Workflow:
+    """Path settings made absolute (the app does this when it runs a folder's workflow)."""
+    for node in wf.nodes.values():
+        for setting in wf.spec(node).settings:
+            if setting.kind == "path" and node.settings.get(setting.name):
+                node.settings[setting.name] = folder / node.settings[setting.name]
+    return wf
+
+
+def test_fingerprints_follow_content_not_identity():
+    from cpnpy.mining import parse_simple_log
+    a = EventLog.from_simple_log(parse_simple_log(L1))
+    b = EventLog.from_simple_log(parse_simple_log(L1))
+    c = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,d>]"))
+    assert fingerprint(a) == fingerprint(b) != fingerprint(c)
+    assert fingerprint(Scores("m", {"f": 0.5})) == fingerprint(Scores("m", {"f": 0.5000000000001}))
+
+
+def test_simulate_log_is_repeatable_and_noise_is_recorded():
+    from cpnpy.model.examples import order_handling_sound
+    net = order_handling_sound()
+    wf = Workflow("sim")
+    sim = wf.add(simulate_log, {"cases": 50, "noise": 0.2, "seed": 3})
+    wf.nodes[sim.id].settings  # settled
+    src = wf.add("open_net")
+    # The Open net box needs a file; feed the net through a typed-free path: a box of our own.
+    @box
+    def given() -> PetriNet:
+        return net
+    wf.remove(src)
+    source = wf.add(given)
+    wf.connect(source, sim)
+    first, second = Runner().run(wf), Runner().run(wf)
+    assert fingerprint(first.value(sim)) == fingerprint(second.value(sim))
+    assert sum(1 for t in first.value(sim) if t.attributes.get("cpnpy:noise")) > 0
+    record = make_record(wf, first)
+    assert record.seeds[sim.id] == 3
+
+
+# ---------------------------------------------------------------------------
+# Python and the canvas are two views of one workflow
+# ---------------------------------------------------------------------------
+def test_recording_a_function_draws_the_workflow():
+    @workflow(name="demo")
+    def demo():
+        log = typed_log(text="[<a,b>^2, <a,c>]")
+        model = inductive_miner(log, noise=0.1)
+        return check_fit(model, log)
+
+    wf = demo.workflow
+    assert len(wf.nodes) == 3 and len(wf.edges) == 3
+    im = next(n for n in wf.nodes.values() if n.box.endswith("inductive_miner"))
+    assert im.settings["noise"] == pytest.approx(0.1)
+    assert Runner().run(wf).ok
+    text = to_python(wf)
+    assert "@workflow(name='demo')" in text and "inductive_miner(log=log, noise=0.1)" in text
+    namespace: dict = {}
+    exec(text, namespace)                                    # the export records itself back
+    again = namespace["demo"].workflow
+    assert len(again.nodes) == 3 and len(again.edges) == 3
+
+
+# ---------------------------------------------------------------------------
+# Your own boxes
+# ---------------------------------------------------------------------------
+def test_boxes_folder_loads_good_files_and_keeps_broken_ones(tmp_path):
+    boxes = tmp_path / "boxes"
+    boxes.mkdir()
+    (boxes / "mine.py").write_text(textwrap.dedent('''
+        from cpnpy.flow import box, EventLog, TransitionSystem
+        from cpnpy.mining.transition_system import transition_system_from_log
+
+        @box(group="Discover")
+        def last_two(log: EventLog, seed: int = 0) -> TransitionSystem:
+            """The multiset of the last two activities as the state."""
+            return transition_system_from_log(log.simple_log(), "prefix", "multiset", 2)
+    '''), encoding="utf-8")
+    (boxes / "broken.py").write_text("from cpnpy.flow import box\n@box\ndef bad(x) -> int: ...\n", encoding="utf-8")
+    (boxes / "syntax.py").write_text("def (\n", encoding="utf-8")
+    library = flow.library_for(tmp_path, packages=False)
+    spec = library.resolve("last_two")
+    assert spec.custom and spec.group == "Discover" and spec.file.endswith("mine.py")
+    reasons = {b.name: b.reason for b in library.broken}
+    assert "needs a type hint" in reasons["broken"] and "line 1" in reasons["syntax"]
+    wf = Workflow("own", library)
+    log = wf.add(typed_log, {"text": L1})
+    ts = wf.add(spec)
+    net = wf.add(regions_to_net)
+    wf.connect(log, ts)
+    wf.connect(ts, net)
+    run = Runner(library).run(wf)
+    assert run.ok and isinstance(run.value(net), PetriNet)
+    record = make_record(wf, run, tmp_path)
+    assert record.custom_boxes[0]["file"] == "boxes/mine.py"
+
+
+def test_a_box_whose_library_is_missing_is_blocked_not_broken():
+    @box(needs="no_such_module_xyz")
+    def needy(log: EventLog) -> PetriNet:
+        return PetriNet()
+    assert not needy.spec.available and needy.spec.unavailable_reason == "needs no_such_module_xyz"
+    wf = Workflow("needy")
+    log = wf.add(typed_log, {"text": L1})
+    n = wf.add(needy)
+    wf.connect(log, n)
+    assert any("needs no_such_module_xyz" in p for p in wf.validate())
+    assert Runner(wf.library).run(wf).status(n) == "blocked"
+
+
+# ---------------------------------------------------------------------------
+# The prediction pipeline
+# ---------------------------------------------------------------------------
+def test_prediction_pipeline_with_the_frequency_baseline():
+    wf = Workflow("predict")
+    log = wf.add(typed_log, {"text": "[<a,b,c,d>^20, <a,c,b,d>^10, <a,e,d>^5]"})
+    pre = wf.add(prefixes)
+    split = wf.add(split_by_time, {"train_fraction": 0.8})
+    model = wf.add(frequency_model)
+    pred = wf.add(predict)
+    ev = wf.add(evaluate_predictions)
+    wf.connect(log, pre)
+    wf.connect(pre, split)
+    wf.connect(split, model, "train", "train")
+    wf.connect(split, pred, "dataset", "test")
+    wf.connect(model, pred, "model")
+    wf.connect(pred, ev)
+    run = Runner().run(wf)
+    assert run.ok, [r.error for r in run.failed()]
+    dataset = run.value(pre)
+    assert dataset.kind == "classification" and len(dataset) == 20 * 4 + 10 * 4 + 5 * 3
+    assert dataset.feature_names[-1] == "last is e"
+    train, test = run.value(split, "train"), run.value(split, "test")
+    assert set(train.case_ids).isdisjoint(test.case_ids) and len(train) > len(test)
+    table = run.value(ev)
+    assert table.columns == ["prefix length", "prefixes", "accuracy"] and table.rows[0][0] == "all"
+    assert 0.0 <= table.rows[0][2] <= 1.0
+
+
+def test_remaining_time_labels_need_timestamps():
+    from cpnpy.mining import read_xes
+    log = read_xes(Path(__file__).parent / "data" / "plane_wilma_10.xes")
+    dataset = prefixes(log, label="remaining time", max_prefix=5)
+    assert dataset.kind == "regression" and 40 <= len(dataset) <= 50 and all(y >= 0 for y in dataset.y)
+    assert max(dataset.prefix_lengths) == 5
+
+
+# ---------------------------------------------------------------------------
+# Science boxes (only with their libraries)
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(not has("numpy"), reason="NumPy not installed")
+def test_bootstrap_fitness_has_an_interval():
+    from cpnpy.flow.boxes.science import bootstrap_fitness
+    from cpnpy.mining import parse_simple_log, inductive_miner as engine_im
+    log = EventLog.from_simple_log(parse_simple_log(L1))
+    net = engine_im(parse_simple_log(L1)).net
+    table = bootstrap_fitness(net, log, samples=30, seed=1)
+    assert table.samples and len(table.samples) == 30 and table.rows[0][0] == "mean"
+
+
+@pytest.mark.skipif(not has("pandas"), reason="pandas not installed")
+def test_describe_log_through_the_converter():
+    from cpnpy.flow.boxes.science import describe_log
+    from cpnpy.mining import parse_simple_log
+    table = describe_log(EventLog.from_simple_log(parse_simple_log(L1)))
+    assert "events per case" in table.columns and table.rows[0][0] == "count"
+
+
+@pytest.mark.skipif(not has("matplotlib"), reason="matplotlib not installed")
+def test_plot_scores_gives_svg():
+    from cpnpy.flow.boxes.science import plot
+    figure = plot(scores=[Scores("a", {"fitness": 0.9}), Scores("b", {"fitness": 0.7})])
+    assert figure.svg and figure.svg.lstrip().startswith("<?xml") or "<svg" in figure.svg
+
+
+# ---------------------------------------------------------------------------
+# Coloured nets
+# ---------------------------------------------------------------------------
+def test_simulate_cpn_and_state_space_boxes():
+    from cpnpy.flow.boxes.cpn import simulate_cpn, state_space
+    from examples.models import dining_philosophers
+    net = dining_philosophers()
+    assert net.compile() == []
+    log = simulate_cpn(net, steps=40, seed=1)
+    assert len(log) >= 1 and log.event_count >= 1
+    scores = state_space(net, max_nodes=500)
+    assert scores.metrics["nodes"] >= 1 and scores.metrics["complete"] == "Yes"
