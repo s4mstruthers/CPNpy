@@ -29,6 +29,10 @@ def _pump(app, seconds: float) -> None:
     while time.time() < end:
         app.processEvents()
         time.sleep(0.01)
+    # Under load one processEvents can outlast the budget; drain what came due
+    # meanwhile (a page's deferred fit, say), so the test sees a settled window.
+    for _ in range(3):
+        app.processEvents()
 
 
 def _wait_run(app, page, seconds: float = 6.0) -> None:
@@ -318,7 +322,7 @@ def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
     page = window.current_page()
     _wait_run(app, page)
     header = [b.text() for b in page.header.findChildren(QPushButton) if b.isVisible()]
-    assert header == ["+ Add box", "Run ▶", "⋯"]
+    assert header == ["Canvas", "Summary", "+ Add box", "Run ▶", "⋯"]
     assert [a.text() for a in page.more_menu.actions() if a.text()] == ["Re-run", "Record…", "Export experiment…", "Save"]
     assert not page.panel.isVisible() and not hasattr(page, "box_tree")
     log, miner = page.workflow.order()[:2]
@@ -398,10 +402,10 @@ def test_the_pages_no_longer_offer_as_a_workflow(app):
     path = Path(__file__).parent / "data" / "plane_wilma_10.xes"
     window.add_document(LogDocument(read_xes(path), path=str(path)))
     log_page = window.current_page()
-    log_page.tabs.set_index(6)                                      # Discover
+    log_page.tabs.set_index(6)                                      # Discover: the handoff to Mine
     _pump(app, 0.8)
     texts = [b.text() for b in log_page.findChildren(QPushButton)]
-    assert any(t.startswith("Open as model") for t in texts)
+    assert any(t.startswith("Discover in Mine") for t in texts)
     assert not any("workflow" in t.lower() for t in texts)
     window.action_new_cpn()
     net_page = window.current_page()
@@ -617,3 +621,314 @@ def test_picking_a_file_from_the_list_runs_the_box(app, tmp_path):
     assert page.workflow.nodes[node.id].settings["file"] == Path("logs/orders.log.txt")
     page.document.dirty = False
     page.close()
+
+
+def test_files_flow_into_the_canvas(app, tmp_path, monkeypatch):
+    """The folder's files are one click away in the picker's Input group, a
+    file dropped on the canvas becomes its input box, the box names its file,
+    and Mine's footer puts a log or a typed log on the current analysis."""
+    from PySide6.QtCore import QPointF
+
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import WorkflowDocument
+
+    week = tmp_path / "Week 2"
+    (week / "logs").mkdir(parents=True)
+    (week / "logs" / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    (week / "net.pnml").write_text(
+        (Path(__file__).resolve().parents[1] / "examples" / "petri" / "order_handling_sound.pnml").read_text(),
+        encoding="utf-8")
+    elsewhere = tmp_path / "elsewhere.log.txt"
+    elsewhere.write_text("[<x,y>]", encoding="utf-8")
+    (week / "notes.txt").write_text("not a log", encoding="utf-8")
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(None)
+    page = window.current_page()
+    _wait_run(app, page)
+
+    # The picker's Input group lists the folder's files; one click adds the box that reads it.
+    page.add_box_menu()
+    picker = page._picker
+    assert [b.text() for b in picker.file_buttons] == ["orders", "net"]     # by path: logs/… first
+    picker.search.setText("orders")
+    assert [b.text() for b in picker.file_buttons] == ["orders"]
+    picker.file_buttons[0].click()
+    _wait_run(app, page)
+    node = _node(page, "open_log")
+    assert node.settings["file"] == Path("logs/orders.log.txt")
+    assert page.scene.boxes[node.id].eyebrow() == "INPUT · orders.log.txt"
+    assert page.run.result(node).status == "done"
+    assert page.selected == node.id and page.tab == 0                 # its Result, not Settings
+
+    # A drop on the canvas: the matching box for each file, at that spot; a file from
+    # outside the folder keeps its full path; a stray file is refused with a message.
+    statuses = []
+    page.status.connect(statuses.append)
+    nodes = page.add_files([str(week / "net.pnml"), str(elsewhere), str(week / "notes.txt")], QPointF(300, 200))
+    _wait_run(app, page)
+    assert [page.workflow.spec(n).name for n in nodes] == ["Open net", "Open log"]
+    assert nodes[0].settings["file"] == Path("net.pnml") and nodes[1].settings["file"] == elsewhere
+    assert page.scene.boxes[nodes[0].id].eyebrow() == "INPUT · net.pnml"
+    assert all(page.run.result(n).status == "done" for n in nodes), [page.run.result(n).error for n in nodes]
+    assert any("notes.txt" in s for s in statuses)
+
+    # Mine's footer: Open log… lands on the current analysis as a box …
+    monkeypatch.setattr(studio_app.QFileDialog, "getOpenFileNames",
+                        staticmethod(lambda *a, **k: ([str(week / "logs" / "orders.log.txt")], "")))
+    before = len(page.workflow.nodes)
+    window.action_open_log_box()
+    assert len(page.workflow.nodes) == before + 1 and window.current_page() is page
+    # … and with no analysis open, on a new one named after the file.
+    window.content.setCurrentIndex(0)
+    window.tree.setCurrentItem(None)
+    window.action_open_log_box()
+    new_page = window.current_page()
+    assert new_page is not page and new_page.workflow.name == "orders"
+    assert [new_page.workflow.spec(n).name for n in new_page.workflow.order()] == ["Open log"]
+    # Log from notation…: a Typed log box with the text.
+    monkeypatch.setattr(studio_app.NotationDialog, "exec", lambda self: studio_app.QDialog.Accepted)
+    monkeypatch.setattr(studio_app.NotationDialog, "text", lambda self: "[<p,q>^2]")
+    window.action_notation_box()
+    typed = _node(new_page, "typed_log")
+    assert typed.settings["text"] == "[<p,q>^2]"
+    _wait_run(app, new_page)
+    assert page.scene.boxes[node.id].eyebrow() == "INPUT · orders.log.txt"
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def test_a_page_opened_from_a_box_has_a_way_back(app):
+    """Open as log from a box's result: the log page shows "‹ Back to …", which
+    returns to the analysis (switching the space if need be)."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    log_node = page.workflow.order()[0]
+    page.open_as_log(page.run.result(log_node).value)
+    _pump(app, 0.2)
+    log_page = window.current_page()
+    document = window.documents[-1]
+    assert isinstance(document, LogDocument) and document.opened_from is page.document
+    assert log_page.header.back is not None and log_page.header.back.text() == f"‹ Back to {page.workflow.name}"
+    log_page.header.back.click()
+    assert window.current_page() is page and window.space == "mine"
+    # A discovered net opens in Model; its Back link crosses the spaces.
+    miner = page.workflow.order()[1]
+    page.open_as_model(page.run.result(miner).value)
+    _pump(app, 0.2)
+    assert window.space == "model" and window.current_page().header.back is not None
+    window.current_page().header.back.click()
+    assert window.space == "mine" and window.current_page() is page
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def test_a_result_net_can_be_tidied_but_not_changed(app):
+    """Dragging a place in a box's Result moves it (edges follow), the layout
+    is kept with the box and shown again; the net is untouched."""
+    from PySide6.QtWidgets import QGraphicsItem
+
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.graph_view import GraphView
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    miner = page.workflow.order()[1]
+    net = page.run.result(miner).value
+    page.select(miner.id, 0)
+    _pump(app, 0.2)
+    view = next(v for v in page.panel_host.findChildren(GraphView))
+    graph = view.graph
+    place_id, item = next(iter(graph.nodes.items()))
+    assert item.flags() & QGraphicsItem.ItemIsMovable
+    edge = next(e for e in graph.edges if e.source_item is item or e.target_item is item)
+    before_edge = edge.path().pointAtPercent(0.5)
+    page.document.dirty = False
+    item.setPos(item.pos().x() + 90, item.pos().y() - 40)
+    _pump(app, 0.1)
+    assert edge.path().pointAtPercent(0.5) != before_edge                  # the edge followed
+    assert miner.layout[place_id] == (item.pos().x(), item.pos().y())      # kept with the box
+    assert set(miner.layout) == set(graph.nodes)
+    assert page.document.dirty                                             # an edit, to save
+    assert len(net.places) == len(graph.nodes) - len(net.transitions)      # the net is the same
+    # Shown again, the drawing is as tidied.
+    page.select(miner.id, 1)
+    page.select(miner.id, 0)
+    _pump(app, 0.2)
+    again = next(v for v in page.panel_host.findChildren(GraphView)).graph
+    assert again.nodes[place_id].pos() == item.pos()
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_handoffs_between_mine_and_model(app, tmp_path, monkeypatch):
+    """Open a copy in Model: a "(copy)" in Model that says where it is from;
+    Mine a simulated log: a file in the folder and an analysis in Mine reading
+    it; Check against a log: an analysis with the net, the log and Check fit."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import CpnDocument, WorkflowDocument
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    (week / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    miner = page.workflow.order()[1]
+    page.select(miner.id)
+    net = page.run.result(miner).value
+    places_before = len(net.places)
+
+    # Open a copy in Model.
+    page.edit_copy(net)
+    _pump(app, 0.2)
+    copy = window.documents[-1]
+    assert isinstance(copy, CpnDocument) and copy.name.endswith("(copy)") and window.space == "model"
+    assert copy.origin == f"from {page.workflow.title(miner.id)} in {page.workflow.name}"
+    back = window.current_page().header.back
+    assert back.text() == f"‹ A copy, {copy.origin}"
+    assert Path(copy.path).name == f"{copy.name}.pnml"                       # saved in the folder
+    assert len(net.places) == places_before                                  # the original is untouched
+    model_page = window.current_page()
+
+    # Check against a log: an analysis in Mine with the three boxes, connected.
+    monkeypatch.setattr(studio_app.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(week / "orders.log.txt"), "")))
+    model_page.check_log_button.click()
+    _pump(app, 0.2)
+    check = window.current_page()
+    assert window.space == "mine" and isinstance(check.document, WorkflowDocument)
+    assert check.workflow.name == f"{copy.name} vs orders"
+    names = [check.workflow.spec(n).name for n in check.workflow.order()]
+    assert names == ["Open net", "Open log", "Check fit"] or names == ["Open log", "Open net", "Check fit"]
+    assert len(check.workflow.edges) == 2
+    _wait_run(app, check)
+    fit = next(n for n in check.workflow.nodes.values() if check.workflow.spec(n).name == "Check fit")
+    assert check.run.result(fit).status == "done", check.run.result(fit).error
+
+    # Mine a simulated log: the play-out becomes a file in the folder and an analysis reading it.
+    monkeypatch.setattr(studio_app.QInputDialog, "getInt", staticmethod(lambda *a, **k: (20, True)))
+    model_page.export_log_button.click()
+    assert _wait_for_documents(app, window, lambda docs: any(
+        isinstance(d, WorkflowDocument) and d.workflow.name.startswith("Play-out") for d in docs))
+    mined = window.current_page()
+    assert window.space == "mine" and mined.workflow.name.startswith("Play-out")
+    log_box = mined.workflow.order()[0]
+    assert mined.workflow.spec(log_box).name == "Open log"
+    assert (week / Path(str(log_box.settings["file"]))).exists()
+    _wait_run(app, mined)
+    assert mined.run.result(log_box).status == "done"
+    back.click()                                                              # the copy's way back
+    assert window.current_page() is page and window.space == "mine"
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def _wait_for_documents(app, window, condition, seconds: float = 8.0) -> bool:
+    end = time.time() + seconds
+    while time.time() < end:
+        app.processEvents()
+        if condition(window.documents):
+            return True
+        time.sleep(0.02)
+    return condition(window.documents)
+
+
+def test_the_summary_writes_itself(app):
+    """Canvas | Summary: a tile per result in run order, the first log's process
+    map with a detail slider, and a tile click opens the box on the canvas."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    page.summary_switch.set_index(1)
+    _pump(app, 0.3)
+    assert page.body.currentIndex() == 1
+    titles = [page.workflow.title(t.node_id) for t in page.summary.tiles]
+    assert titles == [page.workflow.title(n.id) for n in page.workflow.order()]   # one per box, in run order
+    assert len(titles) == 3
+    # No Directly-follows graph box yet: no map is computed behind the scenes; one click adds the box.
+    assert not page.summary.map_card.isVisibleTo(page) and page.summary.no_map_card.isVisibleTo(page)
+    page.summary.add_map_button.click()
+    _pump(app, 0.3)
+    _wait_run(app, page)
+    names = [page.workflow.spec(n).name for n in page.workflow.order()]
+    assert "Directly-follows graph" in names and len(page.workflow.edges) == 4   # fed by the log
+    page.summary.refresh()
+    _pump(app, 0.2)
+    assert page.summary.map_card.isVisibleTo(page) and page.summary.map_view.graph.nodes
+    assert "Directly-follows graph" in page.summary.map_card.title_label.text()
+    full = len(page.summary.map_view.graph.nodes)
+    page.summary.detail.setValue(10)
+    assert len(page.summary.map_view.graph.nodes) < full
+    assert len(page.summary.tiles) == 4                                          # the new box has a tile too
+    last = page.summary.tiles[2]
+    last.clicked.emit(last.node_id)
+    _pump(app, 0.1)
+    assert page.body.currentIndex() == 0 and page.summary_switch.index() == 0
+    assert page.selected == last.node_id and page.tab == 0
+    page.document.dirty = False
+    window.close()
+
+
+def test_motion_settles_the_window_and_can_be_turned_off(app, monkeypatch):
+    """A space switch and Canvas ↔ Summary lift a veil that is gone a moment
+    later; a box pulses once when it finishes; OPENPROCESS_NO_MOTION turns it off."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio import motion
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.motion import Veil
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    box = page.scene.boxes[page.workflow.order()[0].id]
+    assert box.pulse_animation is not None                          # it finished: one pulse
+    window.set_space("model")
+    assert window.modes.findChildren(Veil)
+    _pump(app, 0.5)
+    assert not window.modes.findChildren(Veil)                      # lifted and gone
+    window.set_space("mine")
+    _pump(app, 0.5)
+    page.summary_switch.set_index(1)
+    assert page.body.findChildren(Veil)
+    _pump(app, 0.5)
+    assert not page.body.findChildren(Veil)
+    monkeypatch.setattr(motion, "enabled", False)
+    assert motion.lift(window.modes) is None and motion.fade_in(window) is None
+    page.document.dirty = False
+    window.close()

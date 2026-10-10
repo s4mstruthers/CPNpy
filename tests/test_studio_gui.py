@@ -50,6 +50,10 @@ def _pump(app, seconds: float) -> None:
     while time.time() < end:
         app.processEvents()
         time.sleep(0.01)
+    # Under load one processEvents can outlast the budget; drain what came due
+    # meanwhile (a page's deferred fit, say), so the test sees a settled window.
+    for _ in range(3):
+        app.processEvents()
 
 
 def test_studio_end_to_end(app):
@@ -73,10 +77,14 @@ def test_studio_end_to_end(app):
     window.add_document(ModelDocument(result.net, origin="test", derivation=result,
                                       source_log=log))
     model_page = window.current_page()
-    model_page._check()
+    # In the studio, conformance is a handoff to an analysis; Learn's model page replays inline.
+    assert model_page.conformance_mode == "handoff" and model_page.check_log_button is not None
+    from openprocess.gui.studio.model_page import ModelPage
+    inline = ModelPage(window.documents[-1], window.logs)
+    inline._check()
     _pump(app, 2.0)
-    assert model_page.conformance is not None
-    replay, alignments = model_page.conformance
+    assert inline.conformance is not None
+    replay, alignments = inline.conformance
     assert alignments.average_fitness == pytest.approx(1.0)
 
     # Step through: a real mouse click on an enabled transition fires it.
@@ -2258,17 +2266,29 @@ def test_log_tabs_fit_the_window(app):
     while not isinstance(area, QScrollArea):
         area = area.parentWidget()
     names = [b.text() for b in page.tabs.buttons]
-    for name in ("Process map", "Discover"):
+    for name in ("Process map", "Discover"):              # Discover: the handoff card, in the studio
         page.tabs.set_index(names.index(name))
         _pump(app, 0.3)
-    for box in page.findChildren(QComboBox):
+    assert page.height() <= area.viewport().height()
+    # Learn's log page runs the miners inline: its drawn process tree keeps its zoom bar in the card.
+    from openprocess.gui.studio.log_page import LogPage
+    inline = LogPage(LogDocument(read_xes(DATA / "plane_wilma_10.xes")))
+    holder = QScrollArea()
+    holder.setWidgetResizable(True)
+    holder.setWidget(inline)
+    holder.resize(1200, 760)
+    holder.show()
+    inline.tabs.set_index([b.text() for b in inline.tabs.buttons].index("Discover"))
+    _pump(app, 0.3)
+    for box in inline.findChildren(QComboBox):
         if box.findData("im") >= 0:
             box.setCurrentIndex(box.findData("im"))
     _pump(app, 2.0)
-    assert page.height() <= area.viewport().height()
-    tree = page.findChildren(TreeView)[0]
+    assert inline.height() <= holder.viewport().height()
+    tree = inline.findChildren(TreeView)[0]
     bar = tree.zoom_controls
     assert bar.isVisible() and tree.viewport().geometry().contains(bar.geometry())
+    holder.close()
     window.close()
 
 
@@ -2322,4 +2342,161 @@ def test_the_name_box_follows_the_node(app):
     assert view.name_editor is None
     assert [t.name for t in page.net.all_transitions()] == ["pay"]
     page.document.dirty = False
+    window.close()
+
+
+def test_connections_view_and_the_model_palette(app, tmp_path):
+    """Connections draws what flows in and out and the tools that plug in, from
+    the library; in Model, a net page's tools are a palette in the sidebar."""
+    from openprocess.gui.studio import connections
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.show()
+    window.show_connections()
+    assert window.content.currentWidget() is window.connections_page
+    cards = window.connections_page.cards
+    assert {"Event logs", "Petri nets", "PNML", "OpenProcess", "Your own boxes"} <= set(cards)
+    tools = {t["name"]: t for t in connections.tools(window.library())}
+    assert "pandas" in tools and "Describe log" in tools["pandas"]["boxes"]
+    assert tools["pandas"]["name"] in cards
+
+    window.action_new_petri()
+    page = window.current_page()
+    assert window.space == "model" and not window.palette.isHidden()
+    assert page.tool_switch.isHidden()                       # the palette stands in for it
+    window.palette_group.button(1).click()
+    assert page.tool_switch.index() == 1 and page.scene.tool == "place"
+    page.tool_switch.set_index(3)
+    assert window.palette_group.checkedId() == 3
+    window.toggle_sidebar(False, remember=False)
+    assert not page.tool_switch.isHidden()                   # no sidebar: the page's own tools
+    window.toggle_sidebar(True, remember=False)
+    assert page.tool_switch.isHidden()
+    window.set_space("mine")
+    assert window.palette.isHidden()
+    window.set_space("model")
+    assert not window.palette.isHidden() and window.current_page() is page
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_studio_log_page_hands_discovery_to_the_canvas(app, tmp_path):
+    """In the studio, the log page's Discover tab runs no miner: it builds an
+    analysis in Mine with the log and the chosen miner, connected and run,
+    so every step is shown.  (Learn keeps the inline miners.)"""
+    from PySide6.QtWidgets import QComboBox
+
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument, WorkflowDocument
+    from openprocess.gui.studio.log_page import LogPage
+    from openprocess.mining import EventLog, parse_simple_log
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    window = StudioWindow()
+    window.show()
+    window.open_workspace(str(week))
+    log = EventLog.from_simple_log(parse_simple_log("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"), "L")
+    window.add_document(LogDocument(log, notation="[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]"))
+    page = window.current_page()
+    assert isinstance(page, LogPage) and page.discover_mode == "handoff"
+    page.tabs.set_index(6)                                   # Discover
+    _pump(app, 0.1)
+    assert not [b for b in page.findChildren(QComboBox) if b.findData("im") >= 0]   # no inline miners
+    page.discover_chooser.setCurrentIndex(page.discover_chooser.findData("alpha_miner"))
+    page.discover_button.click()
+    _pump(app, 0.2)
+    analysis = window.current_page()
+    assert isinstance(analysis.document, WorkflowDocument) and window.space == "mine"
+    assert analysis.workflow.name == "Discover L"
+    names = [analysis.workflow.spec(n).name for n in analysis.workflow.order()]
+    assert names == ["Open log", "α-algorithm"] and len(analysis.workflow.edges) == 1
+    miner = analysis.workflow.order()[1]
+    assert analysis.selected == miner.id                     # its Result is open
+    end = time.time() + 8
+    while time.time() < end and (analysis.run is None or analysis._running):
+        _pump(app, 0.02)
+    assert analysis.run.result(miner).status == "done", analysis.run.result(miner).error
+    # Learn's log page keeps the miners inline.
+    inline = LogPage(LogDocument(log))
+    assert inline.discover_mode == "inline"
+    for document in list(window.documents):
+        document.dirty = False
+    window.close()
+
+
+def test_a_tool_can_be_installed_from_connections(app, monkeypatch):
+    """Install… on a tool's card runs pip for this app's Python in the
+    background, after asking; the card says Installing…, then the boxes
+    that need the tool are available."""
+    from openprocess.gui.studio import app as studio_app, connections
+    from openprocess.gui.studio.app import StudioWindow
+
+    fake = {"name": "fakestats", "installed": False, "install": "pip install fakestats", "boxes": ["Fake box"]}
+    monkeypatch.setattr(connections, "tools", lambda library: [fake])
+    monkeypatch.setattr(connections, "can_install", lambda: True)
+    monkeypatch.setattr(studio_app.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: studio_app.QMessageBox.Yes))
+    ran = []
+
+    def pip(command):
+        ran.append(command)
+        fake["installed"] = True
+        return 0, "Successfully installed fakestats"
+    monkeypatch.setattr(studio_app, "PIP_RUNNER", pip)
+
+    window = StudioWindow()
+    window.show()
+    window.show_connections()
+    page = window.connections_page
+    assert "fakestats" in page.install_buttons
+    page.install_buttons["fakestats"].click()
+    assert "fakestats" in page.installing                     # at once: Installing…
+    assert "fakestats" not in page.install_buttons
+    end = time.time() + 6
+    while time.time() < end and page.installing:
+        _pump(app, 0.05)
+    assert ran == [[studio_app.sys.executable, "-m", "pip", "install", "fakestats"]]
+    assert not page.installing and "fakestats" not in page.install_buttons   # installed: no button
+    assert "Installed fakestats" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_every_computed_card_links_to_its_code(app):
+    """What a page computes on its own (a process map, a footprint, soundness,
+    regions) is as open as a box: its card has a { } code link that opens the
+    file, scrolled to the function."""
+    from PySide6.QtWidgets import QPlainTextEdit, QPushButton
+
+    from openprocess.gui.flow import viewers
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.documents import LogDocument
+    from openprocess.mining import read_xes
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.add_document(LogDocument(read_xes(DATA / "plane_wilma_10.xes"), path=str(DATA / "plane_wilma_10.xes")))
+    page = window.current_page()
+    names = [b.text() for b in page.tabs.buttons]
+    page.tabs.set_index(names.index("Footprint"))
+    _pump(app, 0.2)
+    links = [b for b in page.findChildren(QPushButton) if b.text() == "{ } code" and b.isVisible()]
+    assert links
+    links[0].click()
+    _pump(app, 0.2)
+    shown = viewers._windows[-1].findChild(QPlainTextEdit).toPlainText()
+    assert "def footprint_of_log" in shown
+    for dialog in list(viewers._windows):
+        dialog.close()
+    window.action_new_petri()
+    net_page = window.current_page()
+    net_page.inspector_tabs.set_index(2)                     # Analysis
+    _pump(app, 0.3)
+    texts = [b.text() for b in net_page.findChildren(QPushButton)]
+    assert texts.count("{ } code") >= 6                      # soundness, theorem, structure, invariants, …
+    assert not any("Conformance with a log" in t for t in texts)   # one route: Check against a log ›
+    for document in window.documents:
+        document.dirty = False
     window.close()

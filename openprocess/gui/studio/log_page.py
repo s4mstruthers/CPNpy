@@ -31,6 +31,7 @@ from ..learn.concealment import ConcealsResults
 from .documents import LogDocument, ModelDocument
 from .dotted_chart import DottedChartPanel
 from .graph_builders import dependency_specs, dfg_specs, petri_net_specs
+from .provenance import add_code
 from .graph_view import GraphView
 from .widgets import (
     suggested_path,
@@ -89,6 +90,8 @@ def _table(model: QStandardItemModel) -> QTableView:
 
 class LogPage(ConcealsResults, QWidget):
     open_model = Signal(object)          # ModelDocument
+    #: Discover (the studio's log page): build the analysis in Mine with this algorithm.
+    discover_requested = Signal(str)
     open_log = Signal(object)            # LogDocument (a filtered copy)
     status = Signal(str)
     #: Emitted after the log was exported; the document now lives in that file.
@@ -96,9 +99,13 @@ class LogPage(ConcealsResults, QWidget):
     #: The log was edited (Edit…): the document holds the new log.
     edited = Signal()
 
-    def __init__(self, document: LogDocument, parent=None) -> None:
+    def __init__(self, document: LogDocument, parent=None, discover: str = "inline") -> None:
+        """``discover``: "inline" runs the miners on this page (Learn, where the
+        exercise is the context); "handoff" (the studio) sends discovery to an
+        analysis in Mine, where every step is shown and recorded."""
         super().__init__(parent)
         self.document = document
+        self.discover_mode = discover
         self._built: set[int] = set()
 
         root = QVBoxLayout(self)
@@ -238,7 +245,8 @@ class LogPage(ConcealsResults, QWidget):
         if index not in self._built:
             builder = [self._build_overview, self._build_variants, self._build_cases,
                        self._build_dotted, self._build_map, self._build_footprint,
-                       self._build_discover][index]
+                       self._build_discover_handoff if self.discover_mode == "handoff"
+                       else self._build_discover][index]
             builder(self.pages[index].layout())
             self._built.add(index)
         self.stack.setCurrentIndex(index)
@@ -492,6 +500,7 @@ class LogPage(ConcealsResults, QWidget):
 
         card = Card("Process map", "Directly-follows graph: an arrow a → b means b directly "
                     "followed a in some case. Drag the sliders to simplify.")
+        add_code(card, discover_dfg, type(dfg).simplified)
         top_row = hbox(mode, 12, info)
         top_row.setStretch(2, 1)          # the info text takes the slack
         card.add(top_row)
@@ -508,6 +517,7 @@ class LogPage(ConcealsResults, QWidget):
         table = footprint_table(fp)
         card = Card("Footprint matrix", "Log-based ordering relations derived from the "
                     "directly-follows relation >_L (row activity vs column activity).")
+        add_code(card, footprint_of_log)
         card.add(label("→ causality: a > b and not b > a     ← inverse     "
                        "‖ parallel: a > b and b > a     # choice: neither", "muted", wrap=True))
         card.add(table, 1)
@@ -519,6 +529,43 @@ class LogPage(ConcealsResults, QWidget):
         layout.addWidget(card, 1)
 
     # -------------------------------------------------------------- discover
+    #: The miners offered on the studio's Discover tab, each the box that runs it.
+    DISCOVER_BOXES = [
+        ("inductive_miner", "Inductive Miner", "Divide-and-conquer on the DFG. Always sound, always "
+         "fits the log perfectly."),
+        ("alpha_miner", "α-algorithm", "Classic footprint-based miner, in eight steps; cannot "
+         "handle short loops, noise or silent steps."),
+        ("heuristics_miner", "Heuristics Miner", "Frequency-based dependency measures, robust to "
+         "noise; which forks are AND or XOR is learned from the log."),
+        ("classical_states", "State-based regions", "The log becomes a transition system, whose "
+         "minimal regions become places (two boxes: Classical states, Regions to net)."),
+    ]
+
+    def _build_discover_handoff(self, layout) -> None:
+        """The studio's Discover tab: no miner runs here.  It hands the log to an
+        analysis in Mine, where the boxes show their result, how it was derived,
+        the code, and keep a record that can be run again."""
+        card = Card("Discover a model", "Discovery happens on the canvas, where you can see what is "
+                    "done: the box's result, how it was derived step by step, the code it ran, "
+                    "and a record that runs again. Pick a miner; the analysis is built for you, "
+                    "with this log already connected.")
+        chooser = QComboBox()
+        for key, name, _text in self.DISCOVER_BOXES:
+            chooser.addItem(name, key)
+        chooser.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        about = label(self.DISCOVER_BOXES[0][2], "muted", wrap=True)
+        chooser.currentIndexChanged.connect(
+            lambda i: about.setText(self.DISCOVER_BOXES[i][2]))
+        go = button("Discover in Mine  →", lambda: self.discover_requested.emit(chooser.currentData()),
+                    kind="primary", tooltip="A new analysis: Open log (this log), the miner, connected and run")
+        self.discover_chooser, self.discover_button = chooser, go
+        card.add(hbox(label("Algorithm"), chooser, None, go))
+        card.add(about)
+        card.add(label("Then add a check (Check fit, Soundness), a comparison, or a sweep over a "
+                       "setting, all on the same canvas.", "muted", wrap=True))
+        layout.addWidget(card)
+        layout.addStretch(1)
+
     def _build_discover(self, layout) -> None:
         algorithms = [
             ("im", "Inductive Miner", "Divide-and-conquer on the DFG. Always sound, always fits "

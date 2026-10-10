@@ -530,10 +530,24 @@ class PageHeader(QWidget):
         self.subtitle = ElidedLabel(subtitle, "pageSubtitle")
         text.addWidget(self.title)
         text.addWidget(self.subtitle)
+        self._text = text
+        self.back: QPushButton | None = None
         layout.addLayout(text, 1)
         self.actions = QHBoxLayout()
         self.actions.setSpacing(8)
         layout.addLayout(self.actions)
+
+    def set_back(self, text: str, slot) -> None:
+        """A link above the title, back to where this page was opened from
+        ("‹ Back to Discover and check")."""
+        if self.back is None:
+            self.back = button(text, slot, kind="backLink")
+            self.back.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            self._text.insertWidget(0, self.back, 0, Qt.AlignLeft)
+        else:
+            self.back.setText(text)
+            self.back.clicked.disconnect()
+            self.back.clicked.connect(slot)
 
     def set_text(self, title: str, subtitle: str) -> None:
         self.title.setText(title)

@@ -69,10 +69,11 @@ def _table(columns: list[str], rows: list[list], max_rows: int = 500) -> QTableW
     return table
 
 
-def _graph(nodes, edges, positions=None, layer_gap: float = 48.0, height: int = 260) -> GraphView:
+def _graph(nodes, edges, positions=None, layer_gap: float = 48.0, height: int = 260,
+           movable: bool = False) -> GraphView:
     view = GraphView()
     view.setMinimumHeight(height)
-    view.graph.populate(nodes, edges, positions, layer_gap=layer_gap)
+    view.graph.populate(nodes, edges, positions, layer_gap=layer_gap, movable=movable)
     QTimer.singleShot(0, view.fit)
     return view
 
@@ -135,9 +136,11 @@ def _meter(name: str, value) -> QWidget:
 # ---------------------------------------------------------------------------
 # Result viewers
 # ---------------------------------------------------------------------------
-def result_widget(value, page=None) -> QWidget:
+def result_widget(value, page=None, node=None) -> QWidget:
     """A viewer for ``value``.  ``page`` (the workflow page) receives the
-    *Open as …* requests; None gives a read-only viewer."""
+    *Open as …* requests; None gives a read-only viewer.  ``node`` is the box
+    the value came from: a net drawn for it can be tidied by dragging, and
+    the layout is kept with the box (:attr:`~openprocess.flow.workflow.Node.layout`)."""
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -162,17 +165,29 @@ def result_widget(value, page=None) -> QWidget:
     elif isinstance(value, PetriNet):
         nodes, edges = petri_net_specs(value, show_place_names=len(value.places) <= 40)
         positions = None
-        if all(p.position for p in value.places.values()) and all(t.position for t in value.transitions.values()):
+        ids = {n.id for n in nodes}
+        if node is not None and node.layout and ids <= set(node.layout):
+            positions = {k: v for k, v in node.layout.items() if k in ids}     # as the user tidied it
+        elif all(p.position for p in value.places.values()) and all(t.position for t in value.transitions.values()):
             positions = {p.id: p.position for p in value.places.values()}
             positions |= {t.id: t.position for t in value.transitions.values()}
-        add(_graph(nodes, edges, positions))
+        view = _graph(nodes, edges, positions, movable=page is not None and node is not None)
+        add(view)
+        if page is not None and node is not None:
+            def tidied(_id: str, _x: float, _y: float, graph=view.graph, n=node) -> None:
+                n.layout = graph.positions()
+                page.layout_tidied()
+            view.graph.node_moved.connect(tidied)
         add(label(value.summary() + (f" · {value.info['algorithm']}" if value.info.get("algorithm") else ""),
                   "muted", wrap=True))
         if page is not None:
             add(hbox(button("Open as model", lambda: page.open_as_model(value),
                             tooltip="Open it as a model page: token game, analysis, conformance"),
-                     button("✎ Edit a copy", lambda: page.edit_copy(value),
-                            tooltip="Open a copy on the net canvas, to play and change it"), None))
+                     button("Open a copy in Model ›", lambda: page.edit_copy(value),
+                            tooltip="A copy on the net canvas in Model, to play with and change; "
+                                    "this result stays as it is"), None))
+            add(label("Drag places and transitions to tidy the drawing; the net itself does not change "
+                      "here. To change it, open a copy in Model.", "muted", wrap=True))
     elif isinstance(value, EventLog):
         from ...mining.stats import format_duration, summarise
         summary = summarise(value)

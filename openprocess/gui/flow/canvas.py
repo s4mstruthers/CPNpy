@@ -24,8 +24,9 @@ page runs the boxes and shows the results.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject, QGraphicsPathItem, QGraphicsScene
 
@@ -34,7 +35,7 @@ from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING
 from ...flow.types import type_info
 from ...flow.workflow import Edge, Group, Node, Workflow
 from .. import theme
-from ..studio import style
+from ..studio import motion, style
 from ..studio.graph_view import GraphView
 
 NODE_W = 178.0
@@ -73,6 +74,8 @@ class BoxItem(QGraphicsObject):
         self.highlight: set[str] = set()      # inputs that fit the wire being dragged
         self.dimmed = False
         self.locked = False
+        self._glow = 0.0                      # a ring around the dot that swells once when the box finishes
+        self.pulse_animation: QPropertyAnimation | None = None
         self.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable
                       | QGraphicsItem.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
@@ -116,13 +119,47 @@ class BoxItem(QGraphicsObject):
 
     # -- state ---------------------------------------------------------------------------
     def set_status(self, status: str, subtitle: str, tooltip: str = "") -> None:
+        finished = status in (DONE, FAILED) and status != self.status
         self.status, self.subtitle = status, subtitle
         self.setToolTip(tooltip)
         self.update()
+        if finished:
+            self.pulse()
+
+    def get_glow(self) -> float:
+        return self._glow
+
+    def set_glow(self, value: float) -> None:
+        self._glow = float(value)
+        self.update()
+
+    glow = Property(float, get_glow, set_glow)
+
+    def pulse(self) -> None:
+        """The status dot swells once: the box has just finished."""
+        if not motion.enabled:
+            return
+        animation = QPropertyAnimation(self, b"glow", self)
+        animation.setDuration(480)
+        animation.setStartValue(0.0)
+        animation.setKeyValueAt(0.35, 1.0)
+        animation.setEndValue(0.0)
+        animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.pulse_animation = animation
+        animation.start()
 
     def set_highlight(self, inputs: set[str], dimmed: bool) -> None:
         self.highlight, self.dimmed = inputs, dimmed
         self.update()
+
+    def eyebrow(self) -> str:
+        """The small line over the title: the group, and the file a box reads
+        ("INPUT · boarding.xes"), so the canvas says what feeds it."""
+        text = ("Yours · " if self.spec.custom else "") + self.spec.group.upper()
+        for setting in self.spec.settings:
+            if setting.kind == "path" and self.node.settings.get(setting.name) not in (None, ""):
+                return f"{text} · {Path(str(self.node.settings[setting.name])).name}"
+        return text
 
     # -- Qt --------------------------------------------------------------------------------
     def itemChange(self, change, value):  # noqa: N802
@@ -177,12 +214,18 @@ class BoxItem(QGraphicsObject):
         # Eyebrow: the group (and "Yours" for a custom box).
         painter.setPen(QColor(t.text_muted))
         painter.setFont(_font(8.5, True))
-        eyebrow = ("Yours · " if self.spec.custom else "") + self.spec.group.upper()
-        painter.drawText(QPointF(12, 16), eyebrow)
+        painter.drawText(QPointF(12, 16), QFontMetricsF(painter.font()).elidedText(
+            self.eyebrow(), Qt.ElideMiddle, NODE_W - 36))
         # Status dot.
         colour = STATUS_COLOUR.get(self.status, "muted")
         dot = QColor({"good": style.STATUS["good"], "accent": t.accent, "critical": style.STATUS["critical"],
                       "warning": style.STATUS["warning"], "muted": t.text_muted}[colour])
+        if self._glow > 0:
+            ring = QColor(dot)
+            ring.setAlphaF(0.45 * (1 - self._glow))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(ring)
+            painter.drawEllipse(QPointF(NODE_W - 14, 13), 4.5 + 9 * self._glow, 4.5 + 9 * self._glow)
         painter.setPen(QPen(dot, 1.5))
         painter.setBrush(dot if self.status not in (WAITING, IDLE) else Qt.NoBrush)
         painter.drawEllipse(QPointF(NODE_W - 14, 13), 4.5, 4.5)
@@ -823,13 +866,38 @@ class WorkflowScene(QGraphicsScene):
 
 
 class WorkflowView(GraphView):
-    """The canvas view: panning, zooming and the floating zoom bar, from GraphView."""
+    """The canvas view: panning, zooming and the floating zoom bar, from
+    GraphView; files dropped on it become input boxes (:attr:`files_dropped`)."""
 
     drawing_name = "The workflow"
+    #: Local files were dropped: their paths, and where (scene coordinates).
+    files_dropped = Signal(list, QPointF)
 
     def __init__(self, scene: WorkflowScene, parent=None) -> None:
         super().__init__(scene, parent)
         self.setDragMode(self.DragMode.RubberBandDrag)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        if not paths:
+            super().dropEvent(event)
+            return
+        event.acceptProposedAction()
+        self.files_dropped.emit(paths, self.mapToScene(event.position().toPoint()))
 
     def fit(self) -> None:
         self.auto_fit = True

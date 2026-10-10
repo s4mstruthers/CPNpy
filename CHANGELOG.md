@@ -6,6 +6,123 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.9.5
+
+- **The log page no longer discovers models by itself.** Its *Discover* tab
+  used to run a miner on the spot, with no code to read and no record. Now
+  it hands the log to the canvas: pick a miner and a new analysis opens in
+  Mine with *Open log* and the miner connected and run, the miner's Result
+  open, its *How* and *Code* a click away. (In Learn, an exercise's log page
+  keeps its miners, since the exercise is the context there.)
+- **Every computed figure links to its code.** What a page computes on its
+  own (the log page's process map and footprint, a net's soundness,
+  short-circuited net, structure, invariants, behavioural properties and
+  footprint, a coloured net's state space, a transition system's regions and
+  synthesised net) now has a small *{ } code* link on its card that opens the
+  file, scrolled to the function. Nothing in the app is a black box.
+- **A model page's conformance is a handoff too.** *Check against a log ›*
+  on a discovered model builds the analysis in Mine (the model is kept in
+  the folder first). The Petri net page's *Conformance with a log…* is gone;
+  its Analysis tab has the same button. (In Learn, the exercise's model page
+  keeps its replay, as the exercise asks for it.)
+- **Install a tool from Connections.** A tool that is not installed has
+  *Install…* on its card: after asking, pip installs it into the app's
+  Python in the background, and the boxes that need it come alive. The
+  downloaded app, whose Python cannot install packages, says so and gives the
+  command instead.
+
+## 0.9.4
+
+Motion: a few short transitions, so the window reads as one flow. Nothing
+moves for its own sake.
+
+- **A space switch settles.** Switching Mine, Model or Learn lifts a veil
+  over the window in about a fifth of a second, so the new space arrives
+  rather than snaps. The side panel on an analysis and Canvas ↔ Summary do
+  the same.
+- **A box pulses once when it finishes**, green for done, red for failed,
+  so your eye finds what just changed on the canvas.
+- **+ Add box fades in.**
+- **Off switch:** set ``OPENPROCESS_NO_MOTION=1`` before starting the app
+  (for screenshots, slow machines, or if motion bothers you).
+- **Fixed:** zoomed out on a net, the arrow for drawing an arc could stay
+  beside one node while the mouse was over its neighbour. Over a node the
+  arrow now always gives way, whatever the zoom.
+
+## 0.9.3
+
+The patterns worth borrowing from the process-mining tools, without their
+chrome.
+
+- **Summary: the key figure of every box, in one place.** An analysis has
+  *Canvas | Summary* in its header. The Summary is a tile per box, in the
+  order the boxes run: a score's first metric, a table's size, a log's
+  cases, a net's places and transitions. Nothing is computed there: a tile
+  is the box's result, as on the canvas, so it can never drift from the
+  workflow, and a box author gets a tile by returning a Scores. A tile
+  opens the box.
+- **The process map in the Summary is a box's result too**: the
+  *Directly-follows graph* box's, drawn with a slider that hides the rarer
+  activities and paths of the drawing (the result is unchanged) and a
+  legend. An analysis without that box offers to add it, fed by the first
+  log, in one click.
+- **The Model palette.** In Model, a net page's Select, Place, Transition
+  and Arc sit in the sidebar under the models, like a modeller's shape
+  palette. The page's own buttons come back when the sidebar is hidden.
+- **Connections.** At the bottom of the sidebar (and View ▸ Connections):
+  the hub picture. What flows in (event logs, PNML, CPN Tools files,
+  transition systems, typed logs, datasets, simulations), OpenProcess in the
+  middle with its boxes and the folder's own, what flows out (PNML, XES,
+  CSV, figures, the experiment zip, Python), and the tools that plug in
+  (pandas, numpy, scipy, matplotlib, …), each saying whether it is
+  installed, how to install it, and which boxes it brings. All read from
+  the box library; nothing to declare.
+
+## 0.9.2
+
+The handoffs between Mine and Model: four, each one button, each moving the
+whole window and leaving a way back.
+
+- **Open a copy in Model ›** on a discovered net's Result. It was "Edit a
+  copy"; the word *copy* stays everywhere: the model is named "… (copy)",
+  its header says "‹ A copy, from Inductive Miner in Discover and check" (a
+  link back to the analysis), and the result in the workflow is never
+  changed.
+- **A discovered net can be tidied in Mine, but not changed.** On a box's
+  Result, drag places and transitions to make the drawing easier to read;
+  the edges follow and the layout is saved with the workflow. Nothing can be
+  added, removed or renamed there: that is what the copy in Model is for.
+- **Mine a simulated log ›** on a Petri net, a coloured net or a model page
+  (it was "Export as event log…" / "Generate event log…"). The log is saved
+  in the folder next to the model and opens in Mine as a new analysis with
+  an *Open log* box reading it. Without a folder it opens as a log page, as
+  before.
+- **Check against a log ›** on a Petri net's Analysis tab. Pick a log and
+  Mine opens a new analysis with *Open net* (this net's file), *Open log*
+  and *Check fit*, connected and run.
+- *Open net*'s Choose… and file list already offer the folder's models.
+
+## 0.9.1
+
+Files flow into the canvas, so the analysis says what feeds it and the
+sidebar is not the only way to a file.
+
+- **An input box names its file.** *Open log* reading boarding.xes shows
+  "INPUT · boarding.xes" on the canvas.
+- **The folder's files are in + Add box.** Under *Input*, the folder's logs,
+  nets and transition systems are listed by name; one click adds the box
+  that reads the file, already set. Typing in the search finds them too.
+- **Drop a file on the canvas** and it becomes its input box at that spot: a
+  log an *Open log*, a PNML file an *Open net*, a .cpn an *Open coloured
+  net*, a ts.txt an *Open transition system*. A file from outside the folder
+  is kept by its full path.
+- **Mine's *Open log…* and *Log from notation…* land as boxes** on the
+  current analysis, or on a new one named after the file, instead of opening
+  a page of their own. (File ▸ Open… still opens pages.)
+- **A page opened from a box has a way back.** *Open as log ›*, *Open as
+  model* and *Open as coloured net* now put "‹ Back to <analysis>" above the
+  page's title; it returns to the analysis, switching the space if need be.
+
 ## 0.9.0
 
 Three spaces: **Mine**, **Model** and **Learn**, switched at the top of the

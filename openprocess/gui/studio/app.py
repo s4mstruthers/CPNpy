@@ -62,6 +62,7 @@ from PySide6.QtGui import (
     QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut,
 )
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox,
     QSizePolicy, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
@@ -73,9 +74,10 @@ from ...mining.log import EventLog, parse_simple_log
 from ...mining.pnml import read_pnml, write_pnml
 from ...mining.xes import read_xes, write_xes
 from .. import theme
-from . import style
+from . import motion, style
 from ..canvas import NetScene, NetView
 from .compare_page import ComparePage
+from .connections import ConnectionsPage
 from .cpn_page import CpnPage
 from .petri_page import PetriNetPage
 from ..flow.page import WorkflowPage
@@ -113,6 +115,20 @@ AUTOSAVE_DELAY = 1000
 
 #: Name of the Bin on this system (macOS says Bin in British English, as here).
 BIN = "Recycle Bin" if sys.platform == "win32" else "Bin"
+def _run_pip(command: list[str]) -> tuple[int, str]:
+    """Run pip (``command``) and give back its exit code and output."""
+    completed = subprocess.run(command, capture_output=True, text=True)
+    return completed.returncode, (completed.stdout or "") + (completed.stderr or "")
+
+
+#: How Install… runs pip (a test puts a stand-in here).
+PIP_RUNNER = _run_pip
+
+#: The Model palette's tools, in the net page's order (see CpnPage.TOOLS).
+PALETTE = [("Select", "⬚", "Select and move things; double-click a place or transition to rename it"),
+           ("Place", "○", "Click on the canvas to add a place"),
+           ("Transition", "▭", "Click on the canvas to add a transition"),
+           ("Arc", "→", "Drag from a place to a transition (or the other way) to connect them")]
 
 
 def _empty_on_disk(folder: Path) -> bool:
@@ -535,6 +551,10 @@ class StudioWindow(QMainWindow):
         root.setCollapsible(0, False)
         self.content = QStackedWidget()
         self.content.addWidget(scroll(self._build_welcome(), horizontal=True))
+        #: The hub picture: what flows in and out, and the tools that plug in (index 1).
+        self.connections_page = ConnectionsPage()
+        self.connections_page.install_requested.connect(self.install_tool)
+        self.content.addWidget(self.connections_page)
         # Above the pages: "a new version is out" (see check_automatically).
         from .updates import UpdateBar
         self.update_bar = UpdateBar()
@@ -726,14 +746,41 @@ class StudioWindow(QMainWindow):
         self.tree.itemCollapsed.connect(lambda item: self._folder_toggled(item, False))
         layout.addWidget(self.tree, 1)
 
+        # Model: the drawing palette, for the net page that is open (it replaces
+        # the page's own tool buttons while the sidebar shows).
+        self.palette = QWidget()
+        self.palette.setObjectName("palette")
+        grid = QGridLayout(self.palette)
+        grid.setContentsMargins(6, 4, 6, 8)
+        grid.setSpacing(4)
+        grid.addWidget(label("PALETTE", "sectionLabel"), 0, 0, 1, 2)
+        self.palette_group = QButtonGroup(self.palette)
+        self.palette_group.setExclusive(True)
+        for index, (text, symbol, tip) in enumerate(PALETTE):
+            tool = button(f"{symbol}  {text}", kind="paletteTool", tooltip=tip)
+            tool.setCheckable(True)
+            self.palette_group.addButton(tool, index)
+            grid.addWidget(tool, 1 + index // 2, index % 2)
+        self.palette_group.idClicked.connect(self._palette_tool)
+        self.palette.setHidden(True)
+        layout.addWidget(self.palette)
+        # Both spaces: the hub picture.
+        connections = QWidget()
+        connections.setObjectName("sidebarFooter")
+        connections.setLayout(vbox(button("⚲  Connections", self.show_connections,
+                                          tooltip="What flows in, what flows out, and the tools that plug in"),
+                                   spacing=0))
+        layout.addWidget(connections)
         # A footer per space: what you start in it.
         self.footers = {}
         self.footers[MINE] = QWidget()
         self.footers[MINE].setObjectName("sidebarFooter")
         self.footers[MINE].setLayout(vbox(
             button("＋  New analysis", lambda: self.action_new_workflow(None)),
-            button("＋  Open log…", self.action_open),
-            button("✎  Log from notation…", self.action_notation),
+            button("＋  Open log…", self.action_open_log_box,
+                   tooltip="An Open log box on the current analysis (or a new one)"),
+            button("✎  Log from notation…", self.action_notation_box,
+                   tooltip="A Typed log box on the current analysis (or a new one)"),
             button("⇄  Compare logs…", lambda: self.action_compare()),
             spacing=0))
         self.footers[MODEL] = QWidget()
@@ -802,6 +849,7 @@ class StudioWindow(QMainWindow):
             self.tree.setCurrentItem(None)
             self.content.setCurrentIndex(0)
             self._set_title(None)
+        motion.lift(self.modes)                      # the whole window moved: let it settle
         return True
 
     def _set_space_quietly(self, space: str) -> None:
@@ -810,6 +858,74 @@ class StudioWindow(QMainWindow):
         for key, footer in self.footers.items():
             footer.setVisible(key == space)
         self._sync_space_switch()
+        self._update_palette()
+
+    # -- the Model palette and the Connections view ----------------------------------------
+    def _palette_tool(self, index: int) -> None:
+        page = self.current_page()
+        if isinstance(page, CpnPage):
+            page.tool_switch.set_index(index)
+
+    def _update_palette(self) -> None:
+        """The palette shows for a net page in Model, ticked at the page's tool."""
+        if not hasattr(self, "palette"):
+            return
+        page = self.current_page()
+        show = self.space == MODEL and isinstance(page, CpnPage) and not self.in_learn
+        self.palette.setVisible(show)
+        if show:
+            index = page.tool_switch.index()
+            tool = self.palette_group.button(index)
+            if tool is not None and not tool.isChecked():
+                tool.setChecked(True)
+
+    def install_tool(self, name: str) -> None:
+        """*Install…* on a Connections card: pip installs the package into this
+        app's Python, in the background; the boxes that need it come alive."""
+        import importlib
+        from .connections import package_for
+        package = package_for(name)
+        command = [sys.executable, "-m", "pip", "install", package]
+        answer = QMessageBox.question(
+            self, "Install a tool", f"Install {package} into this app's Python?\n\nThis runs:\n"
+            f"{' '.join(command)}\n\nThe app stays usable meanwhile.",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Yes)
+        if answer != QMessageBox.Yes:
+            return
+        self.connections_page.installing.add(name)
+        self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
+        self.statusBar().showMessage(f"Installing {package}…")
+
+        def done(result) -> None:
+            code, output = result
+            self.connections_page.installing.discard(name)
+            importlib.invalidate_caches()
+            self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
+            if code == 0:
+                for page in self.pages.values():
+                    if isinstance(page, WorkflowPage) and hasattr(page, "reload_library"):
+                        page.reload_library()
+                self.statusBar().showMessage(f"Installed {package}: its boxes are available (Run ▶ an "
+                                             "analysis that was waiting for it)", 10000)
+            else:
+                tail = "\n".join(output.strip().splitlines()[-20:])
+                QMessageBox.warning(self, "Install a tool", f"pip could not install {package} "
+                                    f"(exit code {code}).\n\n{tail}")
+                self.statusBar().showMessage(f"Could not install {package}", 8000)
+
+        run_in_background(lambda: PIP_RUNNER(command), done,
+                          lambda message: done((1, str(message))))
+
+    def show_connections(self) -> None:
+        """The Connections view: what flows in and out, and the tools that plug in."""
+        if self.in_learn:
+            self.leave_learn()
+        self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
+        self.tree.clearSelection()
+        self.tree.setCurrentItem(None)
+        self.content.setCurrentWidget(self.connections_page)
+        self._set_title(None)
+        self._update_palette()
 
     def _sync_space_switch(self) -> None:
         shown = LEARN if self.in_learn else self.space
@@ -874,6 +990,10 @@ class StudioWindow(QMainWindow):
         if show is None:
             show = self.sidebar.isHidden()
         self.sidebar.setHidden(not show)
+        for page in self.pages.values():                 # no sidebar, no palette: the page's own tools
+            if isinstance(page, CpnPage):
+                page.tool_switch.setVisible(not show)
+        self._update_palette()
         action = getattr(self, "sidebar_action", None)
         if action is not None and action.isChecked() != show:
             action.blockSignals(True)
@@ -1054,8 +1174,8 @@ class StudioWindow(QMainWindow):
              "log, a miner, a check, a comparison. Every result shows how it got there, with "
              "the code and the paper behind it.",
              [("New analysis", lambda: self.action_new_workflow(TEMPLATES[0][1])),
-              ("Open event log…", self.action_open),
-              ("Log from notation…", self.action_notation)]),
+              ("Open event log…", self.action_open_log_box),
+              ("Log from notation…", self.action_notation_box)]),
             ("Model", "Petri nets and coloured nets. Draw places, transitions and arcs, play "
              "the token game, simulate, analyse the state space, and mine the simulated "
              "behaviour.",
@@ -1163,6 +1283,7 @@ class StudioWindow(QMainWindow):
         for index, space in enumerate(SPACES):
             self._action(view_menu, LABELS[space], f"Ctrl+Alt+{index + 1}",
                          lambda _on=False, sp=space: self.set_space(sp))
+        self._action(view_menu, "Connections", None, self.show_connections)
         view_menu.addSeparator()
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
                      lambda: (self.in_learn and self.leave_learn(),
@@ -1300,8 +1421,9 @@ class StudioWindow(QMainWindow):
     def _make_page(self, document) -> QWidget:
         """Build the page showing ``document`` (and its holder in the stack)."""
         if isinstance(document, LogDocument):
-            page = LogPage(document)
+            page = LogPage(document, discover="handoff")
             page.open_model.connect(self.add_document)
+            page.discover_requested.connect(lambda key, doc=document: self.discover_in_analysis(doc, key))
             page.open_log.connect(lambda log, source=document: self.add_document(
                 log, near=source.path))
             page.edited.connect(lambda doc=document: self._log_edited(doc))
@@ -1317,7 +1439,7 @@ class StudioWindow(QMainWindow):
             page = WorkflowPage(document, self.library(),
                                 self.workspace.folder if self.workspace is not None else None)
             page.open_document.connect(lambda doc, source=document: self.add_document(doc, near=source.path))
-            page.edit_requested.connect(self.edit_petri_net)
+            page.edit_requested.connect(lambda net, origin, doc=document: self.edit_petri_net(net, origin, doc))
             page.keep_requested.connect(lambda doc=document: self.keep_workflow(doc))
             page.edited.connect(lambda doc=document: (self._refresh_item(doc), self._schedule_autosave(doc)))
             if self.workspace is not None:
@@ -1330,8 +1452,12 @@ class StudioWindow(QMainWindow):
         elif isinstance(document, CpnDocument):
             plain = getattr(document.net, "plain", False)
             page = PetriNetPage(document) if plain else CpnPage(document)
-            page.log_generated.connect(lambda log, source=document: self.add_document(
-                LogDocument(log), near=source.path))
+            page.log_generated.connect(lambda log, source=document: self.mine_log(log, source))
+            # The sidebar's palette stands in for the page's tool buttons while it shows.
+            page.tool_switch.changed.connect(lambda _i: self._update_palette())
+            page.tool_switch.setVisible(self.sidebar.isHidden())
+            if plain:
+                page.check_requested.connect(lambda doc=document: self.check_against_log(doc))
             page.dirty_changed.connect(lambda _dirty, doc=document: self._refresh_item(doc))
             page.edited.connect(lambda doc=document: self._schedule_autosave(doc))
             page.snap_changed.connect(self._snap_changed)
@@ -1344,15 +1470,15 @@ class StudioWindow(QMainWindow):
             if plain:
                 page.open_model.connect(self.add_document)
         else:
-            page = ModelPage(document, self.logs)
+            page = ModelPage(document, self.logs, conformance="handoff")
+            page.check_requested.connect(lambda doc=document: self.check_against_log(doc))
             page.inspector_tabs.changed.connect(
                 lambda i: self.remembered.__setitem__("model_inspector", i))
             page.view_switch.changed.connect(
                 lambda i: self.remembered.__setitem__("model_view", i))
-            page.log_generated.connect(lambda log, source=document: self.add_document(
-                LogDocument(log), near=source.path or (source.source_log.path
-                                                       if source.source_log else None)))
-            page.edit_requested.connect(self.edit_petri_net)
+            page.log_generated.connect(lambda log, source=document: self.mine_log(log, source))
+            page.edit_requested.connect(lambda net, doc=document: self.edit_petri_net(
+                net, f"from {doc.name}", doc))
             page.keep_requested.connect(lambda doc=document: self.keep_model(doc))
         page.status.connect(lambda message: self.statusBar().showMessage(message, 8000))
         page.saved.connect(lambda doc=document: self._document_saved(doc))
@@ -1360,6 +1486,12 @@ class StudioWindow(QMainWindow):
             page.header.title_double_clicked.connect(
                 lambda doc=document: self.rename_document(doc))
             page.header.title.set_hint("Double-click to rename")
+        source = getattr(document, "opened_from", None)
+        if source is not None and hasattr(page, "header"):
+            # Opened from a box's result (or a copy of one): a way back to that analysis.
+            origin = getattr(document, "origin", "") if isinstance(document, CpnDocument) else ""
+            text = f"‹ A copy, {origin}" if origin else f"‹ Back to {source.name}"
+            page.header.set_back(text, lambda _checked=False, s=source: self.back_to(s))
         self.pages[document.id] = page
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
@@ -1373,6 +1505,13 @@ class StudioWindow(QMainWindow):
         self.holders[document.id] = holder
         self.content.addWidget(holder)
         return page
+
+    def back_to(self, source) -> None:
+        """A page's Back link: the analysis it was opened from, if it is still open."""
+        if source in self.documents:
+            self._select_document(source)
+        else:
+            self.statusBar().showMessage(f"{source.name} is no longer open", 6000)
 
     def _snap_changed(self, on: bool) -> None:
         """Snap to grid was ticked in one editor: the same everywhere, and next time."""
@@ -1453,6 +1592,7 @@ class StudioWindow(QMainWindow):
             self.content.setCurrentWidget(holder)
             self._schedule_fit()
             self._set_title(self._document(current.data(0, Qt.UserRole)))
+        self._update_palette()
 
     def _restore_tab(self, page: QWidget) -> None:
         """Show the same tab on the newly selected page as on the last one."""
@@ -1607,6 +1747,7 @@ class StudioWindow(QMainWindow):
             self.tree.setCurrentItem(None)
             self.content.setCurrentIndex(0)
             self._set_title(None)
+        self._update_palette()
         noun = "item" if len(documents) == 1 else "items"
         self.statusBar().showMessage(f"Closed {len(documents)} {noun}", 5000)
         return True
@@ -2023,6 +2164,46 @@ class StudioWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             self.add_document(LogDocument(dialog.log(), notation=dialog.text()))
 
+    # -- Mine: files and typed logs land as boxes -----------------------------------------
+    def analysis_for(self, name: str) -> WorkflowPage:
+        """The current analysis, or a new one called ``name`` when none is open."""
+        page = self.current_page()
+        if isinstance(page, WorkflowPage) and not self.in_learn:
+            return page
+        from ...flow.workflow import Workflow
+        workflow = Workflow(self._unique_name(name or "Untitled"), self.library())
+        self.add_document(WorkflowDocument(workflow))
+        return self.current_page()
+
+    def action_open_log_box(self) -> None:
+        """Mine's *Open log…*: the log as an Open log box on the current analysis."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open log", dialog_folder(),
+            "Event logs (*.xes *.xes.gz *.gz *.csv *.txt);;All files (*)")
+        if paths:
+            self.boxes_for_files(paths)
+
+    def boxes_for_files(self, paths: list[str]) -> list:
+        """Input boxes for ``paths`` on the current analysis (or a new one named
+        after the first file).  Returns the nodes."""
+        from .workspace import file_stem
+        page = self.analysis_for(file_stem(Path(paths[0]).name))
+        nodes = page.add_files(paths)
+        self._select_document(page.document)
+        return nodes
+
+    def action_notation_box(self) -> None:
+        """Mine's *Log from notation…*: a Typed log box with the text."""
+        from ..flow.picker import input_box_for
+        dialog = NotationDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        log = dialog.log()
+        page = self.analysis_for(log.name)
+        page.add_box_in_view(input_box_for(self.library(), "typed"),
+                             {"text": dialog.text(), "name": log.name})
+        self._select_document(page.document)
+
     def open_files(self, paths: list[str], folder: str | None = None) -> None:
         """Open files the user chose (Open…, Open Recent, a drop, the command line).
 
@@ -2248,12 +2429,139 @@ class StudioWindow(QMainWindow):
         from ...model.plain import from_petri_net
         self.add_document(CpnDocument(from_petri_net(net)))
 
-    def edit_petri_net(self, net) -> None:
-        """Open a (discovered or imported) Petri net in the editor, as a copy."""
+    def edit_petri_net(self, net, origin: str = "", source=None) -> None:
+        """*Open a copy in Model*: a discovered or imported Petri net on the net
+        canvas, as a copy named "… (copy)".  The original (a box's result, a
+        model page) is never changed.  ``origin`` says where it came from
+        ("from Inductive Miner in Discover and check") and ``source`` is the
+        document to go back to."""
         from ...model.plain import from_petri_net
         editable = from_petri_net(net)
-        editable.name = f"{net.name} (edited)"
-        self.add_document(CpnDocument(editable))
+        editable.name = f"{net.name} (copy)"
+        document = CpnDocument(editable, origin=origin)
+        document.opened_from = source
+        self.add_document(document)
+        self.statusBar().showMessage(f"A copy of {net.name}: change it here; the original stays as it is",
+                                     8000)
+
+    def mine_log(self, log, source) -> None:
+        """*Mine a simulated log ›*: the log becomes a file in the folder, next
+        to the model it came from, and opens in Mine as a new analysis with an
+        Open log box reading it.  Without a folder it opens as a log page."""
+        from ...flow.workflow import Workflow
+        from ..flow.picker import input_box_for
+        if self.workspace is None:
+            self.add_document(LogDocument(log), near=getattr(source, "path", None))
+            return
+        near = getattr(source, "path", None)
+        folder = Path(near).resolve().parent if near and self.workspace.contains(near) else self.workspace.folder
+        target = unique_path(folder, safe_file_name(log.name) + ".xes")
+        try:
+            write_xes(log, str(target))
+        except OSError as error:
+            QMessageBox.warning(self, "Mine the simulated log", f"Could not save the log:\n\n{error}")
+            return
+        self._created.add(self._key(target))
+        library = self.library()
+        workflow = Workflow(self._unique_name(log.name), library)
+        workflow.add(input_box_for(library, "log"), {"file": self.workspace.relative(target)}, (0.0, 0.0))
+        self.add_document(WorkflowDocument(workflow))
+        self.statusBar().showMessage(f"Saved {target.name} into the folder; this analysis reads it", 8000)
+
+    def _log_box_for(self, workflow, document, library, position=(0.0, 0.0)):
+        """A box that gives ``document``'s log in ``workflow``: Open log for a
+        file, Typed log for a log written in notation; a log that is neither
+        is written into the folder first.  None (with a message) when it
+        cannot be done."""
+        from ..flow.picker import input_box_for
+        path = document.path if document.path and not document.missing else None
+        if path is None and self.workspace is not None:
+            target = unique_path(self.workspace.folder, safe_file_name(document.name) + ".xes")
+            try:
+                write_xes(document.log, str(target))
+            except OSError as error:
+                self.statusBar().showMessage(f"Could not save the log: {error}", 8000)
+                return None
+            self._created.add(self._key(target))
+            path = str(target)
+        if path is not None:
+            relative = self.workspace.relative(path) if self.workspace is not None and \
+                self.workspace.contains(path) else path
+            return workflow.add(input_box_for(library, "log"), {"file": relative}, position)
+        if document.notation:
+            return workflow.add(input_box_for(library, "typed"),
+                                {"text": document.notation, "name": document.name}, position)
+        self.statusBar().showMessage("Export the log first (Export…): the analysis reads it from a file", 8000)
+        return None
+
+    def discover_in_analysis(self, document, key: str) -> None:
+        """The log page's Discover: a new analysis in Mine with this log and the
+        chosen miner, connected and run, the miner's Result open."""
+        from ...flow.workflow import Workflow
+        library = self.library()
+
+        def spec_id(function: str) -> str | None:
+            return next((s.id for s in library.specs.values() if s.id.endswith("." + function)), None)
+
+        miner = spec_id(key)
+        if miner is None:
+            self.statusBar().showMessage(f"The {key} box is not available", 8000)
+            return
+        workflow = Workflow(self._unique_name(f"Discover {document.name}"), library)
+        log = self._log_box_for(workflow, document, library)
+        if log is None:
+            return
+        node = workflow.add(miner, None, (300.0, 0.0))
+        workflow.connect(log, node)
+        last = node
+        if key == "classical_states":                      # regions: the net is one box further
+            to_net = spec_id("regions_to_net")
+            if to_net is not None:
+                last = workflow.add(to_net, None, (600.0, 0.0))
+                workflow.connect(node, last)
+        self.add_document(WorkflowDocument(workflow))
+        page = self.current_page()
+        if isinstance(page, WorkflowPage):
+            page.select(last.id, 0)
+        self.statusBar().showMessage(f"{workflow.name}: click the miner for its result, how it was derived, "
+                                     "and the code", 10000)
+
+    def check_against_log(self, document) -> None:
+        """*Check against a log ›* on a Petri net: in Mine, a new analysis with
+        Open net (this net's file), Open log (a file you choose) and Check fit,
+        connected and run."""
+        from ...flow.workflow import Workflow
+        from ..flow.picker import input_box_for
+        if not document.path and isinstance(document, ModelDocument) and self.workspace is not None:
+            self.keep_model(document)                  # a discovered model: kept in the folder first
+        if not document.path or document.missing:
+            self.statusBar().showMessage("Save the net first (it has no file yet): the analysis reads "
+                                         "it from its file", 8000)
+            return
+        start = str(self.workspace.folder) if self.workspace is not None else dialog_folder()
+        path, _ = QFileDialog.getOpenFileName(self, "Check against a log", start,
+                                              "Event logs (*.xes *.xes.gz *.gz *.csv *.txt);;All files (*)")
+        if not path:
+            return
+        library = self.library()
+        check = next((s.id for s in library.specs.values() if s.id.endswith(".check_fit")), None)
+        if check is None:
+            self.statusBar().showMessage("The Check fit box is not available", 8000)
+            return
+
+        def file_setting(p: str) -> str:
+            return self.workspace.relative(p) if self.workspace is not None and self.workspace.contains(p) else p
+
+        workflow = Workflow(self._unique_name(f"{document.name} vs {file_stem(Path(path).name)}"), library)
+        net = workflow.add(input_box_for(library, file_kind(Path(document.path)) or "petri"),
+                           {"file": file_setting(document.path)}, (0.0, 0.0))
+        log = workflow.add(input_box_for(library, "log"), {"file": file_setting(path)}, (0.0, 140.0))
+        fit = workflow.add(check, None, (300.0, 70.0))
+        workflow.connect(net, fit)
+        workflow.connect(log, fit)
+        self.add_document(WorkflowDocument(workflow))
+        self.statusBar().showMessage(f"{document.name} against {Path(path).name}: click Check fit for the "
+                                     "scores and how they were computed", 10000)
 
     def library(self):
         """The boxes available in this window (the folder's boxes/ included)."""
@@ -3902,6 +4210,7 @@ class StudioWindow(QMainWindow):
         self._space_before_learn = self.space
         self.modes.setCurrentWidget(self.learn_mode)
         self._sync_space_switch()
+        motion.lift(self.modes)
         self.learn_mode._update_bar()               # the window's title names the exercise
         self.statusBar().showMessage("Answers are saved in each exercise's folder as you go",
                                      6000)
@@ -3919,6 +4228,7 @@ class StudioWindow(QMainWindow):
         if to is not None and to != self.space:
             self._set_space_quietly(to)
         self._sync_space_switch()
+        motion.lift(self.modes)
         if self.workspace is not None:
             self._rescan_workspace(force=True)
         self._set_title(self._current_document())    # back to the file you had open
