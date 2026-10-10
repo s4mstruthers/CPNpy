@@ -1,0 +1,172 @@
+"""The *+ Add box* popover: every box, a click away, without a panel of its own.
+
+The Workflows page has no permanent box list.  *+ Add box* in its header
+(and a double-click on the canvas, and *Add box here…* in its menu) opens
+this popover: a search field, the six core groups (Input, Filter, Discover,
+Check, Compare, Output) side by side, and one line for the rest (Science,
+Predict, Coloured nets, Sweep, a folder's own boxes) with *Show all*.
+Typing searches every box, core or not.  Enter adds the first match.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtWidgets import QFrame, QGridLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
+
+from ...flow.library import GROUP_ORDER, Library
+from ..studio import style
+from ..studio.widgets import hbox, label, vbox
+
+#: The groups shown before *Show all*: what most workflows are made of.
+CORE_GROUPS = GROUP_ORDER[:6]
+COLUMNS = 3
+
+
+class BoxPicker(QFrame):
+    """A popup listing the library's boxes by group; emits :attr:`chosen` with a box id."""
+
+    chosen = Signal(str)
+
+    def __init__(self, library: Library, parent: QWidget | None = None) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("card")
+        self.library = library
+        self.show_all = False
+        self.search = QLineEdit()
+        self.search.setObjectName("boxSearch")
+        self.search.setPlaceholderText("Search boxes, e.g. alpha, filter, fitness")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(lambda _text: self.refill())
+        self.search.returnPressed.connect(self._choose_first)
+        self.groups_host = QWidget()
+        self.grid = QGridLayout(self.groups_host)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setHorizontalSpacing(14)
+        self.grid.setVerticalSpacing(10)
+        self.more_text = label("", "muted", wrap=True)
+        self.more_button = QPushButton()
+        self.more_button.clicked.connect(self._toggle_all)
+        self.footer = hbox(self.more_text, None, self.more_button)
+        self.setLayout(vbox(self.search, self.groups_host, self.footer, spacing=12, margins=(14, 14, 14, 14)))
+        self.setMinimumWidth(560)
+        self.buttons: list[QPushButton] = []
+        self.refill()
+
+    # -- showing ---------------------------------------------------------------------------
+    def open_at(self, point: QPoint) -> None:
+        """Show the popover with its top-left corner at ``point`` (global), kept on screen."""
+        self.search.clear()
+        self.show_all = False
+        self.refill()
+        self.adjustSize()
+        screen = self.screen().availableGeometry() if self.screen() else None
+        x, y = point.x(), point.y()
+        if screen is not None:
+            x = max(screen.left(), min(x, screen.right() - self.width()))
+            y = max(screen.top(), min(y, screen.bottom() - self.height()))
+        self.move(x, y)
+        self.show()
+        self.search.setFocus()
+
+    # -- filling -----------------------------------------------------------------------------
+    def shown_groups(self) -> dict[str, list]:
+        """Group → boxes to list now: the core groups, every group when
+        *Show all* is on or a search is typed (a search looks everywhere)."""
+        wanted = self.search.text().strip().lower()
+        groups = {}
+        for group, specs in self.library.by_group().items():
+            if not wanted and not self.show_all and group not in CORE_GROUPS:
+                continue
+            shown = [s for s in specs if not wanted or _matches(s, group, wanted)]
+            if shown:
+                groups[group] = shown
+        return groups
+
+    def refill(self) -> None:
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()               # gone now, not at the next event loop turn: no ghosts under the new rows
+                widget.setParent(None)
+                widget.deleteLater()
+        self.buttons = []
+        t = style.tokens()
+        groups = self.shown_groups()
+        for index, (group, specs) in enumerate(groups.items()):
+            column = QWidget()
+            column.setObjectName("plain")
+            rows = QVBoxLayout(column)
+            rows.setContentsMargins(0, 0, 0, 0)
+            rows.setSpacing(2)
+            rows.addWidget(label(group.upper(), "sectionLabel"))
+            for spec in specs:
+                choice = QPushButton(spec.name + ("  (Yours)" if spec.custom else ""))
+                choice.setObjectName("boxChoice")
+                choice.setCursor(Qt.PointingHandCursor)
+                tip = (spec.help or "").strip().split("\n\n")[0].replace("\n", " ")
+                if not spec.available:
+                    tip += f"\n({spec.unavailable_reason})"
+                    choice.setStyleSheet(f"color: {t.text_muted};")
+                choice.setToolTip(tip)
+                choice.clicked.connect(lambda _checked=False, box_id=spec.id: self._choose(box_id))
+                rows.addWidget(choice)
+                self.buttons.append(choice)
+            rows.addStretch(1)
+            self.grid.addWidget(column, index // COLUMNS, index % COLUMNS, Qt.AlignTop)
+        if not groups:
+            self.grid.addWidget(label("No box matches. Try another word, or clear the search.", "muted", wrap=True),
+                                0, 0, 1, COLUMNS)
+        for broken in self.library.broken if (self.show_all or self.search.text().strip()) else []:
+            note = label(f"{Path(broken.file).name}: {broken.reason}", "muted", wrap=True)
+            note.setStyleSheet(f"color: {style.STATUS['critical']};")
+            note.setToolTip("This box file could not be loaded; fix it and it reloads when saved")
+            self.grid.addWidget(note, self.grid.rowCount(), 0, 1, COLUMNS)
+        self._refresh_footer()
+        self.adjustSize()
+
+    def _refresh_footer(self) -> None:
+        searching = bool(self.search.text().strip())
+        rest = [g for g in self.library.by_group() if g not in CORE_GROUPS]
+        total = len(self.library)
+        self.footer_visible = bool(rest) and not searching
+        self.more_text.setVisible(self.footer_visible)
+        self.more_button.setVisible(self.footer_visible)
+        if not self.footer_visible:
+            return
+        if self.show_all:
+            self.more_text.setText(f"All {total} boxes.")
+            self.more_button.setText("Core groups only ◂")
+        else:
+            names = ", ".join(_plain(g) for g in rest)
+            self.more_text.setText(f"More: {names}.")
+            self.more_button.setText(f"Show all {total} ▸")
+
+    def _toggle_all(self) -> None:
+        self.show_all = not self.show_all
+        self.refill()
+
+    # -- choosing ---------------------------------------------------------------------------
+    def _choose(self, box_id: str) -> None:
+        self.close()
+        self.chosen.emit(box_id)
+
+    def _choose_first(self) -> None:
+        if self.buttons:
+            self.buttons[0].click()
+
+
+def _matches(spec, group: str, wanted: str) -> bool:
+    """Every word typed is in the box's name, its group, or its function's
+    name ("alpha" finds the α-algorithm, whose function is alpha_miner)."""
+    haystack = " ".join([spec.name, group, spec.function.__name__.replace("_", " "), spec.id]).lower()
+    return all(word in haystack for word in wanted.split())
+
+
+def _plain(group: str) -> str:
+    return "your own boxes" if group == "Yours" else group
+
+
+__all__ = ["BoxPicker", "CORE_GROUPS"]

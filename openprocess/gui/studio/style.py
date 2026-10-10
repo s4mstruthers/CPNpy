@@ -461,12 +461,20 @@ def stylesheet() -> str:
         border-bottom: 1px solid {t.border}; padding: 6px 8px; font-weight: 600;
         font-size: 11px; }}
     QTableCornerButton::section {{ background: {t.surface}; border: none; }}
-    /* The Workflows page's box list: rows like the sidebar's, group names as captions. */
-    #boxList {{ background: transparent; }}
-    #boxList::item {{ padding: 4px 6px; border-radius: 6px; margin: 0 2px; }}
-    #boxList::item:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
-    #boxList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
-    #boxList::item:has-children {{ padding-top: 10px; background: transparent; }}
+    /* The Workflows page's + Add box popover: rows like the sidebar's, group names as captions. */
+    QPushButton#boxChoice {{ background: transparent; border: none; border-radius: 5px;
+        padding: 4px 8px; text-align: left; }}
+    QPushButton#boxChoice:hover {{ background: {qc(t.text, 0.06).name(QColor.HexArgb)}; }}
+    QPushButton#boxChoice:focus {{ background: {t.accent_soft}; }}
+    /* A result's "Open as log ›" card: one big link, in the accent colour. */
+    #openCard {{ background: {t.accent_soft}; border: 1px solid {t.accent}; border-radius: 10px; }}
+    #openCard:hover {{ border-width: 2px; }}
+    #openCardTitle {{ color: {t.accent}; font-weight: 700; font-size: 14px; }}
+    /* The side panel's ✕ and the header's ⋯: quiet until hovered. */
+    QPushButton#panelClose, QPushButton#moreButton {{ background: transparent; border: 1px solid transparent;
+        color: {t.text_muted}; padding: 4px 6px; }}
+    QPushButton#panelClose:hover, QPushButton#moreButton:hover {{ background: {t.surface_alt};
+        border-color: {t.border}; color: {t.text}; }}
     /* A list on its own in a dialog (Compare logs, the Filter dialog's
        activities) gets a rounded frame, like a text field. */
     QDialog QListWidget, QDialog QListView {{ border: 1px solid {t.border};

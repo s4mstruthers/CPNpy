@@ -99,8 +99,6 @@ class ModelPage(ConcealsResults, QWidget):
     edit_requested = Signal(object)
     #: "Keep" was pressed: save this discovered model into the open folder.
     keep_requested = Signal()
-    #: "As a workflow" on the Conformance tab, with the chosen log document.
-    workflow_requested = Signal(object)
 
     def __init__(self, document: ModelDocument, open_logs, parent=None) -> None:
         """``open_logs`` is a callable returning the currently open LogDocuments."""
@@ -533,9 +531,7 @@ class ModelPage(ConcealsResults, QWidget):
         self.refresh_logs()
         self.run_conformance = button("Check conformance", self._check, kind="primary")
         chooser.add(self.log_box)
-        chooser.add(hbox(self.run_conformance, button(
-            "As a workflow  ⧉", lambda: self.workflow_requested.emit(self.log_box.currentData()),
-            tooltip="This model and the chosen log as boxes on a canvas, with a Check fit box"), None))
+        chooser.add(hbox(self.run_conformance, None))
         layout.addWidget(chooser)
 
         self.metric_tiles = {

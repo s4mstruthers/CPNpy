@@ -89,8 +89,6 @@ def _table(model: QStandardItemModel) -> QTableView:
 
 class LogPage(ConcealsResults, QWidget):
     open_model = Signal(object)          # ModelDocument
-    #: "As a workflow" on the Discover tab: the window makes a workflow of this discovery.
-    workflow_requested = Signal(dict)
     open_log = Signal(object)            # LogDocument (a filtered copy)
     status = Signal(str)
     #: Emitted after the log was exported; the document now lives in that file.
@@ -602,11 +600,9 @@ class LogPage(ConcealsResults, QWidget):
 
         open_button = button("Open as model  →", kind="primary")
         open_button.setEnabled(False)
-        workflow_button = button("As a workflow  ⧉", tooltip="The same discovery as boxes on a canvas: "
-                                 "this log, the algorithm with these settings, and a fitness check")
         toolbar = Card()
         toolbar.body.addLayout(hbox(label("Algorithm"), chooser, 16, noise_row, dependency_row,
-                                    None, workflow_button, open_button, spacing=10))
+                                    None, open_button, spacing=10))
         # On a line of its own: three choices do not fit beside the algorithm.
         toolbar.add(region_row)
         description = label("", "muted", wrap=True)
@@ -762,16 +758,6 @@ class LogPage(ConcealsResults, QWidget):
         representation_box.currentIndexChanged.connect(lambda _i: discover())
         horizon_spin.valueChanged.connect(lambda _v: discover())
         open_button.clicked.connect(lambda: state.get("model") and self.open_model.emit(state["model"]))
-
-        def as_workflow() -> None:
-            direction, representation, horizon = self.region_controls
-            self.workflow_requested.emit({
-                "algorithm": current_key(), "noise": noise.value() / 100, "dependency": dependency.value() / 100,
-                "direction": direction.currentData(), "representation": representation.currentData(),
-                "horizon": horizon.value() or None})
-        workflow_button.clicked.connect(as_workflow)
-        chooser.currentIndexChanged.connect(lambda _i: workflow_button.setEnabled(
-            not current_key().startswith("pm_")))
 
         # Hidden in an exercise until revealed (see concealment.py).
         self.conceal_card(result_card, "discovery")

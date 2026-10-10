@@ -428,8 +428,8 @@ def record(function: Callable, name: str | None = None, library=None) -> Workflo
 
 class Recorded:
     """A ``@workflow`` function: still callable, with ``.workflow`` drawn on
-    first use.  One with typed parameters is also a *composite box*: in the
-    box list it is one box, on the canvas it can be opened as a group."""
+    first use.  One with typed parameters is also a *composite box*: under
+    *+ Add box* it is one box, on the canvas it can be opened as a group."""
 
     def __init__(self, fn: Callable, name: str | None, group: str) -> None:
         self.fn = fn

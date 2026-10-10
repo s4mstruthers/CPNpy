@@ -300,9 +300,92 @@ def test_groups_show_as_one_box_and_open_their_own_canvas(app, tmp_path):
     page.close()
 
 
-def test_quick_actions_make_workflows(app):
+def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
+    """A workflow opens as its canvas alone: three header buttons, no box
+    list, no side panel.  Click a box and the panel appears on Result; the
+    tab sticks while it stays open; ✕ (or clicking the canvas) hides it."""
     from PySide6.QtWidgets import QPushButton
-    from openprocess.gui.flow.page import WorkflowPage
+
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    header = [b.text() for b in page.header.findChildren(QPushButton) if b.isVisible()]
+    assert header == ["+ Add box", "Run ▶", "⋯"]
+    assert [a.text() for a in page.more_menu.actions() if a.text()] == ["Re-run", "Record…", "Export experiment…", "Save"]
+    assert not page.panel.isVisible() and not hasattr(page, "box_tree")
+    log, miner = page.workflow.order()[:2]
+    page.select(log.id)
+    assert page.panel.isVisible() and page.tab == 0
+    page.tabs.set_index(2)                                          # Code
+    _pump(app, 0.1)
+    page.select(miner.id)
+    assert page.tab == 2                                            # the tab sticks while the panel is open
+    page.close_panel()
+    assert not page.panel.isVisible() and page.selected is None
+    page.select(log.id, 3)                                          # sent to Settings on purpose
+    assert page.panel.isVisible() and page.tab == 3
+    page.scene.clearSelection()                                     # a click on the canvas
+    page.scene.selected.emit(None)
+    assert not page.panel.isVisible()
+    page.select(miner.id)
+    assert page.tab == 0                                            # reopened: Result again
+    page.document.dirty = False
+    window.close()
+
+
+def test_add_box_lists_the_core_groups_and_finds_the_rest(app):
+    """+ Add box shows the six core groups; Show all adds the others; a
+    search looks everywhere; a click adds the box to the canvas."""
+    from openprocess.gui.flow.picker import CORE_GROUPS
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow()
+    page = window.current_page()
+    page.add_box_menu()
+    picker = page._picker
+    _pump(app, 0.1)
+    assert picker.isVisible()
+    assert list(picker.shown_groups()) == [g for g in CORE_GROUPS if g in page.library.by_group()]
+    assert "Coloured nets" not in picker.shown_groups() and picker.more_button.text().startswith("Show all")
+    picker.more_button.click()
+    assert "Coloured nets" in picker.shown_groups() and "Sweep" in picker.shown_groups()
+    picker.more_button.click()
+    picker.search.setText("alpha")
+    shown = picker.shown_groups()
+    assert list(shown) == ["Discover"] and [s.name for s in shown["Discover"]] == ["α-algorithm"]
+    assert not picker.more_button.isVisible()                       # a search looks everywhere already
+    picker.search.setText("simulate cpn")
+    assert "Coloured nets" in picker.shown_groups()
+    picker.search.setText("Typed log")
+    picker.buttons[0].click()
+    _pump(app, 0.1)
+    assert not picker.isVisible()
+    assert [page.workflow.spec(n).name for n in page.workflow.order()] == ["Typed log"]
+    # A double-click on the canvas: the same picker, the box lands there.
+    page.quick_add(QPointF(400, 300))
+    next(b for b in page._picker.buttons if b.text() == "Footprint").click()
+    _pump(app, 0.1)
+    from openprocess.gui.flow.canvas import GRID
+    footprint = next(n for n in page.workflow.nodes.values() if page.workflow.spec(n).name == "Footprint")
+    assert abs(footprint.position[0] - 311) <= GRID and abs(footprint.position[1] - 270) <= GRID
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_pages_no_longer_offer_as_a_workflow(app):
+    """File ▸ New Workflow is the one way in: the log, model and net pages
+    have no *As a workflow* / *Use in a workflow* buttons."""
+    from PySide6.QtWidgets import QPushButton
+
     from openprocess.gui.studio.app import StudioWindow
     from openprocess.gui.studio.documents import LogDocument
     from openprocess.mining import read_xes
@@ -315,13 +398,39 @@ def test_quick_actions_make_workflows(app):
     log_page = window.current_page()
     log_page.tabs.set_index(6)                                      # Discover
     _pump(app, 0.8)
-    next(b for b in log_page.findChildren(QPushButton) if b.text().startswith("As a workflow")).click()
-    _pump(app, 0.2)
+    texts = [b.text() for b in log_page.findChildren(QPushButton)]
+    assert any(t.startswith("Open as model") for t in texts)
+    assert not any("workflow" in t.lower() for t in texts)
+    window.action_new_cpn()
+    net_page = window.current_page()
+    assert not any("workflow" in b.text().lower() for b in net_page.header.findChildren(QPushButton))
+    for document in window.documents:
+        document.dirty = False
+    window.close()
+
+
+def test_a_log_result_offers_the_log_page(app):
+    """A log box's Result says where the dotted chart and the footprint are:
+    one *Open as log ›* card above its variants, which opens a log page."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.flow.viewers import _OpenCard
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.log_page import LogPage
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
     page = window.current_page()
-    assert isinstance(page, WorkflowPage)
-    assert [page.workflow.spec(n).name for n in page.workflow.order()] == ["Open log", "Inductive Miner", "Check fit"]
     _wait_run(app, page)
-    assert page.run.ok and str(_node(page, "open_log").settings["file"]) == str(path)
+    log = page.workflow.order()[0]
+    page.select(log.id, 0)
+    _pump(app, 0.1)
+    cards = page.panel_host.findChildren(_OpenCard)
+    assert len(cards) == 1 and "Dotted chart" in cards[0].toolTip() and "footprint" in cards[0].toolTip()
+    cards[0].slot()
+    _pump(app, 0.3)
+    assert isinstance(window.current_page(), LogPage)
     for document in window.documents:
         document.dirty = False
     window.close()
@@ -365,7 +474,7 @@ def test_a_failed_box_says_what_went_wrong_in_its_own_words(app, tmp_path, monke
 
 
 def test_adding_a_file_box_opens_its_settings(app):
-    """Open log from the box list: the box waits for its file and the Settings
+    """Open log from + Add box: the box waits for its file and the Settings
     tab opens, instead of a red box with a traceback."""
     from openprocess.gui.studio.app import StudioWindow
 
@@ -374,8 +483,8 @@ def test_adding_a_file_box_opens_its_settings(app):
     window.show()
     window.action_new_workflow()
     page = window.current_page()
-    items = page.box_tree.findItems("Open log", Qt.MatchExactly | Qt.MatchRecursive)
-    page._box_list_clicked(items[0], 0)
+    page.add_box_menu()
+    next(b for b in page._picker.buttons if b.text() == "Open log").click()
     _wait_run(app, page)
     node = _node(page, "open_log")
     assert page.selected == node.id and page.tab == 3                 # Settings
