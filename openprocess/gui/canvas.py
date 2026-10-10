@@ -999,13 +999,20 @@ class NetScene(QGraphicsScene):
             self.hide_connect_handle()
             return
         scale = self._view_scale()
+        nodes = [*self.place_items.values(), *self.transition_items.values()]
+        if any(item.contains(item.mapFromScene(position)) for item in nodes):
+            # Over a node the arrow is never shown, whatever the zoom: zoomed
+            # out, the arrow's hit zone (14 screen px) can reach a neighbour,
+            # and the node must win there.
+            self.hide_connect_handle()
+            return
         if self._handle_hit(position):
             self._handle.set_hot(True)
             return
         import math
         reach = self.HANDLE_REACH / scale
         # The nearest, not the first: zoomed out, the reach can span several nodes.
-        near = [item for item in [*self.place_items.values(), *self.transition_items.values()]
+        near = [item for item in nodes
                 if item.sceneBoundingRect().adjusted(-reach, -reach, reach, reach)
                 .contains(position)]
         node = min(near, key=lambda item: math.hypot(*(position - item.pos()).toTuple()),

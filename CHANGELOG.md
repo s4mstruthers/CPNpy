@@ -20,6 +20,9 @@ moves for its own sake.
 - **+ Add box fades in.**
 - **Off switch:** set ``OPENPROCESS_NO_MOTION=1`` before starting the app
   (for screenshots, slow machines, or if motion bothers you).
+- **Fixed:** zoomed out on a net, the arrow for drawing an arc could stay
+  beside one node while the mouse was over its neighbour. Over a node the
+  arrow now always gives way, whatever the zoom.
 
 ## 0.9.3
 
