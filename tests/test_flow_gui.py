@@ -1163,3 +1163,60 @@ def test_an_object_centric_log_flows_through_the_canvas(app, tmp_path):
     assert page.drawings()[graph.id].startswith("<svg")
     page.document.dirty = False
     window.close()
+
+
+def test_a_page_opened_from_a_box_is_a_view_until_kept(app, tmp_path, monkeypatch):
+    """Open as log › writes no file into the folder; the page has Keep in folder
+    for when you want one; ✕ closes it without a question and leaves nothing
+    in the sidebar."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio import app as studio_app
+    from openprocess.gui.studio.app import StudioWindow
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    files_before = sorted(p.name for p in week.iterdir() if not p.name.startswith("."))
+    page.open_as_log(page.run.result(page.workflow.order()[0]).value)
+    _pump(app, 0.3)
+    log_page = window.current_page()
+    document = log_page.document
+    assert window.is_view(document) and document.path is None
+    assert sorted(p.name for p in week.iterdir() if not p.name.startswith(".")) == files_before   # nothing written
+    assert log_page.keep_view_button.isVisibleTo(log_page)
+    # ✕: closed, no question asked, nothing left behind.
+    monkeypatch.setattr(studio_app.QMessageBox, "exec", lambda self: (_ for _ in ()).throw(AssertionError("asked")))
+    assert window.remove_documents([document.id])
+    assert document not in window.documents and window.material_section.childCount() == 0
+    # Opened again and kept: now it is a file of the folder.
+    page.open_as_log(page.run.result(page.workflow.order()[0]).value)
+    _pump(app, 0.3)
+    kept = window.current_page()
+    kept.keep_view_button.click()
+    assert kept.document.path and Path(kept.document.path).parent == week.resolve()
+    assert not window.is_view(kept.document) and not kept.keep_view_button.isVisibleTo(kept)
+    assert window.material_section.childCount() == 1
+    # Open as model › likewise: a view, its own Keep, closed without a question.
+    from openprocess.flow.types import PetriNet
+    nets = [page.run.result(n).value for n in page.workflow.order()
+            if page.run.result(n) is not None and isinstance(page.run.result(n).value, PetriNet)]
+    assert nets, "the template discovers a net"
+    page.open_as_model(nets[0])
+    _pump(app, 0.3)
+    model_page = window.current_page()
+    assert window.is_view(model_page.document) and model_page.document.path is None
+    assert model_page.keep_button.isVisibleTo(model_page) and not hasattr(model_page, "keep_view_button")
+    assert window.remove_documents([model_page.document.id])
+    assert model_page.document not in window.documents and kept.document in window.documents
+    new_files = sorted(p.name for p in week.iterdir() if not p.name.startswith(".")
+                       and p.name not in files_before)
+    assert new_files == [Path(kept.document.path).name]              # the kept log, nothing else
+    for d in window.documents:
+        d.dirty = False
+    window.close()

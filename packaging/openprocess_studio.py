@@ -96,9 +96,13 @@ def main() -> int:
     # Decide what this run is before importing Qt: a state space worker must
     # stay light and must never open a window.
     from openprocess.analysis.state_space_process import WORKER_FLAG, run_worker
+    from openprocess.packages import PIP_FLAG, activate, run_pip
 
     if len(sys.argv) > 1 and sys.argv[1] == WORKER_FLAG:
         return run_worker(sys.argv[2:5])
+    if len(sys.argv) > 1 and sys.argv[1] == PIP_FLAG:
+        return run_pip(sys.argv[2:])            # Install… from Connections, in a copy of the app
+    activate()                                  # packages installed that way, on the import path
     if len(sys.argv) > 1 and sys.argv[1] == SELF_TEST_FLAG:
         return self_test(sys.argv[2] if len(sys.argv) > 2 else None)
 

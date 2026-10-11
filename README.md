@@ -794,7 +794,11 @@ extra) and *Predict the next activity*. Or start empty.
   draws what flows in, OpenProcess and its boxes, what flows out, and the
   optional tools (pandas, numpy, scipy, matplotlib, …) with whether each is
   installed, how to install it and the boxes it brings. All of it is read
-  from the box library.
+  from the box library. *Install…* works in the downloaded app too: it carries
+  pip and installs into a folder of your own (on a Mac,
+  `~/Library/Application Support/OpenProcess/packages`), and the boxes that
+  need the package come alive without a restart. PM4Py needs a Python
+  install (`pip install pm4py`), as parts of it are built from source.
 - **Motion** is kept short: a space switch, the side panel and Canvas ↔
   Summary settle in a fifth of a second, and a box pulses once when it
   finishes. `OPENPROCESS_NO_MOTION=1` turns it off.

@@ -50,9 +50,17 @@ def package_for(tool: str) -> str:
 
 
 def can_install() -> bool:
-    """Whether the app can run pip for itself: a Python install with pip, not
-    the downloaded app (whose bundled Python has no pip and is read-only)."""
-    return not getattr(sys, "frozen", False) and find_spec("pip") is not None
+    """Whether Install… can work here (see :mod:`openprocess.packages`: from a
+    Python install pip runs in that Python; the downloaded app carries pip and
+    installs into a folder of the user's own)."""
+    from ... import packages
+    return packages.can_install()
+
+
+def installable(tool: str) -> bool:
+    """Whether Install… works for this tool here (pip, and a package this build can install)."""
+    from ... import packages
+    return can_install() and packages.installable(package_for(tool))
 
 
 def _by_function(library: Library) -> dict[str, object]:
@@ -152,14 +160,19 @@ class ConnectionsPage(QWidget):
                 text, status, tone = "Installed.", "ready", "good"
             elif name in self.installing:
                 text, status, tone = "Installing… (a minute or two; the app stays usable)", "installing", "muted"
+            elif installable(name):
+                from ... import packages
+                text, status, tone = (f"Not installed. Install… puts it {packages.where_text()}; the boxes "
+                                      "that need it come alive without a restart."), "not installed", "warning"
             elif can_install():
-                text, status, tone = f"Not installed. Install… runs {tool['install']} for this app.", \
-                    "not installed", "warning"
+                text, status, tone = (f"Not installed. The downloaded app installs only packages that come "
+                                      f"ready-built, and this one needs building: in a Python install, run "
+                                      f"{tool['install']}."), "not installed", "warning"
             else:
-                text, status, tone = (f"Not installed. The downloaded app cannot install packages: in a "
-                                      f"Python install, run {tool['install']}."), "not installed", "warning"
+                text, status, tone = (f"Not installed, and this build has no pip: in a Python install, run "
+                                      f"{tool['install']}."), "not installed", "warning"
             item = card(name, text, tool["boxes"], status, tone)
-            if not tool["installed"] and can_install() and name not in self.installing:
+            if not tool["installed"] and installable(name) and name not in self.installing:
                 install = button("Install…", lambda _checked=False, n=name: self.install_requested.emit(n),
                                  kind="primary", tooltip=f"Runs {tool['install']} in the background")
                 self.install_buttons[name] = install
