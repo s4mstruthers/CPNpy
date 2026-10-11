@@ -191,11 +191,14 @@ def cff_text(version: str | None = None, released: _dt.date | None = None, doi: 
     version = version or app_version()
     released = released or _dt.date.today()
     authors = "\n".join(f"  - family-names: {last}\n    given-names: {first}" for last, first in APP_AUTHORS)
+    def quoted(text: str) -> str:               # a YAML string: a colon in the title would otherwise break it
+        return '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
     return (
         "cff-version: 1.2.0\n"
-        "message: If you use OpenProcess in teaching or research, please cite it as below.\n"
+        f"message: {quoted('If you use OpenProcess in teaching or research, please cite it as below.')}\n"
         "type: software\n"
-        f"title: {APP_TITLE}\n"
+        f"title: {quoted(APP_TITLE)}\n"
         f"version: {version}\n"
         f"date-released: {released.isoformat()}\n"
         + (f"doi: {doi}\n" if doi else "")

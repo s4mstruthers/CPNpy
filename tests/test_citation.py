@@ -66,3 +66,17 @@ def test_the_doi_comes_from_citation_cff_when_there_is_one(tmp_path, monkeypatch
     assert citation.app_text("1.0.0", 2030, doi="10.5281/zenodo.1234567").endswith("https://doi.org/10.5281/zenodo.1234567")
     assert citation.app_text("1.0.0", 2030, doi="").endswith(citation.APP_URL)
     assert citation.concept_doi() == ""                     # not archived yet: CITATION.cff has no doi line
+
+
+def test_citation_cff_is_valid_yaml_despite_the_colon_in_the_title():
+    """Zenodo's archive of v0.10.5 failed on CITATION.cff: the title's colon
+    was unquoted.  String values with a colon are quoted now."""
+    text = citation.cff_text("1.0.0", datetime.date(2030, 1, 2))
+    title_line = next(line for line in text.splitlines() if line.startswith("title:"))
+    assert title_line == 'title: "' + citation.APP_TITLE + '"'
+    try:
+        import yaml  # noqa: F401 - only when it happens to be installed
+    except ImportError:
+        return
+    data = yaml.safe_load(text)
+    assert data["title"] == citation.APP_TITLE and data["cff-version"] == "1.2.0"
