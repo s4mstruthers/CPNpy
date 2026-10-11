@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...flow import record as records
+from ...flow import reproducibility, snapshots
 from ...flow.library import Library
 from ...flow.runner import BLOCKED, DONE, FAILED, IDLE, RUNNING, WAITING, Cache, Result, Run, Runner
 from ...flow.types import EventLog, Figure, PetriNet, Scores, Table
@@ -44,6 +45,7 @@ from ..studio.widgets import Card, NoticeBar, PageHeader, SegmentedControl, butt
 from ..studio.workers import run_in_background
 from .canvas import WorkflowScene, WorkflowView
 from .picker import BoxPicker, input_box_for
+from .runs import RunsWidget
 from .summary import SummaryWidget
 from .viewers import SettingsWidget, code_widget, how_widget, pop_out, result_widget, status_text
 
@@ -93,6 +95,8 @@ def brief(value) -> str:
 class WorkflowPage(QWidget):
     status = Signal(str)
     saved = Signal()
+    #: A run finished (not stopped): the record wants updating (the window autosaves in a folder).
+    ran = Signal()
     #: Something changed that should be saved (the window autosaves in a folder).
     edited = Signal()
     #: A result should open as a page of its own (a LogDocument, ModelDocument, CpnDocument).
@@ -141,10 +145,15 @@ class WorkflowPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         self.header = PageHeader(self.workflow.name, self._subtitle())
+        #: Reproducibility, as last computed (a run finishing, a save): see refresh_title.
+        self._repro = reproducibility.status(self.workflow, getattr(document, "record", None), None, self.folder)
         # Canvas: the boxes and wires.  Summary: every result's figure, and the process map.
-        self.summary_switch = SegmentedControl(["Canvas", "Summary"], compact=True)
+        self.summary_switch = SegmentedControl(["Canvas", "Summary", "Runs"], compact=True)
         self.summary_switch.setToolTip("Canvas: the boxes and wires.\nSummary: every result's key "
-                                       "figure, and the process map of the first log.")
+                                       "figure, and the process map.\nRuns: every finished run, two compared.")
+        record = getattr(document, "record", None)
+        #: The last runs, with what changed before each (kept in the workflow file).
+        self.history = snapshots.History.from_dict(record.history if record is not None else [])
         self.summary_switch.changed.connect(self.show_view)
         self.header.actions.addWidget(self.summary_switch)
         self.keep_button = button("Keep", self.keep_requested.emit, kind="primary",
@@ -165,9 +174,12 @@ class WorkflowPage(QWidget):
         self.more_menu.addAction("Export experiment…", self.export_experiment).setToolTip(
             "A zip with the workflow, its inputs, your boxes, every result and a README: "
             "supplementary material for a paper")
+        self.more_menu.addAction("Export report…", self.export_report).setToolTip(
+            "One HTML page: every box's result, how it got there, the code it ran, the papers it "
+            "follows, what it read, and how to cite. For a supervisor, a reviewer, a hand-in")
         self.more_menu.addSeparator()
         self.more_menu.addAction("Save", self.save).setToolTip("Save the workflow and its record")
-        self.more_button = button("⋯", self._show_more_menu, tooltip="Re-run, Record, Export experiment, Save")
+        self.more_button = button("⋯", self._show_more_menu, tooltip="Re-run, Record, Export experiment, Export report, Save")
         self.more_button.setObjectName("moreButton")
         self.more_button.setFixedWidth(40)
         self.header.actions.addWidget(self.more_button)
@@ -220,9 +232,13 @@ class WorkflowPage(QWidget):
         self.summary.tile_clicked.connect(self._tile_clicked)
         summary_wrapper = QWidget()
         summary_wrapper.setLayout(vbox(scroll(self.summary), margins=(20, 0, 20, 16)))
+        self.runs = RunsWidget(self)
+        runs_wrapper = QWidget()
+        runs_wrapper.setLayout(vbox(scroll(self.runs), margins=(20, 0, 20, 16)))
         self.body = QStackedWidget()
         self.body.addWidget(wrapper)
         self.body.addWidget(summary_wrapper)
+        self.body.addWidget(runs_wrapper)
         root.addWidget(self.body, 1)
         self._picker: BoxPicker | None = None
 
@@ -254,7 +270,7 @@ class WorkflowPage(QWidget):
         self.select(None)
 
     def show_view(self, index: int) -> None:
-        """Canvas (0) or Summary (1); the Summary is rebuilt from the run when shown."""
+        """Canvas (0), Summary (1) or Runs (2); the latter two are rebuilt when shown."""
         if self.body.currentIndex() != index:
             self.body.setCurrentIndex(index)
             motion.lift(self.body)
@@ -264,6 +280,33 @@ class WorkflowPage(QWidget):
             self.summary_switch.blockSignals(False)
         if index == 1:
             self.summary.refresh()
+        elif index == 2:
+            self.runs.refresh()
+
+    def apply_snapshot(self, snapshot: snapshots.Snapshot) -> None:
+        """Put a run's settings back on the boxes that still exist, and run."""
+        changed = []
+        for node_id in list(self.workflow.nodes):
+            values = snapshots.settings_to_apply(snapshot, node_id)
+            if not values:
+                continue
+            before = dict(self.workflow.nodes[node_id].settings)
+            try:
+                self.workflow.set(node_id, **values)
+            except (ValueError, TypeError) as error:
+                self.status.emit(str(error))
+                continue
+            if self.workflow.nodes[node_id].settings != before:
+                changed.append(node_id)
+        if not changed:
+            self.status.emit("Those are the settings already")
+            return
+        self._mark_edited()
+        self._render_panel()
+        self.show_view(0)
+        self.status.emit(f"Settings of the run at {snapshot.taken.replace('T', ' ')} are back on "
+                         f"{len(changed)} box{'es' if len(changed) != 1 else ''}; running")
+        self.run_from(changed)
 
     def _tile_clicked(self, node_id: str) -> None:
         """A Summary tile: that box's Result, on the canvas."""
@@ -297,6 +340,18 @@ class WorkflowPage(QWidget):
 
     def refresh_title(self) -> None:
         self.header.set_text(self.workflow.name, self._subtitle())
+        status = self._repro
+        self.header.set_badge(status.headline, status.tone,
+                              "\n".join([status.headline] + ["· " + d for d in status.details]
+                                        + ["", "Click for the record."]),
+                              self.show_record)
+
+    def refresh_reproducibility(self) -> None:
+        """Compare the record with the inputs on disk and the latest run (a run
+        finished, the analysis was saved)."""
+        self._repro = reproducibility.status(self.workflow, getattr(self.document, "record", None),
+                                             self.run, self.folder)
+        self.refresh_title()
 
     # -- adding boxes: the picker ---------------------------------------------------------------
     def picker(self) -> BoxPicker:
@@ -508,8 +563,13 @@ class WorkflowPage(QWidget):
                 self.status.emit(outcome.summary())
         else:
             self.status.emit(f"The run stopped: {outcome}")
-        self.refresh_title()
+        self.refresh_reproducibility()
         self._render_panel()
+        if isinstance(outcome, Run) and not outcome.stopped and not self._has_queue:
+            if self.history.add(snapshots.take(self.workflow, outcome, self.history.latest)) \
+                    and self.body.currentIndex() == 2:
+                self.runs.refresh()
+            self.ran.emit()
         if self.body.currentIndex() == 1:
             self.summary.refresh()
         if self._has_queue or (isinstance(outcome, Run) and outcome.stopped):
@@ -816,7 +876,7 @@ class WorkflowPage(QWidget):
         if index == 1:
             if result is None or result.status not in (DONE, FAILED):
                 return label("Runs first, then shows how it got there.", "muted", wrap=True)
-            return how_widget(result.explanation, self)
+            return how_widget(result.explanation, self, result.value)
         if index == 2:
             return code_widget(spec, self)
         settings = SettingsWidget(spec, node.settings, self.folder)
@@ -920,7 +980,11 @@ class WorkflowPage(QWidget):
         file_text.setReadOnly(True)
         file_text.setFont(theme.mono_font(11))
         from PySide6.QtWidgets import QApplication
+        status = self._repro
+        repro = label(f"<b>{status.headline}.</b> " + " ".join(status.details), "muted", wrap=True)
+        repro.setTextFormat(Qt.RichText)
         dialog.setLayout(vbox(
+            label("REPRODUCIBILITY", "sectionLabel"), repro,
             label("Everything needed to run this experiment again and get the same numbers. The Python and the "
                   "canvas are two views of the same workflow.", "muted", wrap=True),
             label("AS PYTHON", "sectionLabel"), code, label("THE WORKFLOW FILE", "sectionLabel"), file_text,
@@ -934,10 +998,11 @@ class WorkflowPage(QWidget):
         """Save the workflow and its record to ``path`` (the window's Keep / Save As)."""
         target = Path(path)
         self.workflow.name = target.stem if target.stem else self.workflow.name
-        self.document.record = records.save(self.workflow, target, self.run, self.folder or target.parent)
+        self.document.record = records.save(self.workflow, target, self.run, self.folder or target.parent,
+                                            history=self.history.to_dict())
         self.document.path = str(target)
         self.document.dirty = False
-        self.refresh_title()
+        self.refresh_reproducibility()
         if not quiet:
             self.status.emit(f"Saved {target.name}")
         self.saved.emit()
@@ -965,6 +1030,65 @@ class WorkflowPage(QWidget):
             if not path.lower().endswith(".cpnflow"):
                 path += ".cpnflow"
             self.write_to(path)
+
+    def drawings(self) -> dict[str, str]:
+        """SVG per box whose result the canvas can draw: nets, maps, trees (for the report)."""
+        from ...flow.types import DFG, OCDFG, PetriNet, ProcessTree
+        from ..studio.graph_builders import dfg_specs, ocdfg_specs, petri_net_specs
+        from ..studio.graph_view import GraphView
+        out: dict[str, str] = {}
+        if self.run is None:
+            return out
+        for node in self.workflow.order():
+            result = self.run.result(node)
+            if result is None or result.status != DONE:
+                continue
+            value = result.value
+            view = GraphView()
+            if isinstance(value, PetriNet):
+                nodes, edges = petri_net_specs(value, show_place_names=len(value.places) <= 40)
+                positions = None
+                ids = {n.id for n in nodes}
+                if node.layout and ids <= set(node.layout):
+                    positions = {k: v for k, v in node.layout.items() if k in ids}
+                view.graph.populate(nodes, edges, positions)
+            elif isinstance(value, DFG):
+                nodes, edges = dfg_specs(value, "frequency")
+                view.graph.populate(nodes, edges, layer_gap=64)
+            elif isinstance(value, OCDFG):
+                nodes, edges, _colours = ocdfg_specs(value)
+                view.graph.populate(nodes, edges, layer_gap=64)
+            elif isinstance(value, ProcessTree):
+                from ..studio.derivation_view import tree_specs
+                nodes, edges, positions = tree_specs(value)
+                view.graph.populate(nodes, edges, positions, layer_gap=40)
+            else:
+                continue
+            try:
+                out[node.id] = view.svg_text()
+            except Exception:  # noqa: BLE001 - a drawing that fails is left out, the report still comes
+                continue
+        return out
+
+    def export_report(self) -> None:
+        """⋯ ▸ Export report…: the analysis as one HTML page."""
+        from ...flow import report as reports
+        from ..studio.widgets import suggested_path
+        path, _ = QFileDialog.getSaveFileName(self, "Export report", suggested_path(f"{self.workflow.name}.html"),
+                                              "Web page (*.html)")
+        if not path:
+            return
+        try:
+            reports.write_report(path, workflow=self.workflow, run=self.run, folder=self.folder,
+                                 drawings=self.drawings(), record=getattr(self.document, "record", None),
+                                 status=self._repro)
+        except OSError as error:
+            QMessageBox.warning(self, "Could not export", str(error))
+            return
+        self.status.emit(f"Exported the report to {Path(path).name}")
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def export_experiment(self) -> None:
         from ..studio.widgets import suggested_path

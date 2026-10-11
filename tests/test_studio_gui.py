@@ -759,7 +759,10 @@ def test_hover_arrow_draws_arcs(app):
     _pump(app, 0.05)
     p1 = next(i for i in scene.place_items.values() if i.place.name == "p1")
 
-    # Hover just right of p1: the arrow appears on that side.
+    # Hover just right of p1: the arrow appears on that side.  (First a move
+    # elsewhere: Qt sends no move event when the cursor is already there.)
+    QTest.mouseMove(port, view.mapFromScene(p1.pos() + QPointF(-200, -200)))
+    _pump(app, 0.02)
     QTest.mouseMove(port, view.mapFromScene(p1.pos() + QPointF(30, 0)))
     _pump(app, 0.05)
     handle = scene._handle
@@ -828,6 +831,8 @@ def test_dragging_the_arrow_to_empty_space_adds_the_other_node(app):
     net_page = page.net.pages[0]
 
     def drag_from(node, end: QPointF) -> None:
+        QTest.mouseMove(port, view.mapFromScene(node.pos() + QPointF(-200, -200)))   # a real move next
+        _pump(app, 0.02)
         QTest.mouseMove(port, view.mapFromScene(node.pos() + QPointF(node.rect().width() / 2
                                                                      + 12, 0)))
         _pump(app, 0.05)
@@ -2497,6 +2502,58 @@ def test_every_computed_card_links_to_its_code(app):
     texts = [b.text() for b in net_page.findChildren(QPushButton)]
     assert texts.count("{ } code") >= 6                      # soundness, theorem, structure, invariants, …
     assert not any("Conformance with a log" in t for t in texts)   # one route: Check against a log ›
+    for document in window.documents:
+        document.dirty = False
+    window.close()
+
+
+def test_the_command_palette_finds_and_runs_anything(app, tmp_path):
+    """⌘K: documents, the folder's files, boxes, spaces and menu actions, all
+    by typing; Enter runs the best match."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.command_palette import match
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    (week / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(None)
+    page = window.current_page()
+    entries = window.palette_entries()
+    kinds = {e.kind for e in entries}
+    assert {"Analysis", "File", "Box", "Space", "Action"} <= kinds
+    assert [e.title for e in match(entries, "alpha")][0] == "α-algorithm"
+    assert any(e.title == "orders" and e.kind == "File" for e in match(entries, "orders"))
+    assert match(entries, "cite openprocess")[0].kind == "Action"
+    assert match(entries, "zzzz") == []
+    # Typing and Enter: a box lands on the current analysis.
+    window.show_command_palette()
+    palette = window.command_palette
+    assert palette.isVisible()
+    QTest.keyClicks(palette.search, "alpha")
+    assert palette.matches[0].title == "α-algorithm"
+    QTest.keyClick(palette.search, Qt.Key_Return)
+    _pump(app, 0.2)
+    assert not palette.isVisible()
+    assert [page.workflow.spec(n).name for n in page.workflow.order()] == ["α-algorithm"]
+    # A space, by name.
+    window.show_command_palette()
+    QTest.keyClicks(window.command_palette.search, "model")
+    QTest.keyClick(window.command_palette.search, Qt.Key_Return)
+    _pump(app, 0.2)
+    assert window.space == "model"
+    # A file: it opens.
+    window.show_command_palette()
+    QTest.keyClicks(window.command_palette.search, "orders")
+    QTest.keyClick(window.command_palette.search, Qt.Key_Return)
+    _pump(app, 0.3)
+    assert any(d.name == "orders" or (d.path or "").endswith("orders.log.txt") for d in window.documents)
     for document in window.documents:
         document.dirty = False
     window.close()

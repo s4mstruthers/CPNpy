@@ -321,9 +321,11 @@ def test_the_page_opens_calm_and_the_panel_comes_with_a_click(app):
     window.action_new_workflow(TEMPLATES[0][1])
     page = window.current_page()
     _wait_run(app, page)
-    header = [b.text() for b in page.header.findChildren(QPushButton) if b.isVisible()]
-    assert header == ["Canvas", "Summary", "+ Add box", "Run ▶", "⋯"]
-    assert [a.text() for a in page.more_menu.actions() if a.text()] == ["Re-run", "Record…", "Export experiment…", "Save"]
+    header = [b.text() for b in page.header.findChildren(QPushButton)
+              if b.isVisible() and b.objectName() != "reproBadge"]
+    assert header == ["Canvas", "Summary", "Runs", "+ Add box", "Run ▶", "⋯"]
+    assert [a.text() for a in page.more_menu.actions() if a.text()] == [
+        "Re-run", "Record…", "Export experiment…", "Export report…", "Save"]
     assert not page.panel.isVisible() and not hasattr(page, "box_tree")
     log, miner = page.workflow.order()[:2]
     page.select(log.id)
@@ -930,5 +932,227 @@ def test_motion_settles_the_window_and_can_be_turned_off(app, monkeypatch):
     assert not page.body.findChildren(Veil)
     monkeypatch.setattr(motion, "enabled", False)
     assert motion.lift(window.modes) is None and motion.fade_in(window) is None
+    page.document.dirty = False
+    window.close()
+
+
+def test_the_header_says_whether_the_analysis_is_reproducible(app, tmp_path):
+    """A badge beside the title: not recorded, then recorded and reproducing
+    once the run is saved, then "changes since" when an input file is edited."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    (week / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    window.action_new_workflow(TEMPLATES[0][1])              # on the folder's first log
+    page = window.current_page()
+    assert page.header.badge is not None and page.header.badge.text() == "Not recorded yet"
+    _wait_run(app, page)
+    window._flush_autosaves()                                # the run is recorded on save
+    assert page.header.badge.text() == "Recorded · this run reproduces it"
+    assert page.document.record is not None and page.document.record.results
+    (week / "orders.log.txt").write_text("[<a,b>^9]", encoding="utf-8")
+    page.refresh_reproducibility()
+    assert page.header.badge.text() == "Recorded · 1 change since"
+    assert "has changed" in page.header.badge.toolTip()
+    page.header.badge.click()                                # the record, with the status on top
+    _pump(app, 0.2)
+    from PySide6.QtWidgets import QDialog, QLabel
+    dialog = next(d for d in window.findChildren(QDialog) if "the record" in d.windowTitle())
+    assert any("1 change since" in w.text() for w in dialog.findChildren(QLabel))
+    dialog.close()
+    page.document.dirty = False
+    window.close()
+
+
+def test_cite_the_app_and_an_algorithm(app):
+    """Help ▸ Cite OpenProcess… gives the app's BibTeX; an algorithm's Code tab
+    has Cite for the papers it follows."""
+    from PySide6.QtWidgets import QPushButton
+
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.cite_app()
+    assert window.cite_dialog.bibtex.startswith("@software{openprocess,")
+    assert "version = {" in window.cite_dialog.bibtex
+    window.cite_dialog.close()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    page.select(page.workflow.order()[1].id, 2)             # the miner's Code tab
+    _pump(app, 0.2)
+    cite = next(b for b in page.panel_host.findChildren(QPushButton) if b.objectName() == "algorithmCite")
+    cite.click()
+    _pump(app, 0.2)
+    from PySide6.QtWidgets import QDialog
+    dialog = next(d for d in window.findChildren(QDialog) if d.windowTitle().startswith("Cite:"))
+    assert "@inproceedings{leemans2013," in dialog.bibtex
+    dialog.close()
+    page.document.dirty = False
+    window.close()
+
+
+def test_step_through_plays_the_derivation_over_the_result(app):
+    """The α-algorithm's How tab can be stepped: each step lights up on the net
+    what it names (all activities, the start ones, the places…), the moments
+    accumulate, and Play advances by itself."""
+    from PySide6.QtWidgets import QPushButton
+
+    from openprocess.gui.flow import stepper as stepping
+    from openprocess.gui.flow.stepper import StepThrough
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[1][1])              # Compare discovery: it has the α-algorithm
+    page = window.current_page()
+    _wait_run(app, page)
+    alpha = _node(page, "alpha_miner")
+    page.select(alpha.id, 1)                                  # How
+    _pump(app, 0.2)
+    toggle = next(b for b in page.panel_host.findChildren(QPushButton) if b.objectName() == "stepThrough")
+    toggle.click()
+    _pump(app, 0.2)
+    player = page.panel_host.findChildren(StepThrough)[0]
+    net = page.run.result(alpha).value
+    titles = [m[1] for m in player.moments if m[0] == "step"]
+    assert titles[0].startswith("1. T_L") and titles[-1].startswith("8.")
+    first_step = next(i for i, m in enumerate(player.moments) if m[0] == "step")
+    player.show_moment(first_step)                            # all activities light up
+    assert player.highlighted(first_step) == {t.id for t in net.transitions.values()}
+    player.next()                                             # the start activities only
+    lit = {net.transitions[i].name for i in player.highlighted(player.index)}
+    assert lit == {"a"} and player.body_layout.count() == first_step + 2
+    places = next(i for i, m in enumerate(player.moments) if m[0] == "step" and m[1].startswith("6."))
+    player.show_moment(places)
+    assert player.highlighted(places) >= {p.id for p in net.places.values()}   # every place is named
+    assert not player.next_button.isEnabled() if places == len(player.moments) - 1 else True
+    stepping.PLAY_MS = 60
+    player.timer.setInterval(60)
+    player.show_moment(0)
+    player.toggle_play()
+    assert player.play_button.text() == "Pause"
+    _pump(app, 1.2)
+    assert player.index == len(player.moments) - 1 and player.play_button.text() == "Play"
+    toggle.click()                                            # back to the full report
+    _pump(app, 0.1)
+    assert not page.panel_host.findChildren(StepThrough)
+    page.document.dirty = False
+    window.close()
+
+
+def test_export_report_writes_one_page_with_the_drawings(app, tmp_path, monkeypatch):
+    """⋯ ▸ Export report…: an HTML file with the net and the map drawn as SVG."""
+    from PySide6.QtGui import QDesktopServices
+
+    from openprocess.gui.flow import page as flow_page
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    target = tmp_path / "report.html"
+    monkeypatch.setattr(flow_page.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(target), "")))
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(lambda url: opened.append(url.toLocalFile()) or True))
+    assert any(a.text() == "Export report…" for a in page.more_menu.actions())
+    page.export_report()
+    text = target.read_text(encoding="utf-8")
+    assert "<svg" in text and page.workflow.name in text and "How to cite" in text
+    miner = page.workflow.order()[1]
+    assert miner.id in page.drawings()                       # the net was drawn
+    assert opened == [str(target)]
+    page.document.dirty = False
+    window.close()
+
+
+def test_runs_keeps_every_run_and_puts_settings_back(app):
+    """Canvas | Summary | Runs: each finished run is a snapshot with what
+    changed; A and B compare box by box; Use A's settings goes back."""
+    from openprocess.gui.flow.templates import TEMPLATES
+    from openprocess.gui.studio.app import StudioWindow
+
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    window.action_new_workflow(TEMPLATES[0][1])
+    page = window.current_page()
+    _wait_run(app, page)
+    assert [s.label for s in page.history.snapshots] == ["First run"]
+    miner = page.workflow.order()[1]
+    before = page.workflow.nodes[miner.id].settings["noise"]        # the template's IMf noise
+    page.workflow.set(miner.id, noise=0.4)
+    page.run_from([miner.id])
+    _wait_run(app, page)
+    assert [s.label for s in page.history.snapshots] == ["First run", f"Inductive Miner: noise {before} → 0.4"]
+    page.summary_switch.set_index(2)
+    _pump(app, 0.3)
+    assert page.body.currentIndex() == 2 and page.runs.table.rowCount() == 2
+    assert page.runs.a is page.history.snapshots[0] and page.runs.b is page.history.snapshots[1]
+    rows = [page.runs.diff.item(r, 0).text() for r in range(page.runs.diff.rowCount())]
+    assert rows == [page.workflow.title(n.id) for n in page.workflow.order()]
+    assert f"noise {before} → 0.4" in page.runs.diff.item(1, 3).text()
+    page.runs.use_a.click()                                   # back to the first run's noise
+    assert page.workflow.nodes[miner.id].settings["noise"] == before and page.body.currentIndex() == 0
+    _wait_run(app, page)
+    assert page.history.snapshots[-1].label == f"Inductive Miner: noise 0.4 → {before}"
+    page.document.dirty = False
+    window.close()
+
+
+def test_an_object_centric_log_flows_through_the_canvas(app, tmp_path):
+    """A .jsonocel dropped on the canvas becomes an Open object-centric log box;
+    the map box draws one colour per object type; the Summary has their tiles;
+    the folder lists the file under LOGS."""
+    import shutil
+
+    from openprocess.gui.flow.picker import input_box_for
+    from openprocess.gui.studio.app import StudioWindow
+    from openprocess.gui.studio.graph_view import GraphView
+    from openprocess.gui.studio.widgets import Legend
+
+    week = tmp_path / "Week 2"
+    week.mkdir()
+    shutil.copy(Path(__file__).parent / "data" / "orders.jsonocel", week / "orders.jsonocel")
+    window = StudioWindow()
+    window.resize(1400, 900)
+    window.show()
+    assert window.open_workspace(str(week))
+    assert "orders" in [window.material_section.child(i).text(0) for i in range(window.material_section.childCount())]
+    window.action_new_workflow(None)
+    page = window.current_page()
+    _wait_run(app, page)
+    (ocel,) = page.add_files([str(week / "orders.jsonocel")])
+    assert page.workflow.spec(ocel).name == "Open object-centric log"
+    graph = page.add_box_fed_by(input_box_for(page.library, "ocel") and next(
+        s.id for s in page.library.specs.values() if s.id.endswith(".object_centric_map")), ocel.id)
+    _pump(app, 0.3)
+    _wait_run(app, page)
+    assert page.run.result(graph).status == "done", page.run.result(graph).error
+    page.select(graph.id, 0)
+    _pump(app, 0.3)
+    view = page.panel_host.findChildren(GraphView)[0]
+    assert len(view.graph.nodes) == 5 and len(view.graph.edges) == 4          # 5 activities, 4 typed paths
+    assert page.panel_host.findChildren(Legend)
+    page.summary_switch.set_index(1)
+    _pump(app, 0.3)
+    assert [page.workflow.title(t.node_id) for t in page.summary.tiles] == [
+        "Open object-centric log", "Object-centric map"]
+    assert page.drawings()[graph.id].startswith("<svg")
     page.document.dirty = False
     window.close()

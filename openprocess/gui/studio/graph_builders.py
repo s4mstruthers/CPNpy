@@ -81,6 +81,30 @@ def petri_net_specs(net: PetriNet, marking: Marking | None = None,
 # ---------------------------------------------------------------------------
 # Process maps
 # ---------------------------------------------------------------------------
+def ocdfg_specs(graph) -> tuple[list[NodeSpec], list[EdgeSpec], dict[str, str]]:
+    """The object-centric map: the activities once, and one set of arrows per
+    object type in that type's colour, side by side where types share a path.
+    Returns the nodes, the edges and ``{object type: colour}`` for a legend."""
+    t = style.tokens()
+    colours = {object_type: style.categorical(index) for index, object_type in enumerate(graph.object_types)}
+    nodes = [NodeSpec(activity, "activity", text=activity, subtext=f"{count:,} events",
+                      fill=t.surface, stroke=t.border,
+                      tooltip=f"{activity}: {count:,} events\n" + "\n".join(
+                          f"{object_type}: {graph.objects_at.get((activity, object_type), 0)} objects"
+                          for object_type in graph.object_types))
+             for activity, count in graph.activities.most_common()]
+    edges: list[EdgeSpec] = []
+    busiest = max((n for counts in graph.edges.values() for n in counts.values()), default=1)
+    count_types = len(graph.object_types) or 1
+    for index, object_type in enumerate(graph.object_types):
+        offset = (index - (count_types - 1) / 2) * 12.0
+        for (a, b), n in graph.edges[object_type].items():
+            edges.append(EdgeSpec(a, b, text=str(n), width=1.2 + 2.6 * n / busiest, colour=colours[object_type],
+                                  tooltip=f"{object_type}: {n} object{'s' if n != 1 else ''} went {a} → {b}",
+                                  bend=offset if count_types > 1 else 0.0))
+    return nodes, edges, colours
+
+
 def dfg_specs(dfg: DFG, mode: str = "frequency") -> tuple[list[NodeSpec], list[EdgeSpec]]:
     """Frequency mode: node fill = how often; edge width = how often.
     Performance mode: edge labels are mean durations; the slowest edges are

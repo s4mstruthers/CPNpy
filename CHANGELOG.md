@@ -6,6 +6,80 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.5
+
+- **Object-centric event logs.** *Open object-centric log* reads OCEL 2.0
+  JSON (`.jsonocel`) and the older JSON-OCEL: events that each involve
+  several objects, by type, with no case id invented. *Flatten on an object
+  type* makes a classical log with one case per object of a type, for the
+  miners and checks that need one, and says what it copied. *Object-centric
+  map* draws the object-centric directly-follows graph: the activities
+  once, one set of arrows per object type in its own colour, with a
+  legend and the counts per type. A `.jsonocel` in the folder is listed
+  under LOGS, drops on the canvas, and appears in the Summary and the
+  report like any other result.
+
+## 0.10.4
+
+- **A command palette.** ⌘K (Ctrl+K), or *View ▸ Command Palette…*: type a
+  few letters and the open analyses, models and logs, the folder's files,
+  every box (added to the current analysis), the three spaces, Connections
+  and every menu action are found at once; Enter runs the best match, ↑ ↓
+  pick another. Nothing new on the window; everything in it a few
+  keystrokes away.
+
+## 0.10.3
+
+- **Runs: every finished run, kept.** An analysis has *Canvas | Summary |
+  Runs*. Each finished run is a snapshot with the time, what changed before
+  it ("Inductive Miner: noise 0 → 0.2", "+ Check fit", "Run again, same
+  results") and every box's key figure. Pick A and B and the boxes line up
+  side by side, those whose result differs marked. *Use A's settings* puts
+  that run's settings back on the canvas and runs. The last twenty travel
+  with the workflow file.
+
+## 0.10.2
+
+- **Export report.** ⋯ ▸ *Export report…* on an analysis writes one HTML
+  page, with nothing to install: the reproducibility status, the key figure
+  of every box, each box's result (nets, maps and trees drawn; tables and
+  scores as tables), how it got there, the code it ran and the papers it
+  follows, what it read with fingerprints, and how to cite. For a
+  supervisor, a reviewer, a hand-in. It opens in your browser when written.
+
+## 0.10.1
+
+- **Step through an algorithm.** A box's *How* tab has *Step through ▸*: the
+  report plays one moment at a time (a note, a step of the derivation, a
+  value shown), with ◀ ▶, Play and the arrow keys, and the box's result drawn
+  above it. Each step lights up on the drawing what it names and dims the
+  rest, so the α-algorithm's eight steps become eight pictures: all the
+  activities, the start ones, the end ones, the candidate pairs, the maximal
+  pairs, the places. Nothing new is computed: the moments are the box's own
+  report, in order.
+
+## 0.10.0
+
+Two things an academic looks for first: is this reproducible, and how do I
+cite it.
+
+- **A reproducibility badge beside every analysis's title.** "Not recorded
+  yet"; "Recorded · this run reproduces it" when every result matches the
+  record's fingerprints and nothing the analysis depends on has changed;
+  "Recorded · n changes since" when an input file, a box file, a seed or a
+  version differs (hover for which); "This run differs from the record"
+  when the same inputs gave another result. Click it for the record. In a
+  folder the record follows each run by itself.
+- **Cite.** *Help ▸ Cite OpenProcess…* gives the app's BibTeX and a one-line
+  citation. On a box's Code tab, each algorithm has *Cite* with BibTeX for
+  the paper it follows, generated from the reference list. An exported
+  experiment includes `CITATIONS.bib` and a *How to cite* section. The
+  repository has a `CITATION.cff`, so GitHub offers *Cite this repository*.
+- **Fixed: an input file edited on disk was served from the cache.** A box
+  reading a file is now keyed by the file as it is (size and time), so a
+  re-run after editing the log computes again instead of repeating the old
+  result.
+
 ## 0.9.5
 
 - **The log page no longer discovers models by itself.** Its *Discover* tab

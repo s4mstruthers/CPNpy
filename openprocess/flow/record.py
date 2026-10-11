@@ -161,18 +161,20 @@ class Record:
     #: ``node id`` -> result fingerprint (variant 0), from the last run.
     results: dict[str, str] = field(default_factory=dict)
     saved: str = ""
+    #: The last runs, as :mod:`openprocess.flow.snapshots` keeps them (dicts).
+    history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {"versions": self.versions, "environment": self.environment, "inputs": self.inputs,
                 "custom_boxes": self.custom_boxes, "seeds": self.seeds, "results": self.results,
-                "saved": self.saved}
+                "saved": self.saved, "history": self.history}
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "Record":
         data = data or {}
         return cls(data.get("versions", {}), data.get("environment", {}), data.get("inputs", []),
                    data.get("custom_boxes", []), data.get("seeds", {}), data.get("results", {}),
-                   data.get("saved", ""))
+                   data.get("saved", ""), [d for d in data.get("history", []) if isinstance(d, dict)])
 
 
 def make_record(workflow: Workflow, run: Run | None = None, folder: str | Path | None = None,
@@ -252,11 +254,13 @@ def differences(record: Record, workflow: Workflow, folder: str | Path | None = 
 # Files
 # ---------------------------------------------------------------------------
 def save(workflow: Workflow, path: str | Path, run: Run | None = None,
-         folder: str | Path | None = None, lock: bool = True) -> Record:
-    """Write the workflow and its record to ``path``; returns the record."""
+         folder: str | Path | None = None, lock: bool = True, history: list[dict] | None = None) -> Record:
+    """Write the workflow and its record to ``path``; returns the record.
+    ``history``: the analysis's snapshots (see :mod:`.snapshots`), kept in the file."""
     path = Path(path)
     folder = folder if folder is not None else path.parent
     record = make_record(workflow, run, folder, lock)
+    record.history = list(history or [])
     data = {"format": FORMAT, **workflow.to_dict(), "record": record.to_dict()}
     text = json.dumps(data, indent=2, ensure_ascii=False, default=str)
     temporary = path.with_name(path.name + ".tmp")
@@ -318,9 +322,20 @@ def export_experiment(workflow: Workflow, run: Run | None, target: str | Path,
             verdict = " → " + _describe(result.value)
         lines.append(f"- **{workflow.title(node)}** (`{spec.id}`): {settings}; {fed}{verdict}")
     lines += ["", "## Inputs", ""] + [f"- `{i['file']}` sha256 `{i['sha256']}`" for i in record.inputs] +         ["", "## Your boxes", ""] + [f"- `{b['file']}` sha256 `{b['sha256']}`" for b in record.custom_boxes]
+    from .. import citation
+    from .box import algorithm_calls
+    entries = [citation.app_entry()]
+    for node in workflow.order():
+        for called in algorithm_calls(workflow.spec(node)):
+            for item in citation.entries_for_module(called.module):
+                if all(item.key != e.key for e in entries):
+                    entries.append(item)
+    lines += ["", "## How to cite", "", citation.app_text(), "",
+              "`CITATIONS.bib` has this entry and the papers the algorithms follow, as BibTeX."]
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zipped:
         zipped.writestr(f"{name}.cpnflow", json.dumps(data, indent=2, ensure_ascii=False, default=str))
         zipped.writestr("requirements.lock", requirements_lock(record))
+        zipped.writestr("CITATIONS.bib", "\n\n".join(e.bibtex() for e in entries) + "\n")
         zipped.writestr("README.md", "\n".join(lines) + "\n")
         for item in record.inputs:
             path = _resolve(item["file"], folder)

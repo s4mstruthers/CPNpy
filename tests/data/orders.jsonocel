@@ -1,0 +1,42 @@
+{
+  "objectTypes": [
+    {"name": "order", "attributes": [{"name": "price", "type": "float"}]},
+    {"name": "item", "attributes": [{"name": "product", "type": "string"}]},
+    {"name": "package", "attributes": []}
+  ],
+  "eventTypes": [
+    {"name": "place order", "attributes": []},
+    {"name": "pick item", "attributes": []},
+    {"name": "pack items", "attributes": []},
+    {"name": "ship package", "attributes": []},
+    {"name": "pay order", "attributes": []}
+  ],
+  "objects": [
+    {"id": "o1", "type": "order", "attributes": [{"name": "price", "time": "2024-03-01T09:00:00Z", "value": 120.0}]},
+    {"id": "o2", "type": "order", "attributes": [{"name": "price", "time": "2024-03-01T09:30:00Z", "value": 45.0}]},
+    {"id": "i1", "type": "item", "attributes": [{"name": "product", "time": "2024-03-01T09:00:00Z", "value": "lamp"}]},
+    {"id": "i2", "type": "item", "attributes": [{"name": "product", "time": "2024-03-01T09:00:00Z", "value": "chair"}]},
+    {"id": "i3", "type": "item", "attributes": [{"name": "product", "time": "2024-03-01T09:30:00Z", "value": "mug"}]},
+    {"id": "p1", "type": "package", "attributes": []}
+  ],
+  "events": [
+    {"id": "e1", "type": "place order", "time": "2024-03-01T09:00:00Z", "attributes": [],
+     "relationships": [{"objectId": "o1", "qualifier": "order"}, {"objectId": "i1", "qualifier": "item"}, {"objectId": "i2", "qualifier": "item"}]},
+    {"id": "e2", "type": "place order", "time": "2024-03-01T09:30:00Z", "attributes": [],
+     "relationships": [{"objectId": "o2", "qualifier": "order"}, {"objectId": "i3", "qualifier": "item"}]},
+    {"id": "e3", "type": "pick item", "time": "2024-03-01T10:00:00Z", "attributes": [],
+     "relationships": [{"objectId": "i1", "qualifier": "item"}]},
+    {"id": "e4", "type": "pick item", "time": "2024-03-01T10:05:00Z", "attributes": [],
+     "relationships": [{"objectId": "i2", "qualifier": "item"}]},
+    {"id": "e5", "type": "pick item", "time": "2024-03-01T10:10:00Z", "attributes": [],
+     "relationships": [{"objectId": "i3", "qualifier": "item"}]},
+    {"id": "e6", "type": "pack items", "time": "2024-03-01T11:00:00Z", "attributes": [],
+     "relationships": [{"objectId": "i1", "qualifier": "item"}, {"objectId": "i2", "qualifier": "item"}, {"objectId": "i3", "qualifier": "item"}, {"objectId": "p1", "qualifier": "package"}]},
+    {"id": "e7", "type": "ship package", "time": "2024-03-01T12:00:00Z", "attributes": [],
+     "relationships": [{"objectId": "p1", "qualifier": "package"}]},
+    {"id": "e8", "type": "pay order", "time": "2024-03-02T09:00:00Z", "attributes": [],
+     "relationships": [{"objectId": "o1", "qualifier": "order"}]},
+    {"id": "e9", "type": "pay order", "time": "2024-03-02T10:00:00Z", "attributes": [],
+     "relationships": [{"objectId": "o2", "qualifier": "order"}]}
+  ]
+}

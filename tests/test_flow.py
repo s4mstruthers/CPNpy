@@ -557,3 +557,46 @@ def test_a_tidied_layout_is_kept_with_the_box(tmp_path):
     assert again.nodes[miner.id].layout == {"p_start": (0.0, 10.0), "t_a": (120.0, 10.5)}
     assert again.nodes[log.id].layout == {}
     assert "layout" not in next(b for b in wf.to_dict()["boxes"] if b["id"] == log.id)
+
+
+def test_reproducibility_status_follows_the_record_and_the_run(tmp_path):
+    """Not recorded → reproduces → changed (an input file edited) → differs (another result)."""
+    from openprocess.flow import reproducibility
+    from openprocess.flow.record import make_record
+
+    (tmp_path / "orders.log.txt").write_text("[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", encoding="utf-8")
+    wf = Workflow("Repro")
+    log = wf.add(open_log, {"file": "orders.log.txt"})
+    miner = wf.add(alpha_miner)
+    wf.connect(log, miner)
+    runner = Runner(standard_library(), folder=tmp_path)
+    run = runner.run(wf)
+    assert run.ok
+    assert reproducibility.status(wf, None, run, tmp_path).state == "unrecorded"
+    record = make_record(wf, run, tmp_path, lock=False)
+    status = reproducibility.status(wf, record, run, tmp_path)
+    assert status.state == "reproduces" and status.tone == "good" and "2 results" in status.details[0]
+    assert reproducibility.status(wf, record, None, tmp_path).state == "unchecked"
+    (tmp_path / "orders.log.txt").write_text("[<a,b>^9]", encoding="utf-8")
+    status = reproducibility.status(wf, record, run, tmp_path)
+    assert status.state == "changed" and status.headline == "Recorded · 1 change since" and "has changed" in status.details[0]
+    again = runner.run(wf)                               # the changed log gives another model
+    status = reproducibility.status(wf, record, again, tmp_path)
+    assert status.state == "differs" and status.tone == "critical"
+    assert any("different result" in d for d in status.details)
+
+
+def test_an_edited_input_file_is_not_served_from_the_cache(tmp_path):
+    """The cache keys a file setting by the file as it is, not by its name."""
+    import os
+    (tmp_path / "orders.log.txt").write_text("[<a,b>^2]", encoding="utf-8")
+    wf = Workflow("Fresh")
+    log = wf.add(open_log, {"file": "orders.log.txt"})
+    runner = Runner(standard_library(), folder=tmp_path)
+    first = runner.run(wf)
+    assert len(first.value(log)) == 2
+    (tmp_path / "orders.log.txt").write_text("[<a,b>^5]", encoding="utf-8")
+    now = (tmp_path / "orders.log.txt").stat()
+    os.utime(tmp_path / "orders.log.txt", ns=(now.st_atime_ns, now.st_mtime_ns + 1_000_000))
+    second = runner.run(wf, previous=first)
+    assert len(second.value(log)) == 5 and second.result(log).key != first.result(log).key

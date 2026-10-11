@@ -64,6 +64,7 @@ class EdgeSpec:
     dashed: bool = False
     tooltip: str = ""
     arrow: bool = True              # False: a plain line (a tree's "contains")
+    bend: float = 0.0               # sideways offset, so parallel edges (object types) stay apart
 
 
 def _font(size: float = 11.5, bold: bool = False) -> QFont:
@@ -460,7 +461,11 @@ class GraphScene(QGraphicsScene):
             if len(route) < 2:
                 route = [self.nodes[spec.source].pos(), self.nodes[spec.target].pos()]
             item = EdgeItem(spec, self.nodes[spec.source], self.nodes[spec.target], route)
-            if len(route) == 2 and (spec.target, spec.source) in pairs:
+            if spec.bend:
+                item.route = [self.nodes[spec.source].pos(), self.nodes[spec.target].pos()]
+                item.bend = spec.bend
+                item.rebuild()
+            elif len(route) == 2 and (spec.target, spec.source) in pairs:
                 item.bend = 16.0
                 item.rebuild()
             self.addItem(item)
@@ -696,6 +701,25 @@ class GraphView(CanvasPanning, QGraphicsView):
         self.graph.render(painter, QRectF(image.rect()), rect)
         painter.end()
         image.save(path)
+
+    def svg_text(self) -> str:
+        """The drawing as SVG text (for a report)."""
+        from PySide6.QtCore import QBuffer, QByteArray
+        from PySide6.QtSvg import QSvgGenerator
+        rect = self.graph.sceneRect()
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QBuffer.WriteOnly)
+        generator = QSvgGenerator()
+        generator.setOutputDevice(buffer)
+        generator.setSize(rect.size().toSize())
+        generator.setViewBox(QRectF(0, 0, rect.width(), rect.height()))
+        painter = QPainter(generator)
+        self.graph.render(painter, QRectF(0, 0, rect.width(), rect.height()), rect)
+        painter.end()
+        buffer.close()
+        text = bytes(data).decode("utf-8", errors="replace")
+        return text[text.index("<svg"):] if "<svg" in text else text
 
     def export_svg(self, path: str) -> None:
         from PySide6.QtSvg import QSvgGenerator

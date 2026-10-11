@@ -33,7 +33,7 @@ from ...flow.box import BoxSpec, Called, Setting, algorithm_calls, clean_path
 from ...flow.explain import Explanation
 from ...flow.runner import Result
 from ...flow.sweep import Sweep, is_sweep
-from ...flow.types import (AlignmentResult, CPNet, DFG, Dataset, EventLog, Figure, Footprint, PetriNet,
+from ...flow.types import (OCDFG, OCEL, AlignmentResult, CPNet, DFG, Dataset, EventLog, Figure, Footprint, PetriNet,
                            Predictions, Predictor, ProcessTree, Regions, ReplayResult, Scores, SimpleLog,
                            Table, Text, TransitionSystem)
 from .. import theme
@@ -229,6 +229,32 @@ def result_widget(value, page=None, node=None) -> QWidget:
         formula = label(tree_formula(value), wrap=True)
         formula.setTextFormat(Qt.RichText)
         add(formula)
+    elif isinstance(value, OCEL):
+        counts = value.counts_by_type()
+        tiles = hbox(StatTile("Events", f"{len(value):,}"), StatTile("Activities", f"{len(value.activities):,}"),
+                     StatTile("Objects", f"{len(value.objects):,}"),
+                     StatTile("Object types", f"{len(value.object_types)}"), spacing=8)
+        tiles_host = QWidget()
+        tiles_host.setLayout(tiles)
+        add(tiles_host)
+        add(label("An object-centric log: every event names the objects it involves, by type. "
+                  "Flatten on an object type for a classical log, or draw the object-centric map.",
+                  "muted", wrap=True))
+        add(_table(["object type", "objects"], [[t, n] for t, n in counts.items()]))
+        add(_table(["activity", "events"], [[a, n] for a, n in value.activities.most_common()]))
+    elif isinstance(value, OCDFG):
+        from ..studio.graph_builders import ocdfg_specs
+        from ..studio.widgets import Legend, LegendSwatch
+        nodes, edges, colours = ocdfg_specs(value)
+        add(_graph(nodes, edges, layer_gap=64, height=300))
+        legend = Legend()
+        legend.set_items([(LegendSwatch("line", colour, 2.5), f"{object_type}: its own directly-follows "
+                           f"counts") for object_type, colour in colours.items()])
+        add(legend)
+        add(label(value.summary() + ". Each object type is followed through its own events, so no case id "
+                  "is invented.", "muted", wrap=True))
+        rows = [[t, a, b, n] for t in value.object_types for (a, b), n in value.edges[t].most_common()]
+        add(_table(["object type", "from", "to", "objects"], rows))
     elif isinstance(value, DFG):
         nodes, edges = dfg_specs(value)
         add(_graph(nodes, edges, layer_gap=90))
@@ -345,7 +371,10 @@ def result_widget(value, page=None, node=None) -> QWidget:
 # ---------------------------------------------------------------------------
 # How
 # ---------------------------------------------------------------------------
-def how_widget(explanation: Explanation, page=None) -> QWidget:
+def how_widget(explanation: Explanation, page=None, value=None) -> QWidget:
+    """The box's report in full, with *Step through* to play it one moment at
+    a time over a drawing of ``value`` (the box's result)."""
+    from .stepper import StepThrough, moments_of
     host = QWidget()
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -354,13 +383,43 @@ def how_widget(explanation: Explanation, page=None) -> QWidget:
         layout.addWidget(label("This box has nothing to add: its result is all there is.", "muted", wrap=True))
         return host
     t = style.tokens()
+    full = QWidget()
+    full.setObjectName("plain")
+    full_layout = QVBoxLayout(full)
+    full_layout.setContentsMargins(0, 0, 0, 0)
+    full_layout.setSpacing(10)
+    if len(moments_of(explanation)) >= 2:
+        stepper: list = []
+
+        def toggle(_checked=False) -> None:
+            if stepper:
+                widget = stepper.pop()
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+                full.setVisible(True)
+                step_button.setText("Step through ▸")
+                return
+            widget = StepThrough(explanation, value, page)
+            stepper.append(widget)
+            layout.insertWidget(1, widget)
+            full.setVisible(False)
+            step_button.setText("◂ All at once")
+            widget.setFocus()
+        step_button = button("Step through ▸", toggle,
+                             tooltip="Play the derivation one step at a time, with the result lighting up "
+                                     "what each step names")
+        step_button.setObjectName("stepThrough")
+        layout.addLayout(hbox(label(f"{len(moments_of(explanation))} moments: notes, steps and values, in the "
+                                    "order the box reported them.", "muted", wrap=True), step_button))
+    layout.addWidget(full)
     for entry in explanation.entries:
         if entry[0] == "note":
             text = label("· " + entry[1], "muted" if not entry[1].startswith("Warning") else None, wrap=True,
                          selectable=True)
             if entry[1].startswith("Warning"):
                 text.setStyleSheet(f"color: {style.STATUS['warning']};")
-            layout.addWidget(text)
+            full_layout.addWidget(text)
         elif entry[0] == "steps":
             rows = []
             for title, content in entry[1]:
@@ -372,12 +431,12 @@ def how_widget(explanation: Explanation, page=None) -> QWidget:
             table.setTextFormat(Qt.RichText)
             table.setWordWrap(True)
             table.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            layout.addWidget(table)
+            full_layout.addWidget(table)
         elif entry[0] == "show":
-            caption, value = entry[1], entry[2]
+            caption = entry[1]
             if caption:
-                layout.addWidget(label(caption.upper(), "sectionLabel"))
-            layout.addWidget(result_widget(value, page))
+                full_layout.addWidget(label(caption.upper(), "sectionLabel"))
+            full_layout.addWidget(result_widget(entry[2], page))
     return host
 
 
@@ -553,7 +612,10 @@ def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
             whole = button("Whole file ⤢", lambda _checked=False, c=called: show_file(c, host.window()),
                            tooltip="The whole algorithm: the file this function lives in, in a window of its own")
             whole.setObjectName("algorithmFile")
-            algorithm_card.add(hbox(title, None, whole))
+            cite = button("Cite", lambda _checked=False, c=called: _cite(c, host.window()),
+                          tooltip="BibTeX for the paper(s) this algorithm follows")
+            cite.setObjectName("algorithmCite")
+            algorithm_card.add(hbox(title, None, cite, whole))
             follows = _follows(called)
             if follows:
                 algorithm_card.add(follows)
@@ -563,6 +625,11 @@ def code_widget(spec: BoxSpec, page=None, compact: bool = True) -> QWidget:
     layout.addWidget(label("The function is the box: call it from a script or a notebook and it runs the same way.",
                            "muted", wrap=True))
     return host
+
+
+def _cite(called: Called, parent=None):
+    from ..studio.cite import cite_module
+    return cite_module(called.module, called.name, parent)
 
 
 def _extent(called: Called) -> str:
@@ -771,7 +838,7 @@ class SettingsWidget(QWidget):
         and so on (nothing for a box author to declare).  Empty: any kind."""
         kinds = []
         for port in self.spec.outputs:
-            for cls, kind in ((EventLog, "log"), (PetriNet, "petri"), (CPNet, "cpn"),
+            for cls, kind in ((EventLog, "log"), (OCEL, "ocel"), (PetriNet, "petri"), (CPNet, "cpn"),
                               (TransitionSystem, "ts")):
                 if port.type is cls:
                     kinds.append(kind)
@@ -798,6 +865,7 @@ class SettingsWidget(QWidget):
     def _dialog_filter(self) -> str:
         """The Choose… dialog's file types, matching :meth:`_files`."""
         by_kind = {"log": "Event logs (*.xes *.xes.gz *.gz *.csv *.txt)",
+                   "ocel": "Object-centric logs (*.jsonocel *.json)",
                    "petri": "Petri nets (*.pnml)", "cpn": "Coloured Petri nets (*.cpn)",
                    "ts": "Transition systems (*.txt)"}
         kinds = self._kinds() or tuple(by_kind)

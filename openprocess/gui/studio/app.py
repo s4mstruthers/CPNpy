@@ -56,7 +56,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QEvent, QFile, QFileSystemWatcher, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal,
+    QEvent, QFile, QFileSystemWatcher, QPoint, QRect, QRectF, QSettings, QSize, Qt, QTimer, QUrl, Signal,
 )
 from PySide6.QtGui import (
     QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut,
@@ -916,6 +916,73 @@ class StudioWindow(QMainWindow):
         run_in_background(lambda: PIP_RUNNER(command), done,
                           lambda message: done((1, str(message))))
 
+    # -- the command palette: ⌘K ------------------------------------------------------------
+    def palette_entries(self) -> list:
+        """Everything the palette can run: documents, the folder's files, boxes
+        for the current analysis, the spaces and Connections, every menu action."""
+        from .command_palette import Entry
+        from .documents import TransitionSystemDocument
+        entries: list[Entry] = []
+        kinds = {WorkflowDocument: "Analysis", CpnDocument: "Model", ModelDocument: "Model", LogDocument: "Log",
+                 ComparisonDocument: "Comparison", TransitionSystemDocument: "Transition system"}
+        for document in self.documents:
+            kind = next((k for cls, k in kinds.items() if isinstance(document, cls)), "Document")
+            where = Path(document.path).name if document.path else "not saved"
+            entries.append(Entry(kind, document.name, where, lambda d=document: self._select_document(d),
+                                 keywords="open"))
+        if self._tree is not None:
+            open_paths = {self._key(d.path) for d in self.documents if d.path}
+            for folder in self._tree.walk():
+                for file in folder.files:
+                    if self._key(file.path) in open_paths:
+                        continue
+                    entries.append(Entry("File", file.name, file.relative, lambda p=str(file.path): self.open_path(p),
+                                         keywords=file.kind, rank=1))
+        page = self.current_page()
+        library = self.library()
+        for group, specs in library.by_group().items():
+            for spec in specs:
+                if isinstance(page, WorkflowPage):
+                    run = lambda s=spec, pg=page: pg.add_box_in_view(s.id)
+                    detail = f"{group} · add to {page.workflow.name}"
+                else:
+                    run = lambda s=spec: self.analysis_for("Untitled").add_box_in_view(s.id)
+                    detail = f"{group} · add to a new analysis"
+                entries.append(Entry("Box", spec.name, detail, run, keywords=f"{spec.id} {group}", rank=2))
+        for space in SPACES:
+            entries.append(Entry("Space", LABELS[space], {MINE: "event logs and analyses", MODEL: "Petri nets and "
+                                 "coloured nets", LEARN: "exercises"}[space], lambda sp=space: self.set_space(sp)))
+        entries.append(Entry("Space", "Connections", "what flows in and out, and the tools that plug in",
+                             self.show_connections))
+        for top in self.menuBar().actions():
+            menu = top.menu()
+            if menu is None:
+                continue
+            path = top.text().replace("&", "")
+            stack = [(menu, path)]
+            while stack:
+                current, trail = stack.pop(0)
+                for action in current.actions():
+                    if action.isSeparator() or not action.text():
+                        continue
+                    if action.menu() is not None:
+                        stack.append((action.menu(), f"{trail} ▸ {action.text().replace('&', '')}"))
+                        continue
+                    shortcut = action.shortcut().toString()
+                    entries.append(Entry("Action", action.text().replace("&", ""),
+                                         trail + (f" · {shortcut}" if shortcut else ""),
+                                         lambda a=action: a.trigger(), rank=3))
+        return entries
+
+    def show_command_palette(self) -> None:
+        """⌘K: find and run anything by typing."""
+        from .command_palette import CommandPalette
+        if self.in_learn:
+            self.leave_learn()
+        self.command_palette = CommandPalette(self.palette_entries(), self)
+        centre = self.mapToGlobal(QPoint(self.width() // 2 - 280, 120))
+        self.command_palette.open_at(centre)
+
     def show_connections(self) -> None:
         """The Connections view: what flows in and out, and the tools that plug in."""
         if self.in_learn:
@@ -1284,6 +1351,7 @@ class StudioWindow(QMainWindow):
             self._action(view_menu, LABELS[space], f"Ctrl+Alt+{index + 1}",
                          lambda _on=False, sp=space: self.set_space(sp))
         self._action(view_menu, "Connections", None, self.show_connections)
+        self._action(view_menu, "Command Palette…", "Ctrl+K", self.show_command_palette)
         view_menu.addSeparator()
         self._action(view_menu, "Show Welcome Page", "Ctrl+1",
                      lambda: (self.in_learn and self.leave_learn(),
@@ -1325,6 +1393,7 @@ class StudioWindow(QMainWindow):
         self._action(help_menu, "References", None, lambda: self.show_guide("references"))
         self._action(help_menu, "Writing Exercise Packs", None,
                      lambda: self.show_guide("exercise-packs"))
+        self._action(help_menu, "Cite OpenProcess…", None, self.cite_app)
         self._action(help_menu, "Check for Updates…", None,
                      lambda: self.check_for_updates(manual=True))
         self._action(help_menu, f"About {APPLICATION_NAME}", None, self._about)
@@ -1346,6 +1415,11 @@ class StudioWindow(QMainWindow):
         action.triggered.connect(slot)
         menu.addAction(action)
         return action
+
+    def cite_app(self) -> None:
+        """Help ▸ Cite OpenProcess…: the app's BibTeX and a one-line citation."""
+        from .cite import cite_app
+        self.cite_dialog = cite_app(self)
 
     def _definitions(self) -> None:
         """Every analysis property, defined mathematically (docs/definitions.md)."""
@@ -1442,6 +1516,7 @@ class StudioWindow(QMainWindow):
             page.edit_requested.connect(lambda net, origin, doc=document: self.edit_petri_net(net, origin, doc))
             page.keep_requested.connect(lambda doc=document: self.keep_workflow(doc))
             page.edited.connect(lambda doc=document: (self._refresh_item(doc), self._schedule_autosave(doc)))
+            page.ran.connect(lambda doc=document: self._schedule_autosave(doc))   # the record follows the run
             if self.workspace is not None:
                 page.custom_allowed = bool(self.workspace.settings().get("boxes_allowed"))
                 page._refresh_custom_bar()
@@ -2318,6 +2393,9 @@ class StudioWindow(QMainWindow):
                                         if problems else ""), 10000)
             elif lower.endswith(".txt") and file_kind(Path(path)) in ("log", "ts"):
                 self.add_document(self._read_text_file(path))
+            elif file_kind(Path(path)) == "ocel":
+                # An object-centric log has no page of its own: it is a box on an analysis.
+                self.boxes_for_files([path])
             elif lower.endswith(".csv"):
                 if csv_mapping is not None:          # reopening: reuse the saved mapping
                     mapping = ColumnMapping(**csv_mapping)
@@ -3136,7 +3214,7 @@ class StudioWindow(QMainWindow):
 
     def _file_row(self, file, text: str) -> QTreeWidgetItem:
         """A file of the folder that is not open: lighter, opens with a click."""
-        kind = {"log": "log", "cpn": "cpn", "ts": "ts", "workflow": "workflow"}.get(file.kind, "model")
+        kind = {"log": "log", "ocel": "log", "cpn": "cpn", "ts": "ts", "workflow": "workflow"}.get(file.kind, "model")
         key = self._key(file.path)
         if file.in_cloud:
             text += "  ☁"
@@ -3567,9 +3645,10 @@ class StudioWindow(QMainWindow):
     def _flush_autosaves(self, ids: list[int] | None = None) -> None:
         """Save now what autosave would save in a moment (switching, closing, quitting)."""
         for document in list(self.documents):
+            timer = self._autosave_timers.get(document.id)
+            pending = timer is not None and timer.isActive()        # a run waiting to be recorded
             if (ids is None or document.id in ids) and getattr(document, "autosave", False) \
-                    and document.dirty:
-                timer = self._autosave_timers.get(document.id)
+                    and (document.dirty or pending):
                 if timer is not None:
                     timer.stop()
                 self._autosave(document)

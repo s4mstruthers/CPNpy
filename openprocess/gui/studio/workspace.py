@@ -40,6 +40,8 @@ KINDS = {
     ".pnml": "petri",
     ".cpn": "cpn",
     ".cpnflow": "workflow",
+    ".jsonocel": "ocel",
+    ".json": "ocel",
 }
 
 #: Text files the app opens, by the end of their name: a log in textbook

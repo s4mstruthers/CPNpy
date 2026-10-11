@@ -28,6 +28,7 @@ from typing import Any, Iterable
 from ..mining.conformance.alignments import AlignmentResult
 from ..mining.conformance.token_replay import ReplayResult
 from ..mining.dfg import DFG
+from ..mining.ocel import OCDFG, OCEL
 from ..mining.footprint import Footprint
 from ..mining.log import EventLog, SimpleLog
 from ..mining.petrinet import Marking, PetriNet
@@ -268,6 +269,8 @@ for _cls, _key, _name, _colour in (
     (ProcessTree, "tree", "Process tree", "#2e9e4f"),
     (TransitionSystem, "ts", "Transition system", "#b0430f"),
     (DFG, "dfg", "Directly-follows graph", "#b0430f"),
+    (OCEL, "ocel", "Object-centric log", "#0f6e9e"),
+    (OCDFG, "ocdfg", "Object-centric map", "#b0430f"),
     (Footprint, "footprint", "Footprint", "#b0430f"),
     (ReplayResult, "replay", "Replay", "#8250c8"),
     (AlignmentResult, "alignments", "Alignments", "#8250c8"),
@@ -283,7 +286,7 @@ for _cls, _key, _name, _colour in (
     register_type(_cls, _key, _name, _colour)
 
 __all__ = [
-    "AlignmentResult", "Any", "CPNet", "DFG", "Dataset", "EventLog", "Figure", "Footprint",
+    "AlignmentResult", "Any", "CPNet", "DFG", "Dataset", "EventLog", "Figure", "Footprint", "OCDFG", "OCEL",
     "Marking", "PetriNet", "Predictions", "Predictor", "ProcessTree", "Regions", "ReplayResult",
     "Scores", "SimpleLog", "Table", "Text", "TransitionSystem", "TypeInfo", "TYPES",
     "is_known", "register_type", "type_by_key", "type_info",

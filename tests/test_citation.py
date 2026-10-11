@@ -1,0 +1,55 @@
+"""Citations: BibTeX from the reference list, the app's own entry, CITATION.cff."""
+
+from __future__ import annotations
+
+import datetime
+from pathlib import Path
+
+import openprocess
+from openprocess import citation, references
+
+
+def test_every_reference_becomes_a_bibtex_entry():
+    for reference in references.REFERENCES:
+        entry = citation.entry(reference)
+        assert entry.key == reference.key and entry.fields["title"]
+        assert entry.kind in ("article", "inproceedings", "book", "phdthesis", "techreport", "misc")
+        text = entry.bibtex()
+        assert text.startswith(f"@{entry.kind}{{{reference.key},") and text.endswith("}")
+        if reference.key != "cpntools":                      # a tool, undated
+            assert entry.fields["year"].isdigit()
+
+
+def test_the_kinds_and_fields_follow_the_citation():
+    article = citation.entry(references.reference("aalst2004"))
+    assert article.kind == "article" and article.fields["journal"] == "IEEE Transactions on Knowledge and Data Engineering"
+    assert (article.fields["volume"], article.fields["number"], article.fields["pages"]) == ("16", "9", "1128–1142")
+    assert article.fields["author"] == "W.M.P. van der Aalst and A.J.M.M. Weijters and L. Maruster"
+    assert article.fields["doi"] == "10.1109/TKDE.2004.47" and article.fields["year"] == "2004"
+    paper = citation.entry(references.reference("leemans2013"))
+    assert paper.kind == "inproceedings" and paper.fields["publisher"] == "Springer" and paper.fields["pages"] == "311–329"
+    book = citation.entry(references.reference("aalst2016"))
+    assert book.kind == "book" and book.fields["edition"] == "2" and book.fields["publisher"] == "Springer"
+    thesis = citation.entry(references.reference("adriansyah2014"))
+    assert thesis.kind == "phdthesis" and "Eindhoven" in thesis.fields["school"]
+    standard = citation.entry(references.reference("pnml"))
+    assert standard.fields["organization"] == "ISO/IEC 15909-2:2011"
+    assert "\\&" in citation.entry(references.reference("leemans2019")).bibtex()   # escaped for BibTeX
+
+
+def test_the_algorithms_cite_the_works_they_follow():
+    keys = [e.key for e in citation.entries_for_module("openprocess.mining.discovery.alpha")]
+    assert "aalst2004" in keys
+    assert citation.entries_for_module("openprocess.nowhere") == []
+
+
+def test_the_app_cites_itself_and_the_cff_file_is_current():
+    text = citation.app_bibtex("0.10.0", 2026)
+    assert text.startswith("@software{openprocess,") and "version = {0.10.0}" in text and "Struthers, Sam" in text
+    assert "0.10.0" in citation.app_text("0.10.0", 2026) and citation.APP_URL in citation.app_text("0.10.0", 2026)
+    cff = Path(__file__).resolve().parents[1] / "CITATION.cff"
+    assert cff.exists()
+    assert f"version: {openprocess.__version__}" in cff.read_text(encoding="utf-8"), \
+        "CITATION.cff names another version than openprocess.__version__: regenerate it with citation.cff_text"
+    generated = citation.cff_text("1.2.3", datetime.date(2030, 1, 2))
+    assert "cff-version: 1.2.0" in generated and "date-released: 2030-01-02" in generated

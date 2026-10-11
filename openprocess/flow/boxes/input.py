@@ -12,6 +12,7 @@ from ...mining.petrinet import PetriNet
 from ...mining.playout import play_out
 from ...mining.transition_system import TransitionSystem, parse_transition_system
 from ...model.net import CPNet
+from ...mining.ocel import OCEL
 from ..box import box
 
 
@@ -48,6 +49,38 @@ def open_log(file: Path) -> EventLog:
 def typed_log(text: str = "[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]", name: str = "Typed log") -> EventLog:
     """A log typed in the course notation: ``[<a,b,c,d>^3, <a,c,b,d>^2, <a,e,d>]``."""
     return EventLog.from_simple_log(parse_simple_log(text), name)
+
+
+@box(name="Open object-centric log", group="Input")
+def open_ocel(file: Path) -> OCEL:
+    """Reads an object-centric event log (OCEL 2.0 JSON, ``.jsonocel``, or the
+    older JSON-OCEL): events that each involve several objects, by type.
+
+    file: the OCEL file. Choose… picks it; a name alone means a file in the workflow's folder
+    """
+    from ...mining.ocel import read_ocel
+    log = read_ocel(_resolve(file))
+    flow.note(f"{Path(file).name}: {log.summary()}")
+    flow.note("Object types: " + ", ".join(f"{t} ({n})" for t, n in log.counts_by_type().items()))
+    return log
+
+
+@box(name="Flatten on an object type", group="Input")
+def flatten_ocel(ocel: OCEL, object_type: str = "") -> EventLog:
+    """A classical event log with one case per object of one type, for the
+    miners and checks that need a case: an event that involves several
+    objects of the type is copied into each of their cases (that is what
+    flattening does, and why the object-centric map exists).
+
+    object_type: which type is the case (empty: the type with most objects)
+    """
+    from ...mining.ocel import flatten
+    log = flatten(ocel, object_type or None)
+    chosen = log.name.rsplit(" · ", 1)[-1]
+    flow.note(f"Flattened on {chosen}: {len(log)} cases, {log.event_count} events "
+              f"(the log has {len(ocel)} events: the rest is copies)")
+    flow.note("Other types: " + ", ".join(t for t in ocel.object_types if t != chosen))
+    return log
 
 
 @box(name="Open net", group="Input")
