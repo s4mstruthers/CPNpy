@@ -53,3 +53,16 @@ def test_the_app_cites_itself_and_the_cff_file_is_current():
         "CITATION.cff names another version than openprocess.__version__: regenerate it with citation.cff_text"
     generated = citation.cff_text("1.2.3", datetime.date(2030, 1, 2))
     assert "cff-version: 1.2.0" in generated and "date-released: 2030-01-02" in generated
+
+
+def test_the_doi_comes_from_citation_cff_when_there_is_one(tmp_path, monkeypatch):
+    without = citation.cff_text("1.0.0", datetime.date(2030, 1, 2))
+    assert "doi:" not in without
+    with_doi = citation.cff_text("1.0.0", datetime.date(2030, 1, 2), doi="10.5281/zenodo.1234567")
+    assert "doi: 10.5281/zenodo.1234567\n" in with_doi
+    assert "doi" not in citation.app_entry("1.0.0", 2030, doi="").fields or not citation.app_entry("1.0.0", 2030, doi="").fields["doi"]
+    entry = citation.app_entry("1.0.0", 2030, doi="10.5281/zenodo.1234567")
+    assert "doi     = {10.5281/zenodo.1234567}" in entry.bibtex()
+    assert citation.app_text("1.0.0", 2030, doi="10.5281/zenodo.1234567").endswith("https://doi.org/10.5281/zenodo.1234567")
+    assert citation.app_text("1.0.0", 2030, doi="").endswith(citation.APP_URL)
+    assert citation.concept_doi() == ""                     # not archived yet: CITATION.cff has no doi line

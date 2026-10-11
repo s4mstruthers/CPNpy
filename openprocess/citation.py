@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import references as _references
 
@@ -25,6 +26,23 @@ APP_AUTHORS = (("Struthers", "Sam"),)
 def app_version() -> str:
     from . import __version__
     return __version__
+
+
+def concept_doi() -> str:
+    """The DOI Zenodo gives the software (all versions), from ``CITATION.cff``
+    at the top of the repository or installed beside the package; "" until
+    the first release is archived."""
+    import re
+    for candidate in (Path(__file__).resolve().parents[1] / "CITATION.cff",
+                      Path(__file__).resolve().parent / "CITATION.cff"):
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        found = re.search(r"^doi:\s*(\S+)\s*$", text, re.M)
+        if found:
+            return found.group(1).strip("'\"")
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -137,34 +155,39 @@ def entries_for_module(module: str) -> list[Entry]:
 # ---------------------------------------------------------------------------
 # The app itself
 # ---------------------------------------------------------------------------
-def app_entry(version: str | None = None, year: int | None = None) -> Entry:
+def app_entry(version: str | None = None, year: int | None = None, doi: str | None = None) -> Entry:
     version = version or app_version()
     year = year or _dt.date.today().year
+    doi = concept_doi() if doi is None else doi
     return Entry("software", "openprocess", {
         "author": " and ".join(f"{last}, {first}" for last, first in APP_AUTHORS),
         "title": APP_TITLE,
         "version": version,
         "year": str(year),
+        "doi": doi,
         "url": APP_URL,
         "note": "Every algorithm shows its code and the paper it follows; every analysis keeps a record "
                 "that runs again",
     })
 
 
-def app_bibtex(version: str | None = None, year: int | None = None) -> str:
-    return app_entry(version, year).bibtex()
+def app_bibtex(version: str | None = None, year: int | None = None, doi: str | None = None) -> str:
+    return app_entry(version, year, doi).bibtex()
 
 
-def app_text(version: str | None = None, year: int | None = None) -> str:
+def app_text(version: str | None = None, year: int | None = None, doi: str | None = None) -> str:
     """The citation in one line, as a reference list would have it."""
     version = version or app_version()
     year = year or _dt.date.today().year
+    doi = concept_doi() if doi is None else doi
     authors = ", ".join(f"{first} {last}" for last, first in APP_AUTHORS)
-    return f"{authors}. {APP_TITLE} (version {version}) [software], {year}. {APP_URL}"
+    where = f"https://doi.org/{doi}" if doi else APP_URL
+    return f"{authors}. {APP_TITLE} (version {version}) [software], {year}. {where}"
 
 
-def cff_text(version: str | None = None, released: _dt.date | None = None) -> str:
-    """The contents of ``CITATION.cff`` (Citation File Format 1.2.0) for ``version``."""
+def cff_text(version: str | None = None, released: _dt.date | None = None, doi: str = "") -> str:
+    """The contents of ``CITATION.cff`` (Citation File Format 1.2.0) for
+    ``version``; ``doi`` is Zenodo's concept DOI once the first release is archived."""
     version = version or app_version()
     released = released or _dt.date.today()
     authors = "\n".join(f"  - family-names: {last}\n    given-names: {first}" for last, first in APP_AUTHORS)
@@ -175,7 +198,8 @@ def cff_text(version: str | None = None, released: _dt.date | None = None) -> st
         f"title: {APP_TITLE}\n"
         f"version: {version}\n"
         f"date-released: {released.isoformat()}\n"
-        f"repository-code: {APP_URL}\n"
+        + (f"doi: {doi}\n" if doi else "")
+        + f"repository-code: {APP_URL}\n"
         f"url: {APP_URL}\n"
         "license: MIT\n"
         "keywords:\n  - process mining\n  - Petri nets\n  - workflow nets\n  - conformance checking\n"

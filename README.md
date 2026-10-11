@@ -930,6 +930,16 @@ Plainly stated:
 Next up: several instances of a subpage, CPN monitors, and signed apps that
 open without a security prompt.
 
+## Cite
+
+If OpenProcess helped with a course, a thesis or a paper, cite it. *Help ▸
+Cite OpenProcess…* in the app gives BibTeX and a one-line citation, and
+each algorithm's Code tab has *Cite* for the paper it follows. GitHub's
+*Cite this repository* reads [CITATION.cff](CITATION.cff). Releases are
+archived on Zenodo, which gives each version a DOI; the all-versions DOI
+goes into `CITATION.cff` (`doi:`) once the first release is archived, and
+the app's citations pick it up from there.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
