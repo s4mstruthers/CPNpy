@@ -564,7 +564,12 @@ class PageHeader(QWidget):
         ink = {"good": style.STATUS["good"], "warning": style.STATUS["warning"],
                "critical": style.STATUS["critical"]}.get(tone, t.text_secondary)
         tint = style.qc(ink, 0.14 if tone != "muted" else 0.08).name(QColor.HexArgb)
-        self.badge.setStyleSheet(f"QPushButton#reproBadge {{ background: {tint}; color: {ink}; }}")
+        # The whole rule here, not only the colours: on macOS a button whose own
+        # sheet sets a background but no border falls back to a square frame.
+        self.badge.setStyleSheet(
+            f"QPushButton#reproBadge {{ background: {tint}; color: {ink}; border: none; border-radius: 11px; "
+            f"min-height: 22px; max-height: 22px; padding: 0 11px 0 9px; font-size: 11px; font-weight: 600; }}"
+            f"QPushButton#reproBadge:hover {{ background: {style.qc(ink, 0.22 if tone != 'muted' else 0.14).name(QColor.HexArgb)}; }}")
         self._badge_text = text
         self.badge.setToolTip(tooltip)
         self.badge.setVisible(bool(text))
