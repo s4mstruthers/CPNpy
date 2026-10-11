@@ -280,7 +280,7 @@ def stylesheet() -> str:
     #taskCard[state="warning"] {{ border-color: {qc(STATUS["warning"], 0.7).name(QColor.HexArgb)}; }}
     #taskCaption {{ color: {t.text_muted}; font-size: 10px; font-weight: 700;
                     letter-spacing: 0.8px; }}
-    #statusChip {{ font-size: 11px; font-weight: 600; border-radius: 9px; padding: 2px 8px; }}
+    #statusChip {{ font-size: 11px; font-weight: 600; border: none; border-radius: 10px; padding: 3px 9px; }}
     #statusChip[state="good"] {{ color: {STATUS["good"]};
         background: {qc(STATUS["good"], 0.13).name(QColor.HexArgb)}; }}
     #statusChip[state="warning"] {{ color: {t.text};

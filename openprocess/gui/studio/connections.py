@@ -126,7 +126,10 @@ class ConnectionsPage(QWidget):
             item.setMaximumWidth(300)
             if status:
                 chip = label(status, "statusChip")
-                chip.setStyleSheet(f"background: {_tone(tone)}; color: white;")
+                # The whole rule on the widget: a rounded pill needs its border (none)
+                # and radius in the same stylesheet as its background.
+                chip.setStyleSheet(f"QLabel#statusChip {{ background: {_tone(tone)}; color: white; border: none; "
+                                   "border-radius: 10px; padding: 3px 9px; font-size: 11px; font-weight: 600; }")
                 item.header.addWidget(chip)
             if boxes:
                 item.add(label("Boxes: " + ", ".join(boxes), "muted", wrap=True))
