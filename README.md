@@ -794,7 +794,11 @@ extra) and *Predict the next activity*. Or start empty.
   draws what flows in, OpenProcess and its boxes, what flows out, and the
   optional tools (pandas, numpy, scipy, matplotlib, …) with whether each is
   installed, how to install it and the boxes it brings. All of it is read
-  from the box library.
+  from the box library. *Install…* works in the downloaded app too: it carries
+  pip and installs into a folder of your own (on a Mac,
+  `~/Library/Application Support/OpenProcess/packages`), and the boxes that
+  need the package come alive without a restart. PM4Py needs a Python
+  install (`pip install pm4py`), as parts of it are built from source.
 - **Motion** is kept short: a space switch, the side panel and Canvas ↔
   Summary settle in a fifth of a second, and a box pulses once when it
   finishes. `OPENPROCESS_NO_MOTION=1` turns it off.
@@ -929,6 +933,16 @@ Plainly stated:
 
 Next up: several instances of a subpage, CPN monitors, and signed apps that
 open without a security prompt.
+
+## Cite
+
+If OpenProcess helped with a course, a thesis or a paper, cite it. *Help ▸
+Cite OpenProcess…* in the app gives BibTeX and a one-line citation, and
+each algorithm's Code tab has *Cite* for the paper it follows. GitHub's
+*Cite this repository* reads [CITATION.cff](CITATION.cff). Releases are
+archived on Zenodo, which gives each version a DOI; the all-versions DOI
+goes into `CITATION.cff` (`doi:`) once the first release is archived, and
+the app's citations pick it up from there.
 
 ## Licence
 

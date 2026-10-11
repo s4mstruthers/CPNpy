@@ -580,6 +580,7 @@ def test_reproducibility_status_follows_the_record_and_the_run(tmp_path):
     (tmp_path / "orders.log.txt").write_text("[<a,b>^9]", encoding="utf-8")
     status = reproducibility.status(wf, record, run, tmp_path)
     assert status.state == "changed" and status.headline == "Recorded · 1 change since" and "has changed" in status.details[0]
+    assert status.short == "1 change since"
     again = runner.run(wf)                               # the changed log gives another model
     status = reproducibility.status(wf, record, again, tmp_path)
     assert status.state == "differs" and status.tone == "critical"

@@ -6,6 +6,29 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.6
+
+- **The reproducibility badge is a quiet pill** beside the title: a soft tint
+  with a dot and a few words ("● Reproducible", "● 2 changes since",
+  "● Not recorded"), the full sentence on hover. It no longer pushes the
+  title aside, and when the header is short of room it keeps only its dot.
+- **Install a tool from the downloaded app too.** Connections ▸ *Install…*
+  now works in the app you download, not only from a Python install: the
+  app carries pip, installs into a folder of your own (on a Mac,
+  Library/Application Support/OpenProcess/packages), and the boxes that need
+  the package come alive without a restart. Ready-built packages only, so
+  PM4Py still needs a Python install.
+- **A page opened from a box is a view, not a file.** *Open as log ›* no
+  longer writes a file into the folder the moment it opens. The page has
+  *Keep in folder* for when you want one; ✕ closes it without a question and
+  leaves nothing in the sidebar. Files you opened yourself still close to a
+  lighter row, and deleting stays an explicit Move to Bin.
+- The status chips on cards (*not installed*, *none yet*, *ready*) are rounded
+  pills, like the reproducibility badge: a label's background is only rounded
+  when its rule also sets a border, so the rules now do.
+- Releases are archived on Zenodo; the DOI goes into `CITATION.cff` and the
+  app's citations once the first archive is there.
+
 ## 0.10.5
 
 - **Object-centric event logs.** *Open object-centric log* reads OCEL 2.0

@@ -1,0 +1,23 @@
+{
+  "title": "OpenProcess: process mining, Petri nets and workflows in one open app",
+  "upload_type": "software",
+  "description": "OpenProcess is a desktop app for process mining and Petri net modelling in which every algorithm is a function whose code and source paper are one click away, and every analysis keeps a record of its inputs, versions and seeds so that its numbers can be checked again. Mine (event logs, discovery, conformance), Model (Petri nets and coloured nets) and Learn (exercise packs) in one window.",
+  "creators": [
+    {"name": "Struthers, Sam"}
+  ],
+  "license": "mit",
+  "access_right": "open",
+  "keywords": [
+    "process mining",
+    "Petri nets",
+    "workflow nets",
+    "coloured Petri nets",
+    "conformance checking",
+    "event logs",
+    "teaching",
+    "reproducible research"
+  ],
+  "related_identifiers": [
+    {"identifier": "https://github.com/s4mstruthers/openprocess", "relation": "isSupplementTo", "scheme": "url"}
+  ]
+}

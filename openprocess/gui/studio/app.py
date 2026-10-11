@@ -883,11 +883,12 @@ class StudioWindow(QMainWindow):
         """*Install…* on a Connections card: pip installs the package into this
         app's Python, in the background; the boxes that need it come alive."""
         import importlib
+        from ... import packages
         from .connections import package_for
         package = package_for(name)
-        command = [sys.executable, "-m", "pip", "install", package]
+        command = packages.install_command(package)
         answer = QMessageBox.question(
-            self, "Install a tool", f"Install {package} into this app's Python?\n\nThis runs:\n"
+            self, "Install a tool", f"Install {package} {packages.where_text()}?\n\nThis runs:\n"
             f"{' '.join(command)}\n\nThe app stays usable meanwhile.",
             QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Yes)
         if answer != QMessageBox.Yes:
@@ -899,6 +900,7 @@ class StudioWindow(QMainWindow):
         def done(result) -> None:
             code, output = result
             self.connections_page.installing.discard(name)
+            packages.activate()                    # the downloaded app: the new folder, on the path
             importlib.invalidate_caches()
             self.connections_page.refresh(self.library(), self.workspace.folder if self.workspace else None)
             if code == 0:
@@ -1465,7 +1467,9 @@ class StudioWindow(QMainWindow):
         if options:
             self.open_options[document.id] = options
         self._make_page(document)
-        if not keep_unsaved:
+        # A view of a box's result waits for Keep in folder (a model has its own Keep,
+        # which _materialise shows); everything else becomes a file now.
+        if not keep_unsaved and (not self.is_view(document) or isinstance(document, ModelDocument)):
             self._materialise(document, near)
         if document.path:
             key = self._key(document.path)
@@ -1567,6 +1571,12 @@ class StudioWindow(QMainWindow):
             origin = getattr(document, "origin", "") if isinstance(document, CpnDocument) else ""
             text = f"‹ A copy, {origin}" if origin else f"‹ Back to {source.name}"
             page.header.set_back(text, lambda _checked=False, s=source: self.back_to(s))
+            if self.is_view(document) and self.workspace is not None and not hasattr(page, "keep_button"):
+                # A view is not a file of the folder until you say so.
+                page.keep_view_button = button("Keep in folder", lambda _checked=False, d=document: self.keep_view(d),
+                                               kind="primary", tooltip="Save this as a file in the folder; until "
+                                               "then it is only a view of the box's result")
+                page.header.actions.insertWidget(0, page.keep_view_button)
         self.pages[document.id] = page
         # The page sits in a scroll area: if the window is made smaller than
         # the page's minimum size, scroll bars appear instead of the window
@@ -1580,6 +1590,30 @@ class StudioWindow(QMainWindow):
         self.holders[document.id] = holder
         self.content.addWidget(holder)
         return page
+
+    @staticmethod
+    def is_view(document) -> bool:
+        """A page opened from a box's result (Open as log ›): a view of something
+        the workflow can make again.  Not saved to the folder unless kept, and
+        closed without a question."""
+        return getattr(document, "opened_from", None) is not None and not document.path and \
+            isinstance(document, (LogDocument, TransitionSystemDocument, ModelDocument))
+
+    def keep_view(self, document) -> None:
+        """A view's *Keep in folder*: now it is a file of the folder like any other."""
+        source = getattr(document, "opened_from", None)
+        near = getattr(source, "path", None)
+        self._materialise(document, near)
+        if document.path:
+            page = self.pages.get(document.id)
+            keep = getattr(page, "keep_view_button", None)
+            if keep is not None:
+                keep.setVisible(False)
+            self._remember_identity(document)
+            self._update_autosave(document)
+            self._rebuild_sidebar()
+            self._select_document(document)
+            self.statusBar().showMessage(f"Kept as {Path(document.path).name}", 6000)
 
     def back_to(self, source) -> None:
         """A page's Back link: the analysis it was opened from, if it is still open."""
@@ -1769,8 +1803,9 @@ class StudioWindow(QMainWindow):
             if isinstance(other, ComparisonDocument) and other not in documents and \
                     any(log.id in removed_logs for log in other.logs):
                 documents.append(other)
-        # A comparison is recreated in a moment, so it needs no confirmation.
-        unsaved = [d for d in documents if not isinstance(d, ComparisonDocument) and
+        # A comparison is recreated in a moment, and a view of a box's result
+        # can be opened again from the box, so neither needs a confirmation.
+        unsaved = [d for d in documents if not isinstance(d, ComparisonDocument) and not self.is_view(d) and
                    (not d.path or d.missing or getattr(d, "dirty", False))]
         if unsaved and confirm:
             names = "\n".join(f"• {d.name}" for d in unsaved[:8])
@@ -4459,6 +4494,8 @@ def main(argv: list[str] | None = None) -> int:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("OpenProcess.Studio")
         except (AttributeError, OSError):
             pass
+    from ... import packages
+    packages.activate()                           # packages installed from Connections
     application = QApplication.instance() or QApplication(argv)
     application.setApplicationName(APPLICATION_NAME)
     application.setWindowIcon(app_icon())

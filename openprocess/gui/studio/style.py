@@ -280,7 +280,7 @@ def stylesheet() -> str:
     #taskCard[state="warning"] {{ border-color: {qc(STATUS["warning"], 0.7).name(QColor.HexArgb)}; }}
     #taskCaption {{ color: {t.text_muted}; font-size: 10px; font-weight: 700;
                     letter-spacing: 0.8px; }}
-    #statusChip {{ font-size: 11px; font-weight: 600; border-radius: 9px; padding: 2px 8px; }}
+    #statusChip {{ font-size: 11px; font-weight: 600; border: none; border-radius: 10px; padding: 3px 9px; }}
     #statusChip[state="good"] {{ color: {STATUS["good"]};
         background: {qc(STATUS["good"], 0.13).name(QColor.HexArgb)}; }}
     #statusChip[state="warning"] {{ color: {t.text};
@@ -354,8 +354,9 @@ def stylesheet() -> str:
     QListWidget#paletteList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
 
     /* The reproducibility badge beside an analysis's title. */
-    QPushButton#reproBadge {{ border: none; border-radius: 9px; padding: 2px 9px; font-size: 11px;
-        font-weight: 600; }}
+    QPushButton#reproBadge {{ border: none; border-radius: 10px; padding: 3px 10px 3px 8px; font-size: 11px;
+        font-weight: 600; letter-spacing: 0.1px; }}
+    QPushButton#reproBadge:hover {{ text-decoration: underline; }}
 
     /* The Summary's tiles and the Model palette. */
     #summaryValue {{ font-size: 22px; font-weight: 600; }}

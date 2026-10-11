@@ -341,7 +341,7 @@ class WorkflowPage(QWidget):
     def refresh_title(self) -> None:
         self.header.set_text(self.workflow.name, self._subtitle())
         status = self._repro
-        self.header.set_badge(status.headline, status.tone,
+        self.header.set_badge(status.short, status.tone,
                               "\n".join([status.headline] + ["· " + d for d in status.details]
                                         + ["", "Click for the record."]),
                               self.show_record)
