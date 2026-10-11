@@ -951,15 +951,22 @@ def test_the_header_says_whether_the_analysis_is_reproducible(app, tmp_path):
     assert window.open_workspace(str(week))
     window.action_new_workflow(TEMPLATES[0][1])              # on the folder's first log
     page = window.current_page()
-    assert page.header.badge is not None and page.header.badge.text() == "Not recorded yet"
+    assert page.header.badge is not None and page.header.badge.text() == "●  Not recorded"
+    assert "Not recorded yet" in page.header.badge.toolTip()
     _wait_run(app, page)
     window._flush_autosaves()                                # the run is recorded on save
-    assert page.header.badge.text() == "Recorded · this run reproduces it"
+    assert page.header.badge.text() == "●  Reproducible"
     assert page.document.record is not None and page.document.record.results
     (week / "orders.log.txt").write_text("[<a,b>^9]", encoding="utf-8")
     page.refresh_reproducibility()
-    assert page.header.badge.text() == "Recorded · 1 change since"
+    assert page.header.badge.text() == "●  1 change since"
     assert "has changed" in page.header.badge.toolTip()
+    window.resize(700, 600)                                  # short of room: the dot alone
+    _pump(app, 0.3)
+    assert page.header.badge.text() == "●"
+    window.resize(1400, 900)
+    _pump(app, 0.3)
+    assert page.header.badge.text() == "●  1 change since"
     page.header.badge.click()                                # the record, with the status on top
     _pump(app, 0.2)
     from PySide6.QtWidgets import QDialog, QLabel

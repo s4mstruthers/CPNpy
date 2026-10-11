@@ -34,6 +34,15 @@ class Status:
     def tone(self) -> str:
         return {"reproduces": "good", "changed": "warning", "differs": "critical"}.get(self.state, "muted")
 
+    @property
+    def short(self) -> str:
+        """Two or three words for a badge; :attr:`headline` is the sentence."""
+        if self.state == "changed":
+            count = len(self.details)
+            return f"{count} change{'s' if count != 1 else ''} since"
+        return {"unrecorded": "Not recorded", "reproduces": "Reproducible", "differs": "Differs from the record",
+                "unchecked": "Recorded, not run"}.get(self.state, self.headline)
+
 
 def status(workflow: Workflow, record: Record | None, run: Run | None, folder=None) -> Status:
     """The analysis's reproducibility, from its record and its latest run."""

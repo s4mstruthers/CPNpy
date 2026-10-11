@@ -6,6 +6,15 @@ and each [release on GitHub](https://github.com/s4mstruthers/openprocess/release
 uses it as its description. Write for the people using the app: what they will
 notice, not how it was done. Versions before 0.7.0 were released as CPNpy.
 
+## 0.10.6
+
+- **The reproducibility badge is a quiet pill** beside the title: a soft tint
+  with a dot and a few words ("● Reproducible", "● 2 changes since",
+  "● Not recorded"), the full sentence on hover. It no longer pushes the
+  title aside, and when the header is short of room it keeps only its dot.
+- Releases are archived on Zenodo; the DOI goes into `CITATION.cff` and the
+  app's citations once the first archive is there.
+
 ## 0.10.5
 
 - **Object-centric event logs.** *Open object-centric log* reads OCEL 2.0

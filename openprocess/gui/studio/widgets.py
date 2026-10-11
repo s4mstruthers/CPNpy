@@ -527,6 +527,9 @@ class PageHeader(QWidget):
         text = QVBoxLayout()
         text.setSpacing(2)
         self.title = ElidedLabel(title, "pageTitle")
+        # In a row with the badge, the title keeps its natural width and only
+        # shrinks (eliding) when the header is short of space.
+        self.title.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         self.subtitle = ElidedLabel(subtitle, "pageSubtitle")
         title_row = QHBoxLayout()
         title_row.setSpacing(10)
@@ -544,30 +547,47 @@ class PageHeader(QWidget):
         layout.addLayout(self.actions)
 
     def set_badge(self, text: str, tone: str = "muted", tooltip: str = "", slot=None) -> None:
-        """A small chip beside the title ("Recorded · this run reproduces it").
-        ``tone``: good, warning, critical or muted.  Empty text hides it."""
+        """A pill beside the title ("● Reproducible"): a soft tint of the tone with
+        a dot and a few words; the full sentence is the tooltip.  ``tone``: good,
+        warning, critical or muted.  Empty text hides it.  Short of room, the
+        pill keeps only its dot (see :meth:`resizeEvent`)."""
         if self.badge is None:
             self.badge = QPushButton()
             self.badge.setObjectName("reproBadge")
             self.badge.setCursor(Qt.PointingHandCursor)
             self.badge.setFocusPolicy(Qt.NoFocus)
+            self.badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self._title_row.insertWidget(1, self.badge, 0, Qt.AlignVCenter)
             self._badge_slot = None
         from . import style
-        colours = {"good": (style.STATUS["good"], "#ffffff"),
-                   "warning": (style.STATUS["warning"], "#1d1d1f"),
-                   "critical": (style.STATUS["critical"], "#ffffff"),
-                   "muted": (style.qc(style.tokens().text, 0.10).name(QColor.HexArgb), style.tokens().text_secondary)}
-        background, ink = colours.get(tone, colours["muted"])
-        self.badge.setStyleSheet(f"QPushButton#reproBadge {{ background: {background}; color: {ink}; }}")
-        self.badge.setText(text)
+        t = style.tokens()
+        ink = {"good": style.STATUS["good"], "warning": style.STATUS["warning"],
+               "critical": style.STATUS["critical"]}.get(tone, t.text_secondary)
+        tint = style.qc(ink, 0.14 if tone != "muted" else 0.08).name(QColor.HexArgb)
+        self.badge.setStyleSheet(f"QPushButton#reproBadge {{ background: {tint}; color: {ink}; }}")
+        self._badge_text = text
         self.badge.setToolTip(tooltip)
         self.badge.setVisible(bool(text))
+        self._fit_badge()
         if self._badge_slot is not None:
             self.badge.clicked.disconnect(self._badge_slot)
         self._badge_slot = slot
         if slot is not None:
             self.badge.clicked.connect(slot)
+
+    def _fit_badge(self) -> None:
+        """The pill's words when there is room for them beside the title, else its dot alone."""
+        if self.badge is None or not getattr(self, "_badge_text", ""):
+            return
+        metrics = self.badge.fontMetrics()
+        full = f"●  {self._badge_text}"
+        needed = metrics.horizontalAdvance(full) + 24 + self.title.sizeHint().width() + self._title_row.spacing()
+        room = self._title_row.contentsRect().width() if self._title_row.contentsRect().width() > 0 else needed
+        self.badge.setText(full if needed <= room else "●")
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._fit_badge()
 
     def set_back(self, text: str, slot) -> None:
         """A link above the title, back to where this page was opened from

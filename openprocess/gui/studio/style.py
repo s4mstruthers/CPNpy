@@ -354,8 +354,9 @@ def stylesheet() -> str:
     QListWidget#paletteList::item:selected {{ background: {t.accent_soft}; color: {t.text}; }}
 
     /* The reproducibility badge beside an analysis's title. */
-    QPushButton#reproBadge {{ border: none; border-radius: 9px; padding: 2px 9px; font-size: 11px;
-        font-weight: 600; }}
+    QPushButton#reproBadge {{ border: none; border-radius: 10px; padding: 3px 10px 3px 8px; font-size: 11px;
+        font-weight: 600; letter-spacing: 0.1px; }}
+    QPushButton#reproBadge:hover {{ text-decoration: underline; }}
 
     /* The Summary's tiles and the Model palette. */
     #summaryValue {{ font-size: 22px; font-weight: 600; }}
